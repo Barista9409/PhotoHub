@@ -124,10 +124,10 @@ def write_invite_files(settings: Settings, name: str, link: str) -> tuple[Path, 
     html = d / f"{name}.html"
     svg = qr.svg_inline(scale=8, border=3)
     html.write_text(f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>写真ハブ: {name}さんの設定</title>
+<title>PhotoHub: {name}さんの設定</title>
 <body style="font-family:sans-serif;text-align:center;padding:24px">
 <h2>{name}さんのスマホで読み取ってください</h2>
-<p>写真ハブのアプリを開き「QRコードで設定」を押して、このコードを写します。</p>
+<p>PhotoHubのアプリを開き「QRコードで設定」を押して、このコードを写します。</p>
 {svg}
 <p>このコードは1回だけ・{INVITE_DAYS}日間有効です。読み取ったら、このファイルは削除してかまいません。</p>
 </body>""", encoding="utf-8")

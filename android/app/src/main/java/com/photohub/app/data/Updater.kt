@@ -238,7 +238,7 @@ class UpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         if (u.canInstall()) {
             u.install(file)
         } else {
-            Updater.notify(app, "写真ハブ ${r.versionName} があります", "タップして更新してください",
+            Updater.notify(app, "PhotoHub ${r.versionName} があります", "タップして更新してください",
                 Intent(app, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_UPDATE, true))
         }
         return Result.success()
@@ -254,7 +254,7 @@ class InstallResultReceiver : BroadcastReceiver() {
                 val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java) ?: return
                 // shown directly when the app is open; otherwise via a notification
                 try { ctx.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
-                Updater.notify(ctx, "写真ハブを更新します", "タップしてインストールを確認してください", confirm)
+                Updater.notify(ctx, "PhotoHubを更新します", "タップしてインストールを確認してください", confirm)
             }
             PackageInstaller.STATUS_SUCCESS -> Unit  // the app restarts on the new version
             else -> app.updater.onInstallFailed(

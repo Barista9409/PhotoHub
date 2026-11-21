@@ -1,4 +1,4 @@
-# PhotoHub（写真ハブ）
+# PhotoHub（PhotoHub）
 
 Synology NAS上で動く写真の取り込み・整理サービスと、外出先でも速く写真を見られるAndroidアプリ。
 

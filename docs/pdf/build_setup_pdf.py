@@ -101,7 +101,7 @@ with sync_playwright() as p:
     pg.goto(out_html.as_uri())
     pg.pdf(path=str(out_pdf), format="A4", print_background=True, display_header_footer=True,
            header_template="<span></span>",
-           footer_template='<div style="font-size:8pt;width:100%;text-align:center;color:#888">写真ハブ 導入ガイド　'
+           footer_template='<div style="font-size:8pt;width:100%;text-align:center;color:#888">PhotoHub 導入ガイド　'
                            '<span class="pageNumber"></span> / <span class="totalPages"></span></div>',
            margin={"top": "16mm", "bottom": "18mm", "left": "14mm", "right": "14mm"})
     b.close()

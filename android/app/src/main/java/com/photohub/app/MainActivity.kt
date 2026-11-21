@@ -178,5 +178,5 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
 private fun titleFor(route: String, name: String?) = when {
     route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
     route == "settings" -> "設定"
-    else -> tabs.firstOrNull { it.route == route }?.label ?: "写真ハブ"
+    else -> tabs.firstOrNull { it.route == route }?.label ?: "PhotoHub"
 }

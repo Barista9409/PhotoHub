@@ -72,7 +72,7 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit, onManual: () -> Unit) 
     }
 
     fun fromQr(text: String) {
-        val link = SetupLink.parse(text) ?: run { message = "写真ハブの設定用QRコードではありません"; return }
+        val link = SetupLink.parse(text) ?: run { message = "PhotoHubの設定用QRコードではありません"; return }
         busy = true
         scope.launch {
             try { finished(Setup.run(app, link)) } catch (e: SetupFailed) { message = e.message }
@@ -89,7 +89,7 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit, onManual: () -> Unit) 
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("写真ハブへようこそ", style = MaterialTheme.typography.headlineSmall)
+        Text("PhotoHubへようこそ", style = MaterialTheme.typography.headlineSmall)
         when {
             searching -> {
                 CircularProgressIndicator()
@@ -124,7 +124,7 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit, onManual: () -> Unit) 
                             } finally { busy = false }
                         }
                     }) { Text("ログイン") }
-                Text("パスワードは写真ハブに保存されません。NASで確かめたあと、このスマホ専用の鍵だけを受け取ります。",
+                Text("パスワードはPhotoHubに保存されません。NASで確かめたあと、このスマホ専用の鍵だけを受け取ります。",
                     style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             }
         }

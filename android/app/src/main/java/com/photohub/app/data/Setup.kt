@@ -67,7 +67,7 @@ object Setup {
                             resp.code == 429 -> SetupFailed("試行が多すぎます。10分ほど待ってからもう一度どうぞ。")
                             detail == "otp_required" -> SetupFailed("2段階認証のコードを入れてください。", needOtp = true)
                             detail == "bad_otp" -> SetupFailed("2段階認証のコードが違います。", needOtp = true)
-                            detail == "not_registered" -> SetupFailed("この写真ハブにはまだ登録されていません。管理者に頼んでください。")
+                            detail == "not_registered" -> SetupFailed("このPhotoHubにはまだ登録されていません。管理者に頼んでください。")
                             detail == "denied" || detail == "disabled" -> SetupFailed("このアカウントでは使えません。")
                             detail == "otp_setup_required" -> SetupFailed("DSMで2段階認証の設定を終えてから、もう一度どうぞ。")
                             detail == "password_expired" -> SetupFailed("DSMのパスワードの期限が切れています。DSMで変更してください。")
