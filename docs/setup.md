@@ -103,17 +103,20 @@ Googleフォトの写真は、Google Takeout → OneDrive → NAS の順に届�
 1. Takeoutが届いて1〜2時間たったら、アプリの「管理」→「取り込み履歴」を見る
    - 「確認のみ（dry-run）」の行に、新規・重複・失敗の件数が出ます
    - 夜中に、NASにある写真の索引（確認のみ）も1回行われます
-2. コンテナの端末でも確認できます（Container Manager →「コンテナ」→ photohub →「詳細」→「端末」→「作成」→「bash」）：
-   ```sh
-   photohub status
-   photohub import-takeout --no-wait     # 届いているTakeoutを、確認だけで処理
-   photohub scan                          # NASの写真の索引を、確認だけで
-   ```
+2. コンテナの端末でも確認できます（Container Manager →「コンテナ」→ photohub →「詳細」→「端末」→「作成」→「bash」）。下の「端末で使うコマンド」を参照
 3. 件数が想定どおりなら、Container Manager →「プロジェクト」→ photohub →「YAML設定」で `PHOTOHUB_APPLY: "true"` に変えて保存・再起動
 4. 以後は自動で動きます
    - 10分ごと（とZIPの到着時）にTakeoutを取り込み
    - 毎晩 2:30 にNASの写真を索引、4:00 にデータベースをバックアップ、5:10 にGoogle削除候補を更新
    - 1時間ごとに空き容量・RAID・Takeoutの遅れを確認して通知
+
+**端末で使うコマンド**（どれも、`--apply` を付けない限り確認だけです）
+
+```sh
+photohub status                        # 件数と直近の処理
+photohub import-takeout --no-wait      # 届いているTakeoutを、確認だけで処理
+photohub scan                          # NASの写真の索引を、確認だけで
+```
 
 **Google削除の候補**（アプリの「管理」→「Google削除候補」）：撮影から12か月以上たち、NASに保存されてハッシュが一致した写真・動画が、月ごとに出ます。**Googleからの削除は、本人がGoogleフォトのアプリで**行い、終わったら「削除した」を押します。
 - `PHOTOHUB_AMAZON_BACKUP: "false"` の場合、削除した写真の控えはNASだけになります。**Hyper Backup でUSBディスクなどへの定期バックアップ**を設定しておくことを強くすすめます（パッケージセンター →「Hyper Backup」→ 対象に `photo`・`homes`・`photohub`）
