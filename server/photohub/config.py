@@ -62,6 +62,10 @@ class Settings:
     # addresses written into setup QR codes (the app tries the LAN one at home, Tailscale outside)
     lan_url: str = ""
     remote_url: str = ""
+    # DSM users who log in to the app become PhotoHub users automatically (not admin/guest);
+    # PHOTOHUB_ADMINS lists who may organise the shared space
+    auto_users: bool = True
+    admins: list = field(default_factory=list)
     api_host: str = "0.0.0.0"
     api_port: int = 8765
     extra: dict = field(default_factory=dict)
@@ -142,12 +146,14 @@ class Settings:
             dsm_url=os.environ.get("DSM_URL", ""),
             dsm_user=os.environ.get("DSM_USER", ""),
             dsm_password=os.environ.get("DSM_PASSWORD", ""),
-            dsm_verify_tls=_bool("DSM_VERIFY_TLS", True),
+            dsm_verify_tls=_bool("DSM_VERIFY_TLS", False),  # DSM on the same NAS: self-signed cert
             default_tz_minutes=_int("PHOTOHUB_DEFAULT_TZ_MINUTES", 540),
             scan_extra=[Path(p) for p in os.environ.get("PHOTOHUB_SCAN_EXTRA", "").split(":") if p],
             homes_root=Path(os.environ.get("PHOTOHUB_HOMES_ROOT", "/volume1/homes")),
             lan_url=os.environ.get("PHOTOHUB_LAN_URL", "").rstrip("/"),
             remote_url=os.environ.get("PHOTOHUB_REMOTE_URL", "").rstrip("/"),
+            auto_users=_bool("PHOTOHUB_AUTO_USERS", True),
+            admins=[a.strip() for a in os.environ.get("PHOTOHUB_ADMINS", "").split(",") if a.strip()],
             api_host=os.environ.get("PHOTOHUB_API_HOST", "0.0.0.0"),
             api_port=_int("PHOTOHUB_API_PORT", 8765),
         )

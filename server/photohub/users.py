@@ -71,8 +71,9 @@ def by_token(db: Database, token: str) -> User | None:
 def create_invite(db: Database, settings: Settings, name: str, *, lan: str | None = None,
                   remote: str | None = None) -> tuple[str, str]:
     """Returns (code, setup link). The link goes into a QR code that the app reads."""
-    lan = (lan or settings.lan_url or "").rstrip("/")
-    remote = (remote or settings.remote_url or "").rstrip("/")
+    from .netinfo import lan_url, remote_url
+    lan = (lan or lan_url(settings) or "").rstrip("/")
+    remote = (remote or remote_url(settings) or "").rstrip("/")
     if not (lan or remote):
         raise ValueError("set PHOTOHUB_LAN_URL / PHOTOHUB_REMOTE_URL (or pass --lan / --remote)")
     code = secrets.token_urlsafe(18)
@@ -96,11 +97,19 @@ def redeem_invite(db: Database, settings: Settings, code: str, device: str | Non
             return None
         inv.used_at = utcnow()
         u = s.get(User, inv.user_id)
-        token = secrets.token_urlsafe(32)
-        s.add(DeviceToken(user_id=u.id, token_hash=hash_token(token), device=(device or "")[:128]))
+        uid, name, admin = u.id, u.name, u.is_admin
+    from .netinfo import lan_url, remote_url
+    return {"token": issue_device_token(db, uid, device), "user": name, "admin": admin,
+            "lan": lan_url(settings), "remote": remote_url(settings)}
+
+
+def issue_device_token(db: Database, user_id: int, device: str | None) -> str:
+    token = secrets.token_urlsafe(32)
+    with db.session() as s:
+        u = s.get(User, user_id)
+        s.add(DeviceToken(user_id=user_id, token_hash=hash_token(token), device=(device or "")[:128]))
         log_event(s, "info", "device_added", f"{u.name}: {device or 'device'}")
-        return {"token": token, "user": u.name, "admin": u.is_admin,
-                "lan": settings.lan_url, "remote": settings.remote_url}
+    return token
 
 
 def write_invite_files(settings: Settings, name: str, link: str) -> tuple[Path, Path]:

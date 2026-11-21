@@ -17,9 +17,10 @@ services:
       - /volume1/photohub:/data/photohub          # inbox, work, processed, trash, db, cache, outbox
       - /volume1/photo:/data/photo                # Synology Photos shared space (everyone sees it)
       - /volume1/homes:/data/homes                # personal spaces: /data/homes/<user>/Photos (owner only)
-    ports:
-      # LAN only. Reach it from outside through Tailscale, never by router port-forwarding.
-      - "8765:8765"
+    # Host network: the app finds the NAS on the home Wi-Fi (mDNS), PhotoHub learns the NAS's
+    # LAN and Tailscale addresses by itself, and checks DSM passwords on this NAS (localhost:5001).
+    # Port 8765. Do NOT forward it on the router; from outside use Tailscale.
+    network_mode: host
     deploy:
       resources:
         limits:

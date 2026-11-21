@@ -15,7 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from . import derivatives, similar, storage
+from . import derivatives, netinfo, similar, storage
+from .dsm_login import login
 from .config import Settings
 from .db import (Album, AlbumItem, Database, Event, ImportItem, ImportJob, Location, Media, SimilarGroup,
                  SimilarMember, User, can_see, kv_get, kv_set, utcnow, visible_clause)
@@ -31,6 +32,13 @@ class Hashes(BaseModel):
 
 class Redeem(BaseModel):
     code: str
+    device: str | None = None
+
+
+class Login(BaseModel):
+    username: str
+    password: str
+    otp: str | None = None
     device: str | None = None
 
 
@@ -69,7 +77,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"ok": True, "version": "0.1.0", "apply": settings.apply}
+        # "app" lets the phone recognise a PhotoHub server when it looks around the home network
+        return {"ok": True, "app": "photohub", "version": "0.1.0", "apply": settings.apply}
 
     fails: dict[str, list[float]] = {}
 
@@ -86,6 +95,21 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             fails[ip] = recent + [time.time()]
             raise HTTPException(400, "invalid or expired setup code")
         return res
+
+    @app.post("/api/login")
+    def dsm_login(body: Login, request: Request) -> dict:
+        """DSM user name + password (+ 2-step code) -> this phone's own token."""
+        import time
+        ip = request.client.host if request.client else "?"
+        recent = [t for t in fails.get(ip, []) if time.time() - t < 600]
+        if len(recent) >= 10:
+            raise HTTPException(429, "too many attempts")
+        status_, res = login(db, settings, body.username, body.password, body.otp, body.device)
+        if status_ != "ok":
+            if status_ not in ("otp_required", "unreachable"):
+                fails[ip] = recent + [time.time()]
+            raise HTTPException(503 if status_ == "unreachable" else 401, status_)
+        return {**res, "lan": netinfo.lan_url(settings), "remote": netinfo.remote_url(settings)}
 
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:

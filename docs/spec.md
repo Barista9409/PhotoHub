@@ -274,6 +274,7 @@ P0調査（[research.md](research.md)）の提案D1〜D5をすべて採用し、
 | 整理の権限 | 共有スペースの類似写真の整理、全員の取り込み履歴、イベント、Amazonの確認は管理者だけ。個人スペースの類似写真は本人だけが整理できる（管理者も他人の個人スペースは見えない） |
 | Amazon | 家族で1アカウント。`amazon-outbox/shared/` と `amazon-outbox/<user>/` に分けて置く |
 | 端末の利用者の交代 | アプリでトークンを変えると、前の人の索引・サムネイル・プレビューを端末から消す |
-| アプリの初期設定 | 管理者の `photohub user add` / `user invite` がQRコード（`photohub://setup?user&code&lan&remote`）を出す。中身は1回だけ・3日間有効の招待コードで、アプリが `/api/setup/redeem` でその端末専用のトークンに交換する（端末ごとに別のトークン）。失敗が続くと10分止める |
+| アプリのログイン | 自宅のWi-FiでNASを自動で見つけ（mDNS `_photohub._tcp`、だめなら同じネットワークを順に確認）、DSMのユーザー名・パスワード（2段階認証のコード）でログイン。PhotoHubはDSMに1回だけ確かめてすぐログアウトし、パスワードは保存しない。初回ログインでPhotoHubのユーザーを自動作成（admin/guestは不可、`PHOTOHUB_ADMINS` が管理者）。LANとTailscaleのアドレスはNASのネットワーク情報から自動で取得 |
+| アプリの初期設定（予備） | 管理者の `photohub user add` / `user invite` がQRコード（`photohub://setup?user&code&lan&remote`）を出す。中身は1回だけ・3日間有効の招待コードで、アプリが `/api/setup/redeem` でその端末専用のトークンに交換する（端末ごとに別のトークン）。失敗が続くと10分止める |
 | アプリの自動更新 | GitHubリポジトリ（公開）の最新Releaseから取り込む。Releaseは `v<版>` タグのプッシュでGitHub Actionsが署名付きで作る（APK＋`.json`：versionCode・SHA-256・変更点）。端末はWi-Fiで12時間ごとと起動時に確認し、ハッシュ・パッケージ名・新しさ・署名鍵の一致を確かめてからPackageInstallerで入れる（Android 12以降は2回目から確認なし） |
 | Dockerの土台 | Ubuntu 24.04（Python 3.12）＋ExifTool＋ffmpeg＋7-Zip＋GPTH Neo v6.4.1（チェックサム固定） |

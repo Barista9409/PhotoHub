@@ -39,18 +39,11 @@ Googleのアカウントが人ごとに別なので、Cloud Syncのタスクも*
    - `PHOTOHUB_APPLY=false` のまま
 3. Container Manager →「プロジェクト」→「作成」→ パス `/volume1/docker/photohub`、`docker-compose.yml` を選んで作成・起動
 4. ブラウザで `http://NASのIP:8765/api/health` を開き、`{"ok":true,...,"apply":false}` が出ればよい
-5. `.env` の `PHOTOHUB_LAN_URL`（NASの自宅でのアドレス）と `PHOTOHUB_REMOTE_URL`（TailscaleでのNASのアドレス、§9）を入れておく。QRコードに入ります
-6. **家族を登録**（コンテナの「端末」で）：
-
-   ```sh
-   photohub user add reo --admin      # 管理者（共有スペースの整理ができる）
-   photohub user add chie             # 家族（閲覧と、自分の分の整理）
-   ```
-
-   - それぞれ **設定用のQRコード** が表示され、`/volume1/photohub/invites/<名前>.html` にも保存されます
-   - 名前はDSMのユーザー名と同じにします。個人スペースは `/data/homes/<名前>/Photos` になります（違う場所なら `--personal-root`）
-   - その人のTakeoutを共有スペースに入れたい場合は `--takeout-to shared`
-   - 2台目のスマホや、コードの期限が切れたときは `photohub user invite chie` で新しいQRコードを出す
+5. `.env` の `PHOTOHUB_ADMINS` に管理者のDSMユーザー名を入れる（例：`reo`）。家族の登録は不要で、**アプリで初めてログインしたときに自動で登録**されます
+   - 自動で登録させたくない場合は `PHOTOHUB_AUTO_USERS=false` にし、`photohub user add chie` で一人ずつ登録する
+   - 個人スペースは `/volume1/homes/<名前>/Photos` が使われます
+   - その人のTakeoutを共有スペースに入れたい場合は `photohub user set chie --takeout-to shared`
+   - NASの自宅のアドレスとTailscaleのアドレスは自動で調べます（コンテナのログに「home address … Tailscale address …」と出る）
 
 ## 4. 初回の確認（dry-run）— 本物の写真で必ず行う
 
@@ -104,12 +97,12 @@ photohub import-takeout --no-wait
 ## 8. Androidアプリ
 
 1. `android/` をビルド（`./gradlew assembleRelease`。署名鍵は `~/.gradle/gradle.properties` か環境変数で渡す）するか、配布されたAPKを入れる
-2. **家族それぞれのスマホで**起動 →「QRコードで設定」を押し、その人のQRコード（§3-6）を写す。これだけで、自宅と外出先のアドレス、その人専用の鍵が入ります
-   - QRコードは **パソコンやもう1台のスマホの画面に出して**写します（File Stationで `/photohub/invites/<名前>.html` を開く）
-   - **自宅のWi-Fiで**読み取ると、そのWi-Fiを「自宅」として覚えます
-   - QRコードは1回だけ・3日間有効。中身は使い捨ての招待コードで、鍵そのものは入っていません。読み取ったら `invites/` のファイルは消してかまいません
-   - 手で入れたいときは「手動で入力する」から
-   - 1台のスマホを別の人が使うときは、その人のQRコードを読み取り直すと、前の人の写真の索引とサムネイルは端末から消えます
+2. **家族それぞれのスマホで、自宅のWi-Fiにつないで**アプリを開く。NASが自動で見つかるので、**ふだんSynology Photosで使っているユーザー名とパスワード**を入れて「ログイン」。これだけです
+   - 2段階認証を使っている人は、6桁のコード欄が出ます
+   - パスワードは写真ハブに保存されません。NASがDSMで確かめ、そのスマホ専用の鍵だけを渡します
+   - 自宅のWi-Fiと、外出先用のTailscaleのアドレスも自動で入ります
+   - 見つからないときは「もう一度探す」。それでもだめなら「アドレスを手で入力する」か、管理者が `photohub user invite chie` で出したQRコードを「管理者のQRコードで設定する」で読む
+   - 1台のスマホを別の人が使うときは、設定の「QRコードで設定し直す」かログインし直すと、前の人の写真の索引とサムネイルは端末から消えます
 3. 「管理」→「今すぐ同期」で初回同期（自宅のWi-Fiで）。以後は自宅のWi-Fiで充電中に自動
 4. 既定のギャラリーにする：Androidの設定 → アプリ → 既定のアプリ → 写真を開くアプリ で「写真ハブ」
 

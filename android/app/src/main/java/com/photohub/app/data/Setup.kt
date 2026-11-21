@@ -39,13 +39,60 @@ private data class RedeemBody(val code: String, val device: String)
 private data class RedeemResult(val token: String, val user: String, val admin: Boolean = false,
                                 val lan: String = "", val remote: String = "")
 
-class SetupFailed(message: String) : Exception(message)
+class SetupFailed(message: String, val needOtp: Boolean = false) : Exception(message)
+
+@Serializable
+private data class LoginBody(val username: String, val password: String, val otp: String? = null, val device: String)
+
+@Serializable
+private data class ErrorBody(val detail: String = "")
 
 object Setup {
     private val json = Json { ignoreUnknownKeys = true }
     private val http = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
 
-    /** Returns the person's name. Throws SetupFailed with a message for the screen. */
+    /** DSM user name + password (the ones used for Synology Photos). Returns the person's name. */
+    suspend fun login(app: PhotoHubApp, base: String, username: String, password: String, otp: String?): String =
+        withContext(Dispatchers.IO) {
+            val body = json.encodeToString(LoginBody.serializer(),
+                LoginBody(username.trim(), password, otp?.trim()?.ifBlank { null }, "${Build.MANUFACTURER} ${Build.MODEL}"))
+            val req = Request.Builder().url("$base/api/login").post(body.toRequestBody("application/json".toMediaType())).build()
+            val r = try {
+                http.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful) json.decodeFromString(RedeemResult.serializer(), text)
+                    else {
+                        val detail = try { json.decodeFromString(ErrorBody.serializer(), text).detail } catch (e: Exception) { "" }
+                        throw when {
+                            resp.code == 429 -> SetupFailed("試行が多すぎます。10分ほど待ってからもう一度どうぞ。")
+                            detail == "otp_required" -> SetupFailed("2段階認証のコードを入れてください。", needOtp = true)
+                            detail == "bad_otp" -> SetupFailed("2段階認証のコードが違います。", needOtp = true)
+                            detail == "not_registered" -> SetupFailed("この写真ハブにはまだ登録されていません。管理者に頼んでください。")
+                            detail == "denied" || detail == "disabled" -> SetupFailed("このアカウントでは使えません。")
+                            detail == "otp_setup_required" -> SetupFailed("DSMで2段階認証の設定を終えてから、もう一度どうぞ。")
+                            detail == "password_expired" -> SetupFailed("DSMのパスワードの期限が切れています。DSMで変更してください。")
+                            detail == "unreachable" -> SetupFailed("NASのログイン機能に接続できませんでした。少し待ってもう一度どうぞ。")
+                            else -> SetupFailed("ユーザー名かパスワードが違います（Synologyのものを入れてください）。")
+                        }
+                    }
+                }
+            } catch (e: SetupFailed) { throw e } catch (e: Exception) {
+                throw SetupFailed("NASに接続できません。自宅のWi-Fiにつないでください。")
+            }
+            save(app, r, base, r.remote, onLan = true)
+            r.user
+        }
+
+    private suspend fun save(app: PhotoHubApp, r: RedeemResult, lan: String, remote: String, onLan: Boolean) {
+        val cur = app.prefs.current()
+        if (cur.token.isNotBlank() && cur.token != r.token) app.switchUser()
+        app.prefs.save(cur.copy(
+            lanUrl = r.lan.ifBlank { lan }, remoteUrl = r.remote.ifBlank { remote }, token = r.token,
+            homeSsid = if (onLan) app.net.currentSsid() ?: cur.homeSsid else cur.homeSsid,
+        ))
+    }
+
+    /** QR code (spare way). Returns the person's name. Throws SetupFailed with a message for the screen. */
     suspend fun run(app: PhotoHubApp, link: SetupLink): String = withContext(Dispatchers.IO) {
         val body = json.encodeToString(RedeemBody.serializer(), RedeemBody(link.code, "${Build.MANUFACTURER} ${Build.MODEL}"))
         var lastError = "NASに接続できません。自宅のWi-Fiか、外出先ならTailscaleをオンにして、もう一度読み取ってください。"
@@ -71,15 +118,7 @@ object Setup {
             if (result != null) break
         }
         val r = result ?: throw SetupFailed(lastError)
-        val cur = app.prefs.current()
-        if (cur.token.isNotBlank() && cur.token != r.token) app.switchUser()
-        app.prefs.save(cur.copy(
-            lanUrl = r.lan.ifBlank { link.lan },
-            remoteUrl = r.remote.ifBlank { link.remote },
-            token = r.token,
-            // set up over the home LAN: remember this Wi-Fi as "home" (if Android lets us read it)
-            homeSsid = if (usedLan) app.net.currentSsid() ?: cur.homeSsid else cur.homeSsid,
-        ))
+        save(app, r, link.lan, link.remote, onLan = usedLan)
         r.user
     }
 }

@@ -204,3 +204,65 @@ def test_setup_qr_invite_flow(settings, db):
     for _ in range(10):
         c.post("/api/setup/redeem", json={"code": "nope"})
     assert c.post("/api/setup/redeem", json={"code": "nope"}).status_code == 429
+
+
+def test_dsm_login(settings, db, monkeypatch):
+    """Log in with the DSM user name/password; PhotoHub asks DSM and issues a phone token."""
+    from photohub import dsm_login
+    users = {"reo": ("pw-reo", None), "chie": ("pw-chie", "123456")}  # chie uses 2-step verification
+
+    def fake_check(_settings, username, password, otp=None):
+        if username not in users or users[username][0] != password:
+            return "bad_password"
+        need = users[username][1]
+        if need and not otp:
+            return "otp_required"
+        if need and otp != need:
+            return "bad_otp"
+        return "ok"
+
+    monkeypatch.setattr(dsm_login, "check_password", fake_check)
+    settings.admins = ["reo"]
+    c = TestClient(create_app(settings, db))
+    r = c.post("/api/login", json={"username": "reo", "password": "pw-reo", "device": "Pixel"})
+    assert r.status_code == 200 and r.json()["user"] == "reo" and r.json()["admin"] is True
+    assert c.get("/api/me", headers={"Authorization": f"Bearer {r.json()['token']}"}).json()["name"] == "reo"
+    # first login created the user with a Takeout inbox and personal space
+    assert (settings.inbox / "reo").is_dir()
+
+    assert c.post("/api/login", json={"username": "chie", "password": "pw-chie"}).json()["detail"] == "otp_required"
+    assert c.post("/api/login", json={"username": "chie", "password": "pw-chie", "otp": "000000"}).json()["detail"] == "bad_otp"
+    r = c.post("/api/login", json={"username": "chie", "password": "pw-chie", "otp": "123456"})
+    assert r.status_code == 200 and r.json()["admin"] is False
+    assert c.post("/api/login", json={"username": "chie", "password": "wrong"}).status_code == 401
+    assert c.post("/api/login", json={"username": "admin", "password": "x"}).json()["detail"] == "denied"
+    settings.auto_users = False
+    users["mio"] = ("pw", None)
+    assert c.post("/api/login", json={"username": "mio", "password": "pw"}).json()["detail"] == "not_registered"
+    for _ in range(10):
+        c.post("/api/login", json={"username": "reo", "password": "bad"})
+    assert c.post("/api/login", json={"username": "reo", "password": "pw-reo"}).status_code == 429
+
+
+def test_dsm_check_password_against_fake_dsm(settings, monkeypatch):
+    """The real request/response handling, with httpx answered by a fake DSM."""
+    import httpx
+
+    from photohub import dsm_login
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        form = dict(x.split("=", 1) for x in req.content.decode().split("&"))
+        seen.append(form["method"])
+        if form["method"] == "logout":
+            return httpx.Response(200, json={"success": True})
+        if form.get("passwd") == "good":
+            return httpx.Response(200, json={"success": True, "data": {"sid": "S"}})
+        return httpx.Response(200, json={"success": False, "error": {"code": 403 if form.get("passwd") == "otp" else 400}})
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    assert dsm_login.check_password(settings, "reo", "good") == "ok"
+    assert seen == ["login", "logout"]  # never keeps a DSM session
+    assert dsm_login.check_password(settings, "reo", "otp") == "otp_required"
+    assert dsm_login.check_password(settings, "reo", "bad") == "bad_password"

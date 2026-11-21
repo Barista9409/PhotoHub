@@ -131,4 +131,8 @@ def serve(settings: Settings, db: Database) -> None:
     with db.session() as s:
         log_event(s, "info", "daemon_start", f"apply={settings.apply}")
     Service(settings, db).start_background()
+    from .netinfo import Advertiser, lan_url, remote_url
+    adv = Advertiser(settings)
+    log.info("home address %s, Tailscale address %s, mDNS %s", lan_url(settings) or "?",
+             remote_url(settings) or "none", "on" if adv.start() else "off")
     uvicorn.run(create_app(settings, db), host=settings.api_host, port=settings.api_port, log_level="info")
