@@ -288,7 +288,10 @@ def user_token(root, library, name):  # noqa: ANN001
 @click.option("--personal-root", default=None)
 @click.option("--takeout-to", "target", type=click.Choice(["personal", "shared"]), default=None)
 @click.option("--takeout-schedule-start", "start", default=None, help="YYYY-MM-DD the 1-year Takeout schedule was booked")
-def user_set(root, library, name, admin, personal_root, target, start):  # noqa: ANN001
+@click.option("--drive-dir", default=None,
+              help="container path of their Drive folder PhotoHub, if Cloud Sync already syncs their whole Drive "
+                   "(e.g. /data/homes/chie/Google_Drive_xxx/PhotoHub); 'default' resets")
+def user_set(root, library, name, admin, personal_root, target, start, drive_dir):  # noqa: ANN001
     from datetime import date
 
     from sqlalchemy import select
@@ -306,6 +309,8 @@ def user_set(root, library, name, admin, personal_root, target, start):  # noqa:
             u.takeout_target = target
         if start:
             u.takeout_schedule_start = date.fromisoformat(start).isoformat()
+        if drive_dir:
+            u.drive_dir = None if drive_dir == "default" else drive_dir
     click.echo("ok")
 
 

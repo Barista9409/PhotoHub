@@ -33,7 +33,22 @@ def incoming_dir(settings: Settings, user: User) -> Path:
 
 
 def drive_dir(settings: Settings, user: User) -> Path:
-    return settings.inbox.parent / "drive" / user.name
+    """Where the person's Drive folder "PhotoHub" shows up on the NAS:
+      1. set explicitly (photohub user set NAME --drive-dir ...)
+      2. <root>/inbox/drive/<name> if Cloud Sync writes there
+      3. otherwise found automatically when an existing Cloud Sync task mirrors their whole Drive
+         into their home folder: /volume1/homes/<name>/<anything>/PhotoHub"""
+    if user.drive_dir:
+        return Path(user.drive_dir)
+    default = settings.inbox.parent / "drive" / user.name
+    if default.exists() and any(default.iterdir()):
+        return default
+    home = settings.homes_root / user.name
+    try:
+        found = sorted(p for p in home.glob("*/PhotoHub") if p.is_dir() and p.parent.name != "Photos")
+    except OSError:
+        found = []
+    return found[0] if found else default
 
 
 class UploadRejected(ValueError):

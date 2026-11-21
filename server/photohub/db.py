@@ -51,6 +51,9 @@ class User(Base):
     personal_root: Mapped[str | None] = mapped_column(Text)  # container path of their Synology Photos personal space
     takeout_target: Mapped[str] = mapped_column(String(16), default="personal")  # personal / shared
     takeout_schedule_start: Mapped[str | None] = mapped_column(String(10))  # YYYY-MM-DD
+    # where this person's Drive folder "PhotoHub" appears on the NAS (Cloud Sync). Default:
+    # <root>/inbox/drive/<name>. Set when an existing Cloud Sync task already syncs their whole Drive.
+    drive_dir: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -263,6 +266,7 @@ class Database:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.engine = make_engine(db_path)
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
         self._sm = sessionmaker(self.engine, expire_on_commit=False, future=True)
 
     @contextmanager
@@ -276,6 +280,25 @@ class Database:
             raise
         finally:
             s.close()
+
+    def _add_missing_columns(self) -> None:
+        """Upgrade an existing database in place: add columns that newer versions defined.
+        (New tables are created by create_all; new columns need ALTER TABLE in SQLite.)"""
+        from sqlalchemy import inspect, text
+        insp = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if not insp.has_table(table.name):
+                    continue
+                have = {c["name"] for c in insp.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name in have or col.primary_key:
+                        continue
+                    ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {col.type.compile(self.engine.dialect)}'
+                    default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                    if default is not None:
+                        ddl += f" DEFAULT {int(default) if isinstance(default, bool) else repr(default)}"
+                    conn.execute(text(ddl))
 
     def new_session(self) -> Session:
         """A session the caller commits/rolls back itself (used for dry-run rollback)."""

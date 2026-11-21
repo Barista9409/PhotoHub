@@ -90,3 +90,40 @@ def test_user_folders_are_created(settings, db):
     add_user(db, settings, "mio")
     assert (settings.inbox / "mio").is_dir()
     assert (settings.inbox.parent / "drive" / "mio").is_dir()
+
+
+def test_drive_folder_inside_existing_whole_drive_sync(settings, db):
+    """Cloud Sync already mirrors the whole Drive into the person's home; read PhotoHub/ there."""
+    from photohub.db import User
+    u, _ = add_user(db, settings, "chie")
+    whole = settings.homes_root / "chie" / "Google_Drive_chie" / "PhotoHub"
+    whole.mkdir(parents=True)
+    (whole / "PXL_7.jpg").write_bytes(make_image(7))
+    with db.session() as s:
+        s.get(User, u.id).drive_dir = str(whole)
+    settings.stable_seconds = 0
+    assert process_incoming(db, settings, apply=True).new == 1
+
+
+def test_old_database_gets_new_columns(tmp_path):
+    import sqlite3
+
+    from photohub.db import Database
+    p = tmp_path / "old.sqlite"
+    con = sqlite3.connect(p)
+    con.execute("CREATE TABLE app_user (id INTEGER PRIMARY KEY, name VARCHAR(64), is_admin BOOLEAN, token_hash VARCHAR(64))")
+    con.execute("INSERT INTO app_user VALUES (1, 'reo', 1, 'x')")
+    con.commit(); con.close()
+    db = Database(p)
+    cols = {r[1] for r in sqlite3.connect(p).execute("PRAGMA table_info(app_user)")}
+    assert {"drive_dir", "takeout_target", "personal_root"} <= cols
+    from photohub.users import by_name
+    assert by_name(db, "reo").takeout_target == "personal"
+
+
+def test_drive_folder_found_automatically(settings, db):
+    from photohub.incoming import drive_dir
+    u, _ = add_user(db, settings, "chie")
+    whole = settings.homes_root / "chie" / "Google_Drive_chieaoki" / "PhotoHub"
+    whole.mkdir(parents=True)
+    assert drive_dir(settings, u) == whole
