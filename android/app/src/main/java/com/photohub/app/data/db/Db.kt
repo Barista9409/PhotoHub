@@ -59,7 +59,11 @@ data class LocalMedia(
     val lat: Double?,
     val lon: Double?,
     val fileHash: String?,
+    val bucket: String? = null,      // phone folder ("LINE", "Screenshots", "Camera", ...)
+    val relPath: String? = null,     // e.g. "Pictures/LINE/"
 )
+
+data class FolderCount(val bucket: String, val count: Int, val coverUri: String?)
 
 /** One row of the merged timeline (spec F6: phone + NAS, one entry per photo). */
 data class TimelineItem(
@@ -172,6 +176,25 @@ interface MediaDao {
         insertAlbumLinks(links)
     }
 
+    // --- phone folders (shown as "このスマホのフォルダ" and sent to the NAS as albums) ---
+    @Query("""SELECT bucket, COUNT(*) AS count, (SELECT l2.uri FROM local_media l2 WHERE l2.bucket = l.bucket
+              ORDER BY l2.takenAt DESC LIMIT 1) AS coverUri FROM local_media l WHERE bucket IS NOT NULL
+              GROUP BY bucket ORDER BY count DESC""")
+    fun folders(): Flow<List<FolderCount>>
+
+    @Query("""SELECT * FROM ($TIMELINE_SELECT) WHERE localUri IN (SELECT uri FROM local_media WHERE bucket = :bucket)
+              ORDER BY takenAt DESC""")
+    fun folder(bucket: String): Flow<List<TimelineItem>>
+
+    @Query("SELECT DISTINCT bucket FROM local_media WHERE bucket IS NOT NULL")
+    suspend fun bucketNames(): List<String>
+
+    @Query("SELECT fileHash FROM local_media WHERE bucket = :bucket AND fileHash IS NOT NULL")
+    suspend fun hashesIn(bucket: String): List<String>
+
+    @Query("SELECT relPath FROM local_media WHERE bucket = :bucket LIMIT 1")
+    suspend fun pathOf(bucket: String): String?
+
     // --- local index ---
     @Query("SELECT * FROM local_media")
     suspend fun allLocal(): List<LocalMedia>
@@ -201,7 +224,7 @@ interface MediaDao {
     suspend fun clearAlbums() { clearAlbumMedia(); clearAlbumRows() }
 }
 
-@Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class], version = 1, exportSchema = true)
+@Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class], version = 2, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 

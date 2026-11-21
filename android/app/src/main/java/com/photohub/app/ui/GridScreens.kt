@@ -98,16 +98,22 @@ fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
 }
 
 @Composable
-fun AlbumsScreen(onAlbum: (Long, String) -> Unit) {
+fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {}) {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
     val albums by app.db.media().albums().collectAsState(initial = emptyList())
-    if (albums.isEmpty()) {
+    val folders by app.db.media().folders().collectAsState(initial = emptyList())
+    if (albums.isEmpty() && folders.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("アルバムはまだありません") }
         return
     }
     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
-        items(albums, key = { it.id }) { a ->
+        if (albums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("アルバム（NAS）", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(8.dp))
+            }
+        }
+        items(albums, key = { "a${it.id}" }) { a ->
             Column(Modifier.padding(4.dp).clickable { onAlbum(a.id, a.name) }) {
                 Box(Modifier.aspectRatio(1f).fillMaxWidth().background(Color(0x22888888))) {
                     val h = a.coverHash
@@ -117,10 +123,37 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit) {
                     }
                 }
                 Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                Text("${a.count} 枚", style = MaterialTheme.typography.bodySmall)
+                Text("${a.count} 枚" + when (a.origin) { "google" -> "・Google"; "device" -> "・スマホのフォルダ"; else -> "" },
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (folders.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.padding(8.dp, 16.dp, 8.dp, 4.dp)) {
+                    Text("このスマホのフォルダ", style = MaterialTheme.typography.titleSmall)
+                    Text("「カメラ」以外は、自宅で同期したときにNASにも自分のアルバムとして記録されます",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        items(folders, key = { "f${it.bucket}" }) { f ->
+            Column(Modifier.padding(4.dp).clickable { onFolder(f.bucket) }) {
+                Box(Modifier.aspectRatio(1f).fillMaxWidth().background(Color(0x22888888))) {
+                    AsyncImage(model = f.coverUri?.let { android.net.Uri.parse(it) }, contentDescription = f.bucket,
+                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+                Text(f.bucket, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text("${f.count} 枚", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
+}
+
+@Composable
+fun FolderScreen(bucket: String, onOpen: (List<TimelineItem>, Int) -> Unit) {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    val items by app.db.media().folder(bucket).collectAsState(initial = emptyList())
+    MediaGrid(items, onOpen)
 }
 
 @Composable

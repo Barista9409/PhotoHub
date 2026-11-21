@@ -39,6 +39,8 @@ class SyncEngine(private val app: PhotoHubApp) {
     suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
         withContext(Dispatchers.IO) {
             val api = app.net.api(force = true) ?: return@withContext Result(0, 0, 0, "NASに接続できません")
+            // phone folders -> albums on the NAS first, so the delta below already carries them
+            try { app.indexer.pushFolderAlbums(api) } catch (_: Exception) {}
             var cursor = prefs.current().cursor
             var changed = 0
             // 1) metadata delta

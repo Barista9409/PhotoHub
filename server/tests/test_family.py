@@ -282,3 +282,26 @@ def test_each_person_chooses_takeout_destination(settings, db, family):
     assert takeout_destination(settings, by_name(db, "chie")) == (settings.library, None)
     root, owner = takeout_destination(settings, by_name(db, "reo"))
     assert owner == reo.id and str(root).endswith("Photos/PhotoHub")
+
+
+def test_device_folder_albums(settings, db, family):
+    import hashlib
+    reo, h_reo = family["reo"]
+    chie, h_chie = family["chie"]
+    c = family["client"]
+    a = _put(settings.library, "s/line1.jpg", 31)
+    b = _put(Path(chie.personal_root), "p/line2.jpg", 32)
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    fh = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()  # noqa: E731
+    body = {"name": "LINE", "file_hashes": [fh(a), fh(b), "0" * 64]}
+    r = c.post("/api/device-albums", json=body, headers=h_chie).json()
+    assert (r["matched"], r["added"]) == (2, 2)
+    assert c.post("/api/device-albums", json=body, headers=h_chie).json()["added"] == 0  # idempotent
+    # reo cannot attach chie's personal photo to his album, and does not see chie's album
+    assert c.post("/api/device-albums", json=body, headers=h_reo).json()["matched"] == 1
+    reo_albums = {a["name"] for a in c.get("/api/sync", headers=h_reo).json()["albums"]}
+    chie_albums = [a for a in c.get("/api/sync", headers=h_chie).json()["albums"] if a["name"] == "LINE"]
+    assert len(chie_albums) == 1 and chie_albums[0]["origin"] == "device"
+    assert sum(1 for x in reo_albums if x == "LINE") == 1  # his own LINE album only
+    items = c.get("/api/sync", headers=h_chie).json()["items"]
+    assert all(chie_albums[0]["id"] in i["albums"] for i in items)

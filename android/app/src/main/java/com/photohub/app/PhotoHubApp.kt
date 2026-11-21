@@ -57,6 +57,10 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
             osmdroidTileCache = cacheDir.resolve("osm-tiles")
         }
         scope.launch { prefs.settings.collect { token = it.token } }
+        // after an app update rebuilt the on-device index, sync the NAS index again from the start
+        scope.launch {
+            if (prefs.current().cursor > 0 && db.media().allRemoteHashes().isEmpty()) prefs.resetCursor()
+        }
         SyncWorker.schedule(this)
         Updater.schedule(this)
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(

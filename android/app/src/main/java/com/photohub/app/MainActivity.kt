@@ -147,7 +147,13 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         Box(if (fullScreen) Modifier else Modifier.padding(pad)) {
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
-                composable("albums") { AlbumsScreen { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") } }
+                composable("albums") {
+                    AlbumsScreen(onAlbum = { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") },
+                        onFolder = { b -> nav.navigate("folder/${URLEncoder.encode(b, "UTF-8")}") })
+                }
+                composable("folder/{name}") {
+                    com.photohub.app.ui.FolderScreen(URLDecoder.decode(it.arguments!!.getString("name")!!, "UTF-8"), open)
+                }
                 composable("album/{id}/{name}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                     AlbumScreen(it.arguments!!.getLong("id"), open)
                 }
@@ -169,7 +175,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
 }
 
 private fun titleFor(route: String, name: String?) = when {
-    route.startsWith("album/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
+    route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
     route == "settings" -> "設定"
     else -> tabs.firstOrNull { it.route == route }?.label ?: "写真ハブ"
 }

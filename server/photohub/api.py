@@ -19,7 +19,7 @@ from . import derivatives, netinfo, similar, storage
 from .dsm_login import login
 from .config import Settings
 from .db import (Album, AlbumItem, Database, Event, ImportItem, ImportJob, Location, Media, SimilarGroup,
-                 SimilarMember, User, can_see, kv_get, kv_set, utcnow, visible_clause)
+                 SimilarMember, User, can_see, kv_get, kv_set, touch_media, utcnow, visible_clause)
 from .users import by_token, redeem_invite
 
 PACK_MAGIC = b"PHP1"
@@ -44,6 +44,11 @@ class Login(BaseModel):
 
 class MySettings(BaseModel):
     takeout_target: str  # personal / shared
+
+
+class DeviceAlbum(BaseModel):
+    name: str
+    file_hashes: list[str]
 
 
 class Keep(BaseModel):
@@ -126,6 +131,28 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             from .db import log_event
             log_event(s, "info", "user_setting", f"{u.name}: takeout_target={u.takeout_target}")
         return {"takeout_target": body.takeout_target}
+
+    @app.post("/api/device-albums")
+    def device_albums(body: DeviceAlbum, user: User = Depends(auth)) -> dict:
+        """A folder on the person's phone (LINE, Download, ...) -> their own album on the NAS.
+        Photos are matched by whole-file hash; ones not on the NAS yet are linked on a later sync.
+        Add-only: removing a photo from the phone folder does not remove it from the album."""
+        name = body.name.strip()[:100]
+        if not name:
+            raise HTTPException(400, "empty name")
+        hashes = list(dict.fromkeys(body.file_hashes))[:5000]
+        from .ingest import _album
+        with db.session() as s:
+            album = _album(s, name, "device", user.id)
+            matched = added = 0
+            for m in s.execute(select(Media).where(Media.file_hash.in_(hashes), Media.status == "active",
+                                                   visible_clause(user))).scalars():
+                matched += 1
+                if s.get(AlbumItem, (album.id, m.id)) is None:
+                    s.add(AlbumItem(album_id=album.id, media_id=m.id))
+                    touch_media(s, m)  # the phone gets the new album link on its next sync
+                    added += 1
+        return {"album_id": album.id, "matched": matched, "added": added}
 
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:

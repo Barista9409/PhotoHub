@@ -136,11 +136,18 @@ data class GhRelease(@SerialName("tag_name") val tag: String, val draft: Boolean
                      val prerelease: Boolean = false, val assets: List<GhAsset> = emptyList())
 
 @Serializable
+data class DeviceAlbumBody(val name: String, @SerialName("file_hashes") val fileHashes: List<String>)
+
+@Serializable
+data class DeviceAlbumResult(@SerialName("album_id") val albumId: Long = 0, val matched: Int = 0, val added: Int = 0)
+
+@Serializable
 data class HashesBody(val hashes: List<String>)
 
 interface PhotoHubApi {
     @GET("api/health") suspend fun health(): Map<String, kotlinx.serialization.json.JsonElement>
     @GET("api/me") suspend fun me(): Me
+    @POST("api/device-albums") suspend fun deviceAlbum(@Body body: DeviceAlbumBody): DeviceAlbumResult
     @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>

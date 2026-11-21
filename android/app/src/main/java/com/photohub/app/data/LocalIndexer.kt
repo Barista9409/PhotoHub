@@ -24,6 +24,11 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
         val changed = found.values.filter { n ->
             val o = existing[n.mediaStoreId]
             o == null || o.size != n.size || o.modified != n.modified
+        } + found.values.mapNotNull { n ->
+            // moved to another folder only: keep the hash, update the folder
+            val o = existing[n.mediaStoreId] ?: return@mapNotNull null
+            if (o.size == n.size && o.modified == n.modified && (o.bucket != n.bucket || o.relPath != n.relPath))
+                o.copy(bucket = n.bucket, relPath = n.relPath) else null
         }
         dao.upsertLocal(changed)
         val gone = existing.keys - found.keys
@@ -38,6 +43,8 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
             add(MediaStore.MediaColumns.DATE_TAKEN); add(MediaStore.MediaColumns.MIME_TYPE)
             add(MediaStore.MediaColumns.WIDTH); add(MediaStore.MediaColumns.HEIGHT)
             add(MediaStore.MediaColumns.DATE_ADDED)
+            add(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
+            add(MediaStore.MediaColumns.RELATIVE_PATH)
         }.toTypedArray()
         ctx.contentResolver.query(uri, cols, null, null, null)?.use { c ->
             val iId = c.getColumnIndexOrThrow(cols[0]); val iName = c.getColumnIndexOrThrow(cols[1])
@@ -45,6 +52,8 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
             val iTaken = c.getColumnIndexOrThrow(cols[4]); val iMime = c.getColumnIndexOrThrow(cols[5])
             val iW = c.getColumnIndexOrThrow(cols[6]); val iH = c.getColumnIndexOrThrow(cols[7])
             val iAdded = c.getColumnIndexOrThrow(cols[8])
+            val iBucket = c.getColumnIndexOrThrow(cols[9])
+            val iRel = c.getColumnIndexOrThrow(cols[10])
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
                 val taken = c.getLong(iTaken).takeIf { it > 0 } ?: (c.getLong(iAdded) * 1000)
@@ -55,9 +64,22 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
                     size = c.getLong(iSize), modified = c.getLong(iMod), takenAt = taken,
                     w = c.getInt(iW).takeIf { it > 0 }, h = c.getInt(iH).takeIf { it > 0 },
                     lat = null, lon = null, fileHash = null,
+                    bucket = c.getString(iBucket), relPath = c.getString(iRel),
                 )
             }
         }
+    }
+
+    /** Phone folders -> the person's albums on the NAS (add-only; matched by file hash). */
+    suspend fun pushFolderAlbums(api: com.photohub.app.data.api.PhotoHubApi): Int {
+        var linked = 0
+        for (b in dao.bucketNames()) {
+            if (isCameraRoll(b, dao.pathOf(b))) continue
+            for (chunk in dao.hashesIn(b).chunked(5000)) {
+                linked += api.deviceAlbum(com.photohub.app.data.api.DeviceAlbumBody(b, chunk)).added
+            }
+        }
+        return linked
     }
 
     /** Hash files that have none yet (run while charging). Returns how many were hashed. */
@@ -81,6 +103,10 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
     }
 
     companion object {
+        /** The camera roll holds nearly everything, so it is not sent to the NAS as an album. */
+        fun isCameraRoll(bucket: String, relPath: String?): Boolean =
+            bucket.equals("Camera", true) || relPath?.startsWith("DCIM/Camera", true) == true
+
         fun sha256(input: java.io.InputStream): String {
             val md = MessageDigest.getInstance("SHA-256")
             val buf = ByteArray(1 shl 16)
