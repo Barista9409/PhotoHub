@@ -54,6 +54,26 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class DeviceToken(Base):
+    """One token per phone, so a person can use several phones and drop one without the others."""
+    __tablename__ = "device_token"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    device: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Invite(Base):
+    """Single-use setup code shown as a QR code (expires; the QR never contains a token)."""
+    __tablename__ = "invite"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_user.id"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class Media(Base):
     __tablename__ = "media"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

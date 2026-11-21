@@ -19,7 +19,7 @@ from . import derivatives, similar, storage
 from .config import Settings
 from .db import (Album, AlbumItem, Database, Event, ImportItem, ImportJob, Location, Media, SimilarGroup,
                  SimilarMember, User, can_see, kv_get, kv_set, utcnow, visible_clause)
-from .users import by_token
+from .users import by_token, redeem_invite
 
 PACK_MAGIC = b"PHP1"
 IMMUTABLE = {"Cache-Control": "private, max-age=31536000, immutable"}
@@ -27,6 +27,11 @@ IMMUTABLE = {"Cache-Control": "private, max-age=31536000, immutable"}
 
 class Hashes(BaseModel):
     hashes: list[str]
+
+
+class Redeem(BaseModel):
+    code: str
+    device: str | None = None
 
 
 class Keep(BaseModel):
@@ -65,6 +70,22 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True, "version": "0.1.0", "apply": settings.apply}
+
+    fails: dict[str, list[float]] = {}
+
+    @app.post("/api/setup/redeem")
+    def setup_redeem(body: Redeem, request: Request) -> dict:
+        """Setup QR code -> this phone's own token. No token needed; the code is single-use."""
+        import time
+        ip = request.client.host if request.client else "?"
+        recent = [t for t in fails.get(ip, []) if time.time() - t < 600]
+        if len(recent) >= 10:
+            raise HTTPException(429, "too many attempts")
+        res = redeem_invite(db, settings, body.code, body.device)
+        if res is None:
+            fails[ip] = recent + [time.time()]
+            raise HTTPException(400, "invalid or expired setup code")
+        return res
 
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:

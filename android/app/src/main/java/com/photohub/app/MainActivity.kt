@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -49,6 +50,7 @@ import com.photohub.app.ui.MapScreen
 import com.photohub.app.ui.PhotoHubTheme
 import com.photohub.app.ui.SearchScreen
 import com.photohub.app.ui.SettingsScreen
+import com.photohub.app.ui.SetupScreen
 import com.photohub.app.ui.TimelineScreen
 import com.photohub.app.ui.UiState
 import com.photohub.app.ui.ViewerScreen
@@ -58,6 +60,14 @@ import java.net.URLEncoder
 
 class MainActivity : ComponentActivity() {
     companion object { const val EXTRA_OPEN_UPDATE = "open_update" }
+
+    /** a photohub://setup link that opened the app (QR code read by another app, or tapped) */
+    private val setupLink = mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        intent.data?.takeIf { it.scheme == "photohub" }?.let { setupLink.value = it.toString() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,7 +81,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         val openUpdate = intent?.getBooleanExtra(EXTRA_OPEN_UPDATE, false) == true
-        setContent { PhotoHubTheme { Root(app, openUpdate) } }
+        intent?.data?.takeIf { it.scheme == "photohub" }?.let { setupLink.value = it.toString() }
+        setContent { PhotoHubTheme { Root(app, openUpdate, setupLink.value) } }
     }
 }
 
@@ -87,7 +98,7 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Root(app: PhotoHubApp, openUpdate: Boolean = false) {
+private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: String? = null) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: "timeline"
@@ -99,11 +110,12 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false) {
             arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.ACCESS_MEDIA_LOCATION)
         else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
         perms.launch(if (Build.VERSION.SDK_INT >= 33) wanted + Manifest.permission.POST_NOTIFICATIONS else wanted)
-        if (!app.prefs.current().configured) nav.navigate("settings")
+        if (!app.prefs.current().configured) nav.navigate("setup")
         else if (openUpdate) nav.navigate("admin")
     }
+    LaunchedEffect(setupLink) { if (setupLink != null) nav.navigate("setup") }
     val open: (List<TimelineItem>, Int) -> Unit = { list, i -> UiState.viewerItems = list; nav.navigate("viewer/$i") }
-    val fullScreen = route.startsWith("viewer")
+    val fullScreen = route.startsWith("viewer") || route == "setup"
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
@@ -142,7 +154,12 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false) {
                 composable("map") { MapScreen(open) }
                 composable("search") { SearchScreen(open) }
                 composable("admin") { AdminScreen { nav.navigate("settings") } }
-                composable("settings") { SettingsScreen { nav.popBackStack() } }
+                composable("settings") { SettingsScreen(onScan = { nav.navigate("setup") }) { nav.popBackStack() } }
+                composable("setup") {
+                    SetupScreen(setupLink, onDone = {
+                        nav.navigate("timeline") { popUpTo("timeline") { inclusive = true } }
+                    }, onManual = { nav.navigate("settings") })
+                }
                 composable("viewer/{i}", arguments = listOf(navArgument("i") { type = NavType.IntType })) {
                     ViewerScreen(it.arguments!!.getInt("i")) { nav.popBackStack() }
                 }

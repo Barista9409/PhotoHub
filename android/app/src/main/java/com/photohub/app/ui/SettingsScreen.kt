@@ -36,7 +36,7 @@ import com.photohub.app.data.SyncWorker
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(onDone: () -> Unit) {
+fun SettingsScreen(onScan: () -> Unit = {}, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val scope = rememberCoroutineScope()
@@ -49,6 +49,8 @@ fun SettingsScreen(onDone: () -> Unit) {
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("NASへの接続", style = MaterialTheme.typography.titleMedium)
+        Text("ふつうは「QRコードで設定」で自動で入ります（管理者が photohub user invite で発行）。", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = onScan) { Text("QRコードで設定し直す") }
         OutlinedTextField(cur.lanUrl, { s = cur.copy(lanUrl = it) }, label = { Text("自宅（LAN）のアドレス") },
             placeholder = { Text("http://192.168.1.10:8765") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))

@@ -211,7 +211,33 @@ def user_add(root, library, name, admin, personal_root, target):  # noqa: ANN001
     u, token = add_user(db, s, name, admin=admin, personal_root=personal_root, takeout_target=target)
     click.echo(f"user {u.name} (admin={u.is_admin}) personal space: {u.personal_root}")
     click.echo(f"Takeout inbox: {s.inbox / u.name}")
-    click.echo(f"token (enter it in the app; it is not shown again): {token}")
+    if s.lan_url or s.remote_url:
+        _print_invite(db, s, u.name, None, None)
+    else:
+        click.echo("set PHOTOHUB_LAN_URL / PHOTOHUB_REMOTE_URL, then `photohub user invite NAME` for a setup QR code")
+
+
+def _print_invite(db, s, name, lan, remote) -> None:  # noqa: ANN001
+    import segno
+
+    from .users import INVITE_DAYS, create_invite, write_invite_files
+    _, link = create_invite(db, s, name, lan=lan, remote=remote)
+    png, html = write_invite_files(s, name, link)
+    click.echo(f"setup QR code for {name} (single use, {INVITE_DAYS} days):")
+    segno.make(link, error="m").terminal(compact=True)
+    click.echo(f"also saved: {html} and {png}  (open in File Station and scan with the app)")
+
+
+@user_grp.command("invite")
+@root_opt
+@lib_opt
+@click.argument("name")
+@click.option("--lan", default=None, help="home address, e.g. http://192.168.1.10:8765")
+@click.option("--remote", default=None, help="Tailscale address, e.g. http://100.x.y.z:8765")
+def user_invite(root, library, name, lan, remote):  # noqa: ANN001
+    """Make a setup QR code for NAME's phone (one per phone)."""
+    s, db = _ctx(root, library)
+    _print_invite(db, s, name, lan, remote)
 
 
 @user_grp.command("list")

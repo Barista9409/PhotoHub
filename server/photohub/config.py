@@ -59,6 +59,9 @@ class Settings:
     scan_extra: list = field(default_factory=list)
     # where the DSM "homes" share is mounted (personal spaces: <homes_root>/<user>/Photos)
     homes_root: Path = Path("/volume1/homes")
+    # addresses written into setup QR codes (the app tries the LAN one at home, Tailscale outside)
+    lan_url: str = ""
+    remote_url: str = ""
     api_host: str = "0.0.0.0"
     api_port: int = 8765
     extra: dict = field(default_factory=dict)
@@ -143,6 +146,8 @@ class Settings:
             default_tz_minutes=_int("PHOTOHUB_DEFAULT_TZ_MINUTES", 540),
             scan_extra=[Path(p) for p in os.environ.get("PHOTOHUB_SCAN_EXTRA", "").split(":") if p],
             homes_root=Path(os.environ.get("PHOTOHUB_HOMES_ROOT", "/volume1/homes")),
+            lan_url=os.environ.get("PHOTOHUB_LAN_URL", "").rstrip("/"),
+            remote_url=os.environ.get("PHOTOHUB_REMOTE_URL", "").rstrip("/"),
             api_host=os.environ.get("PHOTOHUB_API_HOST", "0.0.0.0"),
             api_port=_int("PHOTOHUB_API_PORT", 8765),
         )

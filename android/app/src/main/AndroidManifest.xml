@@ -38,6 +38,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.APP_GALLERY" />
             </intent-filter>
+            <!-- setup link from the QR code: photohub://setup?user=..&code=..&lan=..&remote=.. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="photohub" android:host="setup" />
+            </intent-filter>
         </activity>
 
         <!-- "Open with" from other apps: lets PhotoHub act as the default gallery -->
@@ -71,6 +78,10 @@
                 <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
+
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
 
         <receiver
             android:name=".data.InstallResultReceiver"

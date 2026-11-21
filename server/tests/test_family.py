@@ -174,3 +174,33 @@ def test_google_candidates_are_per_person(settings, db, family):
     assert c.get("/api/google-candidates", headers=h_chie).json() == []
     assert c.post(f"/api/google-candidates/{mine[0]['id']}/confirm", headers=h_chie).status_code == 404
     assert c.post(f"/api/google-candidates/{mine[0]['id']}/confirm", headers=h_reo).json() == {"marked_removed": 1}
+
+
+def test_setup_qr_invite_flow(settings, db):
+    from urllib.parse import parse_qs, urlparse
+
+    from photohub.users import create_invite
+    settings.lan_url, settings.remote_url = "http://192.168.1.10:8765", "http://100.1.2.3:8765"
+    add_user(db, settings, "chie")
+    code, link = create_invite(db, settings, "chie")
+    q = parse_qs(urlparse(link).query)
+    assert link.startswith("photohub://setup?") and q["code"] == [code] and q["user"] == ["chie"]
+    assert "token" not in link
+    c = TestClient(create_app(settings, db))
+    r = c.post("/api/setup/redeem", json={"code": code, "device": "Pixel"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"] == "chie" and body["lan"] == settings.lan_url and body["remote"] == settings.remote_url
+    h = {"Authorization": f"Bearer {body['token']}"}
+    assert c.get("/api/me", headers=h).json()["name"] == "chie"
+    # single use
+    assert c.post("/api/setup/redeem", json={"code": code}).status_code == 400
+    # a second phone gets its own token; both keep working
+    code2, _ = create_invite(db, settings, "chie")
+    t2 = c.post("/api/setup/redeem", json={"code": code2, "device": "Tablet"}).json()["token"]
+    assert c.get("/api/me", headers={"Authorization": f"Bearer {t2}"}).status_code == 200
+    assert c.get("/api/me", headers=h).status_code == 200
+    # brute force is throttled
+    for _ in range(10):
+        c.post("/api/setup/redeem", json={"code": "nope"})
+    assert c.post("/api/setup/redeem", json={"code": "nope"}).status_code == 429
