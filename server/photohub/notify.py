@@ -93,7 +93,9 @@ def health_check(db: Database, settings: Settings, today: date | None = None) ->
                               f"{who}Takeout scheduled export ends on {end}. Book a new one-year schedule.")
                     raised.append("takeout_schedule_ending")
             last = kv_get(s, f"last_import_at:{uid}") or (kv_get(s, "last_import_at") if uid == 0 else None)
-            ref = datetime.fromisoformat(last).date() if last else start
+            # only people who booked a recurring Takeout are expected to send one every 2 months
+            # (a one-time migration does not raise "overdue")
+            ref = (datetime.fromisoformat(last).date() if last else start) if start else None
             if ref and (today - ref).days > settings.takeout_interval_days + settings.takeout_grace_days:
                 if _once(s, f"takeout_overdue:{uid}", timedelta(days=3)):
                     log_event(s, "warn", "takeout_overdue",

@@ -33,6 +33,7 @@ fun thumbModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when
     item.localUri != null -> Uri.parse(item.localUri)
     item.hash != null && app.files.hasThumb(item.hash) -> app.files.thumb(item.hash)
     item.hash != null && base != null -> "$base/api/thumb/${item.hash}"
+    item.driveId != null -> app.drive.mediaUrl(item.driveId)   // away without VPN: recent photos from Drive
     else -> null
 }
 
@@ -40,6 +41,7 @@ fun previewModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = wh
     item.localUri != null -> Uri.parse(item.localUri)
     item.hash != null && app.files.hasPreview(item.hash) -> app.files.preview(item.hash)
     item.hash != null && base != null -> "$base/api/preview/${item.hash}"
+    item.driveId != null -> app.drive.mediaUrl(item.driveId)
     item.hash != null && app.files.hasThumb(item.hash) -> app.files.thumb(item.hash)
     else -> null
 }

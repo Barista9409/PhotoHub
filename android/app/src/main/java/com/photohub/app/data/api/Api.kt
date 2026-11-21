@@ -147,6 +147,7 @@ data class HashesBody(val hashes: List<String>)
 interface PhotoHubApi {
     @GET("api/health") suspend fun health(): Map<String, kotlinx.serialization.json.JsonElement>
     @GET("api/me") suspend fun me(): Me
+    @POST("api/have") suspend fun have(@Body body: HashesBody): Map<String, String>
     @POST("api/device-albums") suspend fun deviceAlbum(@Body body: DeviceAlbumBody): DeviceAlbumResult
     @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status

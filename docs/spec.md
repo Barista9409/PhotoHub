@@ -1,4 +1,4 @@
-# 写真ハブ（PhotoHub）仕様書 v0.2
+# 写真ハブ（PhotoHub）仕様書 v0.3
 
 2026-11-21 · REO（v0.1）／ v0.2 は実装時の決定を第10章に追記
 
@@ -278,3 +278,14 @@ P0調査（[research.md](research.md)）の提案D1〜D5をすべて採用し、
 | アプリの初期設定（予備） | 管理者の `photohub user add` / `user invite` がQRコード（`photohub://setup?user&code&lan&remote`）を出す。中身は1回だけ・3日間有効の招待コードで、アプリが `/api/setup/redeem` でその端末専用のトークンに交換する（端末ごとに別のトークン）。失敗が続くと10分止める |
 | アプリの自動更新 | GitHubリポジトリ（公開）の最新Releaseから取り込む。Releaseは `v<版>` タグのプッシュでGitHub Actionsが署名付きで作る（APK＋`.json`：versionCode・SHA-256・変更点）。端末はWi-Fiで12時間ごとと起動時に確認し、ハッシュ・パッケージ名・新しさ・署名鍵の一致を確かめてからPackageInstallerで入れる（Android 12以降は2回目から確認なし） |
 | Dockerの土台 | Ubuntu 24.04（Python 3.12）＋ExifTool＋ffmpeg＋7-Zip＋GPTH Neo v6.4.1（チェックサム固定） |
+
+## 11. v0.3 での変更（Googleフォトをやめ、ドライブを「最近の写真の置き場」にする）
+
+| 項目 | 決定 |
+|---|---|
+| スマホのバックアップ | 写真ハブのアプリが行う。NASへは `POST /api/upload`（SHA-256で確認）、Googleドライブへは本人のドライブの `/PhotoHub` フォルダ（権限は `drive.file`＝アプリが作ったファイルだけ）。Synology Photos・Googleフォトのバックアップは不要 |
+| ドライブの範囲 | 各自が設定で「期間（か月）」「容量（GB）」「両方（早い方）」を選ぶ。範囲外の写真は、`/api/have` でNASにあると確かめてからアプリが削除 |
+| ドライブ → NAS | Cloud Sync（片方向ダウンロード）で `inbox/drive/<user>/` へ。写真ハブが5分ごとに取り込み、重複は画素ハッシュでまとめる |
+| スマホの空き容量 | 「空き容量を増やす」を押したときだけ、NASに保存済みで30日以上前の写真をAndroidの確認つきで削除 |
+| 表示 | スマホ → 端末内のプレビュー → NAS（届くとき） → ドライブ（VPNなしで届く）の順に取りにいく |
+| Googleフォト | Takeoutで一度だけ取り込み（移行）。定期のTakeoutは不要になり、予約していない人には「届かない」通知を出さない |

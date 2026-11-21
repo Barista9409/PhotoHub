@@ -25,6 +25,13 @@ data class Settings(
     val cursor: Long = 0,
     val lastSyncAt: Long = 0,
     val autoUpdate: Boolean = true,   // download + install new app versions from the NAS
+    // --- backup ---
+    val backupNas: Boolean = true,      // send phone photos straight to the NAS
+    val backupDrive: Boolean = false,   // keep recent photos in the person's Google Drive
+    val driveMode: String = "months",   // months / gb / both (whichever is reached first)
+    val driveMonths: Int = 3,
+    val driveGb: Int = 10,
+    val backupOnMobile: Boolean = false, // also back up over mobile data
 ) {
     val configured get() = token.isNotBlank() && (lanUrl.isNotBlank() || remoteUrl.isNotBlank())
 }
@@ -42,6 +49,15 @@ class Prefs(private val ctx: Context) {
         val lastSync = longPreferencesKey("last_sync")
         val favorites = stringSetPreferencesKey("favorites")
         val autoUpdate = booleanPreferencesKey("auto_update")
+        val backupNas = booleanPreferencesKey("backup_nas")
+        val backupDrive = booleanPreferencesKey("backup_drive")
+        val driveMode = stringPreferencesKey("drive_mode")
+        val driveMonths = intPreferencesKey("drive_months")
+        val driveGb = intPreferencesKey("drive_gb")
+        val backupOnMobile = booleanPreferencesKey("backup_mobile")
+        val driveFolder = stringPreferencesKey("drive_folder")
+        val lastBackupAt = longPreferencesKey("last_backup_at")
+        val lastBackupMsg = stringPreferencesKey("last_backup_msg")
     }
 
     val settings: Flow<Settings> = ctx.store.data.map { p ->
@@ -50,6 +66,9 @@ class Prefs(private val ctx: Context) {
             homeSsid = p[K.ssid] ?: "", storageCapMb = p[K.cap] ?: 4096, previewMonths = p[K.months] ?: 6,
             previewAlbums = p[K.albums] ?: emptySet(), cursor = p[K.cursor] ?: 0, lastSyncAt = p[K.lastSync] ?: 0,
             autoUpdate = p[K.autoUpdate] ?: true,
+            backupNas = p[K.backupNas] ?: true, backupDrive = p[K.backupDrive] ?: false,
+            driveMode = p[K.driveMode] ?: "months", driveMonths = p[K.driveMonths] ?: 3, driveGb = p[K.driveGb] ?: 10,
+            backupOnMobile = p[K.backupOnMobile] ?: false,
         )
     }
 
@@ -66,7 +85,20 @@ class Prefs(private val ctx: Context) {
         p[K.months] = s.previewMonths
         p[K.albums] = s.previewAlbums
         p[K.autoUpdate] = s.autoUpdate
+        p[K.backupNas] = s.backupNas
+        p[K.backupDrive] = s.backupDrive
+        p[K.driveMode] = s.driveMode
+        p[K.driveMonths] = s.driveMonths
+        p[K.driveGb] = s.driveGb
+        p[K.backupOnMobile] = s.backupOnMobile
     }
+
+    val lastBackup: Flow<Pair<Long, String>> = ctx.store.data.map { (it[K.lastBackupAt] ?: 0L) to (it[K.lastBackupMsg] ?: "") }
+
+    suspend fun setLastBackup(at: Long, msg: String) = ctx.store.edit { it[K.lastBackupAt] = at; it[K.lastBackupMsg] = msg }
+
+    suspend fun driveFolder(): String? = ctx.store.data.first()[K.driveFolder]
+    suspend fun setDriveFolder(id: String?) = ctx.store.edit { if (id == null) it.remove(K.driveFolder) else it[K.driveFolder] = id }
 
     suspend fun setCursor(cursor: Long) = ctx.store.edit {
         it[K.cursor] = cursor

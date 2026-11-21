@@ -38,7 +38,7 @@ fun PhotoHubTheme(content: @Composable () -> Unit) {
 fun StoreBadges(stores: String, modifier: Modifier = Modifier) {
     val set = stores.split(',').filter { it.isNotBlank() }.toSet()
     Row(modifier) {
-        listOf("phone" to "端", "nas" to "N", "google" to "G", "amazon" to "A").forEach { (k, label) ->
+        listOf("phone" to "端", "nas" to "N", "drive" to "D", "google" to "G", "amazon" to "A").forEach { (k, label) ->
             if (k in set) {
                 Box(
                     Modifier.padding(end = 2.dp).background(badgeColor(k), RoundedCornerShape(3.dp))
@@ -53,6 +53,7 @@ private fun badgeColor(k: String) = when (k) {
     "phone" -> Color(0xCC546E7A)
     "nas" -> Color(0xCC2E7D32)
     "google" -> Color(0xCC1565C0)
+    "drive" -> Color(0xCC00897B)
     else -> Color(0xCCEF6C00)
 }
 

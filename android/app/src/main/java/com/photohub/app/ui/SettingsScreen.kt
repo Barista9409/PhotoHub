@@ -75,6 +75,8 @@ fun SettingsScreen(onScan: () -> Unit = {}, onDone: () -> Unit) {
             s = cur.copy(previewAlbums = it.split(',').map(String::trim).filter(String::isNotEmpty).toSet())
         }, label = { Text("プレビューを持つアルバム（カンマ区切り）") }, modifier = Modifier.fillMaxWidth())
 
+        BackupSettings()
+
         TakeoutPlaceSetting()
 
         Text("アプリの更新", style = MaterialTheme.typography.titleMedium)

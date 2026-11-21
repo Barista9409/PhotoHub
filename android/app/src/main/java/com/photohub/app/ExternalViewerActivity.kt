@@ -42,7 +42,7 @@ class ExternalViewerActivity : ComponentActivity() {
             PhotoHubTheme {
                 Box(Modifier.fillMaxSize().background(Color.Black)) {
                     if (isVideo) {
-                        VideoPlayer(app, TimelineItem("ext", null, uri.toString(), "video", 0, null, "", "phone", null, null, 0, null, null, null, mime), null)
+                        VideoPlayer(app, TimelineItem("ext", null, uri.toString(), "video", 0, null, "", "phone", null, null, 0, null, null, null, mime, null), null)
                     } else {
                         ZoomableImage(uri, "")
                     }

@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
                 UiState.refreshBase(app, force = true)
                 app.indexer.scan()
                 app.updater.check()
+                if (app.prefs.current().backupDrive) app.drive.token()  // for viewing Drive copies
             }
         }
         val openUpdate = intent?.getBooleanExtra(EXTRA_OPEN_UPDATE, false) == true

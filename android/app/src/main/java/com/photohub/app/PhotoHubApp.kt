@@ -36,6 +36,8 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
     lateinit var files: MediaFiles
     lateinit var indexer: LocalIndexer
     lateinit var updater: Updater
+    lateinit var drive: com.photohub.app.data.DriveClient
+    @Volatile var driveToken: String = ""
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Volatile var token: String = ""
@@ -51,6 +53,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         files = MediaFiles(this)
         indexer = LocalIndexer(this, db.media())
         updater = Updater(this)
+        drive = com.photohub.app.data.DriveClient(this)
         OsmConfig.getInstance().apply {
             userAgentValue = packageName
             osmdroidBasePath = filesDir.resolve("osmdroid")
@@ -63,6 +66,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         }
         SyncWorker.schedule(this)
         Updater.schedule(this)
+        com.photohub.app.data.BackupWorker.schedule(this)
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "photohub-local-index", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<LocalIndexWorker>(1, TimeUnit.HOURS).build(),
@@ -84,7 +88,11 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
             .connectTimeout(8, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val req = chain.request()
-                chain.proceed(if (req.url.encodedPath.startsWith("/api/")) req.newBuilder().header("Authorization", "Bearer $token").build() else req)
+                chain.proceed(when {
+                    req.url.host == "www.googleapis.com" -> req.newBuilder().header("Authorization", "Bearer $driveToken").build()
+                    req.url.encodedPath.startsWith("/api/") -> req.newBuilder().header("Authorization", "Bearer $token").build()
+                    else -> req
+                })
             }.build()
         return ImageLoader.Builder(context)
             .components {

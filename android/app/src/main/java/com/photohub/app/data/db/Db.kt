@@ -82,6 +82,18 @@ data class TimelineItem(
     val h: Int?,
     val duration: Double?,
     val mime: String?,
+    val driveId: String? = null,   // copy in the person's Google Drive (reachable without VPN)
+)
+
+/** A photo this phone put in Google Drive (from the Drive folder listing). */
+@Entity(tableName = "drive_file", indices = [Index("takenAt")])
+data class DriveFile(
+    @PrimaryKey val fileHash: String,
+    val driveId: String,
+    val name: String,
+    val size: Long,
+    val takenAt: Long,
+    val mime: String?,
 )
 
 private const val TIMELINE_SELECT = """
@@ -90,14 +102,24 @@ private const val TIMELINE_SELECT = """
            r.kind AS kind, r.takenAt AS takenAt, r.tz AS tz, r.name AS name,
            CASE WHEN EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = r.fileHash)
                 THEN r.stores || ',phone' ELSE r.stores END AS stores,
-           r.lat AS lat, r.lon AS lon, r.bytes AS bytes, r.w AS w, r.h AS h, r.duration AS duration, r.mime AS mime
+           r.lat AS lat, r.lon AS lon, r.bytes AS bytes, r.w AS w, r.h AS h, r.duration AS duration, r.mime AS mime,
+           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = r.fileHash) AS driveId
     FROM remote_media r
     UNION ALL
     SELECT 'local:' || l.mediaStoreId AS itemKey, NULL AS hash, l.uri AS localUri, l.kind AS kind,
            l.takenAt AS takenAt, NULL AS tz, l.name AS name, 'phone' AS stores, l.lat AS lat, l.lon AS lon,
-           l.size AS bytes, l.w AS w, l.h AS h, NULL AS duration, l.mime AS mime
+           l.size AS bytes, l.w AS w, l.h AS h, NULL AS duration, l.mime AS mime,
+           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = l.fileHash) AS driveId
     FROM local_media l
     WHERE l.fileHash IS NULL OR NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = l.fileHash)
+    UNION ALL
+    SELECT 'drive:' || d.fileHash AS itemKey, NULL AS hash, NULL AS localUri,
+           CASE WHEN d.mime LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind,
+           d.takenAt AS takenAt, NULL AS tz, d.name AS name, 'drive' AS stores, NULL AS lat, NULL AS lon,
+           d.size AS bytes, NULL AS w, NULL AS h, NULL AS duration, d.mime AS mime, d.driveId AS driveId
+    FROM drive_file d
+    WHERE NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = d.fileHash)
+      AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
 """
 
 data class AlbumWithCount(val id: Long, val name: String, val origin: String, val count: Int, val coverHash: String?)
@@ -214,6 +236,30 @@ interface MediaDao {
     @Query("DELETE FROM remote_media")
     suspend fun clearRemote()
 
+    // --- backup ---
+    @Query("SELECT * FROM local_media WHERE fileHash IS NOT NULL ORDER BY takenAt DESC")
+    suspend fun localHashed(): List<LocalMedia>
+
+    @Query("SELECT fileHash FROM remote_media")
+    suspend fun remoteFileHashes(): List<String>
+
+    @Query("SELECT * FROM drive_file")
+    suspend fun driveFiles(): List<DriveFile>
+
+    @Upsert
+    suspend fun upsertDrive(items: List<DriveFile>)
+
+    @Query("DELETE FROM drive_file WHERE fileHash IN (:hashes)")
+    suspend fun deleteDrive(hashes: List<String>)
+
+    @Query("DELETE FROM drive_file")
+    suspend fun clearDrive()
+
+    /** Phone photos that are safely on the NAS (candidates for freeing up space). */
+    @Query("""SELECT l.* FROM local_media l WHERE l.fileHash IN (SELECT fileHash FROM remote_media)
+              AND l.takenAt < :before ORDER BY l.takenAt""")
+    suspend fun localOnNas(before: Long): List<LocalMedia>
+
     @Query("DELETE FROM album")
     suspend fun clearAlbumRows()
 
@@ -224,7 +270,8 @@ interface MediaDao {
     suspend fun clearAlbums() { clearAlbumMedia(); clearAlbumRows() }
 }
 
-@Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class], version = 2, exportSchema = true)
+@Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
+    version = 3, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 
