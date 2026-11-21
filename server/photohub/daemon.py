@@ -55,7 +55,16 @@ class Service:
             self._after_import()
 
     def job_incoming(self) -> None:
+        from datetime import timedelta
+
         from .incoming import process_incoming
+        if not self.s.apply:
+            # dry run: uploads just wait; report on them once a day instead of every 5 minutes
+            with self.db.session() as s:
+                last = kv_get(s, "dry_incoming_at")
+                if last and datetime.fromisoformat(last) > datetime.now() - timedelta(days=1):
+                    return
+                kv_set(s, "dry_incoming_at", datetime.now().isoformat())
         rep = process_incoming(self.db, self.s, apply=self.s.apply)
         if rep.new and not rep.dry_run:
             self._after_import()
