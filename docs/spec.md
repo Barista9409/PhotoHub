@@ -1,6 +1,6 @@
-# 写真ハブ（PhotoHub）仕様書 v0.1
+# 写真ハブ（PhotoHub）仕様書 v0.2
 
-2026-11-21 · REO
+2026-11-21 · REO（v0.1）／ v0.2 は実装時の決定を第10章に追記
 
 > 原本：Google ドキュメント「写真ハブ（PhotoHub）仕様書 v0.1」。このファイルはその写しで、変更したらここを更新する（第9章の指示1）。
 > P0 調査で分かった仕様との差異は [research.md](research.md) にまとめている。
@@ -72,7 +72,7 @@ NAS上のSynology Photosを正本にし、Googleフォトは直近の閲覧用�
 
 - **完全一致**：画素データのSHA-256で判定する。EXIFを書き換えるとファイル全体のハッシュが変わるため、メタデータを除いた部分で計算する。ファイル全体のハッシュも別に記録する
 - **類似**：知覚ハッシュ（pHash）で、編集版や縮小版を見つける。自動ではまとめず、候補としてF6に出す
-- **動画**：ファイル全体のSHA-256で判定する
+- **動画**：~~ファイル全体のSHA-256で判定する~~ → v0.2：映像・音声の中身（ストリーム）のSHA-256で判定する。GPTHが日時を書き込むとファイル全体のハッシュが変わるため（第10章）
 - 完全一致の場合は、正本にある方を残し、新しい方は取り込まない。ただし、新しい方にしかない情報（位置・アルバム）は正本の記録に足す
 
 ### F3. 正本への配置
@@ -249,3 +249,24 @@ NASのタイムゾーンはSeoulになっている。時差は東京と同じだ
 4. Google・Amazonの仕様は変わりやすい。実装前に公式情報を確認し、この仕様書と違う点があれば先に報告する
 5. 環境設定やデプロイは、できるだけClaude Code側で完結させる。人の手作業が必要なもの（Takeoutの予約、DSMの設定画面での操作など）は、手順を箇条書きで示す
 6. 秘密情報（DSMのパスワード、APIトークン）をコミットしない。.env.example だけを置く
+
+## 10. v0.2 での変更（実装時の決定）
+
+P0調査（[research.md](research.md)）の提案D1〜D5をすべて採用し、実装で次のとおり決めた。
+
+| 項目 | 決定 |
+| --- | --- |
+| D1 Synology PhotosのAPI | 自分のNAS上で、アルバム作成・登録と再索引に限り使う。既定は無効（`SYNOLOGY_API_ENABLED=false`）。実機で `photohub synology probe` を確かめてから有効にする。アルバムは常にDBとXMPが正 |
+| D2 索引 | 取り込み後に `SYNO.FotoTeam.Index reindex` を呼ぶ（D1が有効な場合） |
+| D3 OneDrive | Cloud Syncは双方向。処理済みZIPを `processed/` へ移すとOneDrive側が空く |
+| D4 節約画質 | 撮影時刻±2秒かつpHashが近い（動画は長さ±1秒）かつ小さいファイルは「Googleの圧縮コピー」とみなし、正本には入れず `google-similar/` に保管。location.match=similar。削除候補では別枠 |
+| D5 特別なフォルダ | ゴミ箱→ `google-trash/`、ロック→ `google-locked/`（どちらも正本外に保管）。アーカイブ→通常どおり取り込み、アルバム「Google: Archive」 |
+| 画素ハッシュ | `hash_version=1`。8bit RGB(A)に正規化した画素＋大きさ。RAWはファイル全体のハッシュ（`f:` 付き） |
+| 動画ハッシュ | ffmpegのstreamhash（容器のメタデータを除く）。取れない場合はファイル全体 |
+| 時刻 | `taken_at` はUTC、`tz_offset` は分。GPTHはTZ=UTCで実行し、EXIFに `+00:00` で書かせる |
+| Live Photo | `pair_key` で写真と動画を結ぶ |
+| 端末とNASの対応 | 端末の写真はファイル全体のSHA-256でNASの `file_hash` と照合（AndroidとPillowで画像デコード結果が違うため） |
+| Amazonの送信 | 写真を `amazon-outbox/` にハードリンク（容量は増えない）。PCのスクリプトが送る「Amazonアプリが動いた時刻」より後なら送信済みの見込み（queued→assumed） |
+| 削除候補の条件 | 12か月以上前、NASのファイルを90日以内にハッシュで再確認済み、Googleにある、写真はAmazon送信済みの見込み |
+| 本実行の切り替え | CLIは `--apply` がない限り確認のみ。常駐サービスは `PHOTOHUB_APPLY=true` のときだけファイルを動かす |
+| Dockerの土台 | Ubuntu 24.04（Python 3.12）＋ExifTool＋ffmpeg＋7-Zip＋GPTH Neo v6.4.1（チェックサム固定） |

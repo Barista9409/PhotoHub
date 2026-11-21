@@ -169,3 +169,12 @@ def test_storage_saver_copy_is_linked_not_duplicated(settings, db):
         assert g.match == "exact"  # the first (exact) import wins; never downgraded
     assert list((settings.root / "google-similar").rglob("PXL_X.jpg"))
     assert scan(db, settings, [settings.library], apply=True).new == 0
+
+
+def test_scheduled_runs_do_not_repeat_dry_run(settings, db):
+    _zip(settings, "takeout-e-001.zip", default_items(3))
+    assert len(import_inbox(db, settings, apply=False, wait_stable=True)) == 1
+    assert import_inbox(db, settings, apply=False, wait_stable=True) == []  # not redone
+    assert import_inbox(db, settings, apply=False, wait_stable=False)[0].new == 3  # manual run still works
+    rep = import_inbox(db, settings, apply=True, wait_stable=True)[0]  # switching to apply imports it
+    assert rep.new == 3

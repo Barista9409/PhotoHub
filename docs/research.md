@@ -233,4 +233,23 @@ GPTHは `Archive` `Trash` `Locked Folder` を、アルバムの方式にかか�
 | GPTHの最新版の使い方 | Neo v6.4.1。P1での起動方法を §2.2 に決めた |
 | 調査結果を docs/research.md にまとめる | 本書 |
 
-**P1へ進む前に必要なこと**：D1〜D5の決定。実機の確認（§1.3、§3.1、§3.3、§4、§6）はP1の中で、サンプルのTakeoutを使って行う。
+**決定**：D1〜D5はすべて提案どおりで決定（2026-11-21）。実装での具体的な扱いは [spec.md 第10章](spec.md#10-v02-での変更実装時の決定)。
+
+## 9. 実装中に分かったこと
+
+- **GPTH v6.4.1の実際の出力**：`--albums json` で `ALL_PHOTOS/YYYY/MM/` に写真、`albums-info.json` に `albums.<名前>[].targetPath` が出る。ゴミ箱などは `Special Folders/<名前>/`。
+- **GPTHの時刻**：JSONの撮影時刻を、プロセスのタイムゾーンでEXIFに書き、`OffsetTimeOriginal` も付ける。PhotoHubは `TZ=UTC` で実行し、`+00:00` を読んでUTCに戻す。100枚のサンプルで日時・位置・説明がすべて一致した。
+- **GPTHは入力フォルダにZIPがあると解凍しようとする**：作業用の目印ファイルは解凍先の外に置く。
+- **GPTHの `--help` は対話モードで止まる**：常に引数を付けて、標準入力を閉じて実行する。
+- **動画のハッシュ**：ExifToolで日時を書き換えるとファイル全体のハッシュは変わるが、ffmpegのstreamhashは変わらないことを自動テストで確認した。
+
+## 10. 実機で確認が残っていること
+
+| 項目 | 確認方法 |
+|---|---|
+| Synology PhotosのAPIの引数 | `photohub synology probe`（docs/setup.md §10） |
+| Dockerから置いたファイルがSynology Photosに出るか | 取り込み後、Synology Photosの共有スペースを見る |
+| Cloud Sync双方向で、移動がOneDrive側の削除になるか | サンプルZIPで確認（setup.md §2） |
+| Synologyの `@eaDir` サムネイルの流用 | 実機で `SYNOPHOTO_THUMB_XL.jpg` があれば自動で使う |
+| Amazonアプリでネットワークドライブを選べるか | setup.md §7 |
+| Androidアプリの実機動作（P5の受け入れ基準） | 実機で機内モード・モバイル回線を試す |

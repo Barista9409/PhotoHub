@@ -19,7 +19,7 @@ from watchdog.observers.polling import PollingObserver
 from . import derivatives, notify, scanner, similar, storage, synology
 from .api import create_app
 from .config import Settings
-from .db import Database, log_event
+from .db import Database, kv_get, kv_set, log_event
 from .takeout import import_inbox
 
 log = logging.getLogger("photohub")
@@ -59,7 +59,15 @@ class Service:
         synology.sync_albums(self.db, self.s, apply=self.s.apply)
 
     def job_scan(self) -> None:
+        if not self.s.apply:
+            # a dry-run scan hashes the whole library; once is enough for review
+            with self.db.session() as s:
+                if kv_get(s, "dry_scan_done"):
+                    return
         rep = scanner.scan(self.db, self.s, self.s.scan_roots, apply=self.s.apply)
+        if not self.s.apply:
+            with self.db.session() as s:
+                kv_set(s, "dry_scan_done", "1")
         if rep.duplicates:
             scanner.write_duplicate_report(rep, self.s.root / "reports" / f"duplicates-{datetime.now():%Y%m%d}.tsv")
         if not rep.dry_run:

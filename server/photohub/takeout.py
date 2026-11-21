@@ -220,7 +220,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
         job.finished_at = utcnow()
         if not apply:
             s.rollback()
-            s.add(ImportJob(source="takeout", archive_name=job.archive_name, archive_key=None,
+            s.add(ImportJob(source="takeout", archive_name=job.archive_name, archive_key=key,
                             state="dry_run", new_count=rep.new, dup_count=rep.duplicate + rep.merged,
                             error_count=rep.error, finished_at=utcnow(), message=rep.summary()))
             log_event(s, "info", "import_dry_run", rep.summary())
@@ -243,6 +243,15 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
     return rep
 
 
+def _recently_tried(db: Database, key: str, apply: bool) -> bool:
+    from datetime import timedelta
+    with db.session() as s:
+        jobs = list(s.execute(select(ImportJob).where(ImportJob.archive_key == key)).scalars())
+    if not apply and any(j.state == "dry_run" for j in jobs):
+        return True
+    return any(j.state == "failed" and j.finished_at and j.finished_at > utcnow() - timedelta(hours=24) for j in jobs)
+
+
 def _archive_parts(settings: Settings, group: ArchiveGroup) -> None:
     """All good -> move the ZIPs to processed/ (copy-verify-move; never delete)."""
     for p in group.parts:
@@ -256,6 +265,8 @@ def import_inbox(db: Database, settings: Settings, *, apply: bool, wait_stable: 
     for g in find_groups(settings.inbox):
         if wait_stable and not is_stable(g, settings.stable_seconds):
             continue
+        if wait_stable and _recently_tried(db, g.key, apply):
+            continue  # scheduled runs: don't redo the same dry run / failing archive every 10 min
         try:
             reports.append(import_group(db, settings, g, apply=apply))
         except Exception as e:
