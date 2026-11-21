@@ -76,6 +76,24 @@ PhotoHubの新しい版は、GitHubに入ると自動で作られます（`ghcr.
 
 > うまくいかないとき：「プロジェクト」→ `photohub` の「ログ」を開くと、起動時のエラーが見られます。
 
+### 新しい版を自動で入れる（おすすめ・最初に1回だけ設定）
+
+DSMの「タスクスケジューラ」に、1時間ごとに新しい版を確かめるスクリプトを登録します。新しい版があったときだけ入れ替えて再起動し、なければ何もしません。
+
+1. コントロールパネル →「タスクスケジューラ」→「作成」→「予約タスク」→「ユーザー指定のスクリプト」
+2. 「全般」タブ：タスク名 `PhotoHub自動更新`、ユーザー **`root`**、「有効」にチェック
+3. 「スケジュール」タブ：「毎日を実行」、開始時刻 `00:05`、「頻度を続行」で **1時間ごと**、最終実行時刻 `23:05`
+4. 「タスク設定」タブ：「ユーザー指定のスクリプト」に下の4行をそのまま貼り付け →「OK」
+
+```
+cd /volume1/docker/photohub || exit 1
+docker pull ghcr.io/barista9409/photohub:latest | grep -q "Downloaded newer image" || exit 0
+docker compose up -d 2>/dev/null || docker-compose up -d
+docker image prune -f
+```
+
+5. すぐ試すには、一覧で `PhotoHub自動更新` を選んで「実行」。少し待ってアプリの「Synology側の版」が新しい日付になれば成功です
+
 ## 3. アプリを入れてログイン（家族それぞれ）
 
 1. スマホのブラウザで **https://github.com/Barista9409/PhotoHub/releases/latest/download/PhotoHub.apk** を開いてダウンロードし、開く（いつも最新版が落ちてくるリンクです。すでに使っている人は、右上のアイコン →「更新と共有」→「アプリを家族に送る」でLINEなどに送れます）
