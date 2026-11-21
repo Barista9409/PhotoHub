@@ -284,16 +284,19 @@ class BackupEngine(private val app: PhotoHubApp) {
         if (outside.isNotEmpty() && api != null && !stopRequested.get() && app.prefs.current().backupDrive) {
             progress(BackupStep(BackupStep.DRIVE, "Googleドライブの古い写真を整理中", 0, outside.size))
             var done = 0
+            val gone = mutableListOf<String>()
             for (chunk in outside.chunked(500)) {
                 val have = try { api.have(HashesBody(chunk.map { it.fileHash })) } catch (e: Exception) { emptyMap() }
                 for (f in chunk) {
                     done++
                     if (have[f.fileHash] != "nas") continue
-                    try { drive.delete(token, f.driveId); app.db.media().deleteDrive(listOf(f.fileHash)); removed++ }
+                    try { drive.delete(token, f.driveId); app.db.media().deleteDrive(listOf(f.fileHash)); removed++; gone += f.fileHash }
                     catch (e: Exception) { }
                 }
                 progress(BackupStep(BackupStep.DRIVE, "Googleドライブの古い写真を整理中", done, outside.size))
             }
+            // the Synology keeps a copy of the Drive folder (Cloud Sync): let it delete those too
+            for (chunk in gone.chunked(1000)) try { api.driveRemoved(HashesBody(chunk)) } catch (_: Exception) {}
         }
         progress(BackupStep(BackupStep.DRIVE, label, toUpload.size, toUpload.size, finished = true))
         return DriveOut(sent, removed)

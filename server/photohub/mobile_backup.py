@@ -33,12 +33,24 @@ def backup_root(user: User) -> Path | None:
     return Path(user.personal_root) / MOBILE_BACKUP
 
 
+def chosen_dir(user: User) -> Path | None:
+    """The folder the person picked in the app (inside their Photos folder), if any."""
+    if not user.backup_dir or not user.personal_root:
+        return None
+    base = Path(user.personal_root).resolve()
+    d = (base / user.backup_dir).resolve()
+    return d if d.is_relative_to(base) else None
+
+
 def device_dir(user: User, device: str | None) -> Path | None:
-    """The phone's folder under MobileBackup: an existing one whose name matches the device
-    (Synology uses the phone's name), otherwise a new one named after it."""
+    """Where this phone's photos go: the folder the person chose in the app, else the phone's folder
+    under MobileBackup (an existing one whose name matches the device, as Synology names it after
+    the phone; otherwise a new one named after it)."""
     root = backup_root(user)
     if root is None:
         return None
+    if (chosen := chosen_dir(user)) is not None:
+        return chosen
     name = (device or "").strip() or "Android"
     if root.exists():
         want = _norm(name)

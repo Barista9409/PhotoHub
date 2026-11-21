@@ -141,7 +141,7 @@ fun SimilarScreen() {
                             info = try {
                                 val r = app.net.api()!!.resolve(g.id, com.photohub.app.data.api.KeepBody(keep.toList()))
                                 if (r.applied) { refresh++; "移動しました: ${r.actions.size} 件" }
-                                else "Synologyが確認モードのため実行していません。予定: \n" + r.actions.joinToString("\n")
+                                else "試運転中のため、まだ実行していません。本番にすると次のようにします: \n" + r.actions.joinToString("\n")
                             } catch (e: Exception) { "失敗しました: ${e.message}" }
                         }
                     }) { Text("決定") }

@@ -31,56 +31,34 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.photohub.app.data.TakeoutUploadWorker
 
-/** Google Photos → NAS, once: pick the Takeout ZIPs on the phone and send them as they are. */
+/**
+ * Google Photos -> Synology, once. Takeout is made into Google Drive and Cloud Sync brings it to the
+ * Synology, where PhotoHub imports it and then deletes the ZIPs. Nothing goes through the phone.
+ */
 @Composable
-fun MigrationScreen() {
-    val ctx = LocalContext.current
-    val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(TakeoutUploadWorker.UNIQUE).collectAsState(initial = emptyList())
-    val w = work.lastOrNull()
-    val running = w?.state == WorkInfo.State.RUNNING || w?.state == WorkInfo.State.ENQUEUED
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) TakeoutUploadWorker.start(ctx, uris)
-    }
+fun MigrationScreen(open: (Dest) -> Unit = {}) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        SectionTitle("おすすめ：Googleドライブ経由（スマホ不要・いちばん速い）")
+        Text("Googleフォトの写真を、一度だけSynologyへ移します。スマホで送る必要はありません。",
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
+        SectionTitle("手順")
         Group {
-            SettingRow(Icons.Default.Cloud, "TakeoutをGoogleドライブに作る",
-                "takeout.google.com で「Googleフォト」だけを選び、配信方法「ドライブに追加」、形式 ZIP、サイズ 50GB。すでにドライブにある場合はそのままでOK")
+            SettingRow(Icons.Default.Cloud, "1. TakeoutをGoogleドライブに作る",
+                "takeout.google.com で「Googleフォト」だけを選び、配信方法「ドライブに追加」、形式 ZIP、サイズ 50GB。すでにドライブにあればそのままでOK")
             GroupDivider()
-            SettingRow(Icons.Default.Inventory2, "Synologyが自分で取りに行きます",
-                "Cloud Syncがドライブの「Takeout」フォルダをSynologyに持ってきて、PhotoHubが自動で取り込みます。このスマホで送る必要はありません。設定は導入ガイド 4-5 を見てください")
-        }
-        SectionTitle("スマホから送る場合")
-        Group {
-            SettingRow(Icons.Default.Download, "1. Googleフォトを書き出す",
-                "takeout.google.com で「Googleフォト」だけを選び、配信方法「ダウンロードリンクをメールで送信」、形式 ZIP。届いたメールから、このスマホにZIPをダウンロードします")
-            GroupDivider()
-            SettingRow(Icons.Default.FolderZip, "2. ZIPを選んでSynologyへ送る",
-                "解凍せず、ZIPのまま選んでください。分かれたZIP（-001、-002 …）はまとめて選べます。自宅のWi-Fiで送ります")
+            SettingRow(Icons.Default.Download, "2. Synologyに届くのを待つ",
+                "Cloud Syncがドライブの「Takeout」フォルダをSynologyに持ってきます。どのフォルダか → 「Synologyの保存場所」で確認・変更できます",
+                onClick = { open(Dest.PLACES) })
             GroupDivider()
             SettingRow(Icons.Default.Inventory2, "3. Synologyが取り込む",
-                "日時と場所を整え、すでにSynologyにある写真（スマホのバックアップなど）とは重複しないよう1枚にまとめます。結果は「Synologyへの取り込み記録」で見られます")
+                "日時と場所を整え、すでにSynologyにある写真とは重複しないよう1枚にまとめます。終わったZIPは自動で削除します（ドライブ側のTakeoutも消えて、ドライブの容量が空きます）",
+                onClick = { open(Dest.IMPORT_LOG) })
             GroupDivider()
-            SettingRow(Icons.Default.TaskAlt, "4. 確認できたらGoogleフォトを片付ける",
-                "「Googleフォトから消してよい写真」に、Synologyに入った月が出ます。Googleフォトのアプリで消してください。ドライブのTakeoutも消してかまいません（ドライブの容量が空きます）")
+            SettingRow(Icons.Default.TaskAlt, "4. Googleフォトを空にする",
+                "Synologyに保存済みと確認できた写真を、月ごとに案内します。Googleフォトのアプリで消してください",
+                onClick = { open(Dest.CLEANUP) })
         }
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(enabled = !running, modifier = Modifier.fillMaxWidth().height(52.dp),
-                onClick = { pick.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }) {
-                Text("ZIPを選んで送る")
-            }
-            when (w?.state) {
-                WorkInfo.State.RUNNING -> {
-                    val pct = w.progress.getInt(TakeoutUploadWorker.KEY_PCT, 0)
-                    Text("${w.progress.getInt(TakeoutUploadWorker.KEY_INDEX, 1)} / ${w.progress.getInt(TakeoutUploadWorker.KEY_COUNT, 1)}　" +
-                        "${w.progress.getString(TakeoutUploadWorker.KEY_NAME) ?: ""}　$pct%")
-                    LinearProgressIndicator(progress = { pct / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("アプリを閉じても続きます。途中で切れても、続きから送ります。", style = MaterialTheme.typography.bodySmall)
-                }
-                WorkInfo.State.ENQUEUED -> Text("自宅のWi-Fiにつながると送り始めます")
-                WorkInfo.State.SUCCEEDED -> Text("送り終わりました。Synologyが順に取り込みます（大きいZIPは数時間かかります）")
-                else -> {}
-            }
-        }
+        Text("取り込みの様子は「Synologyへの取り込み記録」で見られます。30GBで数時間かかります。",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(20.dp))
     }
 }

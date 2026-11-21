@@ -257,5 +257,78 @@ def test_takeout_in_google_drive_is_picked_up_from_cloud_sync(settings, db):
     assert (settings.inbox / "chie" / done.name).read_bytes() == b"zip-1"
     assert not (settings.inbox / "chie" / "takeout-20261121T000000Z-002.zip").exists()
     assert done.exists()  # the Drive copy is left alone
-    (settings.inbox / "chie" / done.name).unlink()  # imported and moved to processed/
+    (settings.inbox / "chie" / done.name).unlink()  # imported and deleted
     assert collect_from_drive_sync(db, settings, u) == 0  # not copied again
+
+
+def test_takeout_from_drive_is_deleted_after_import(settings, db):
+    """After an error-free real import, the inbox ZIP and the Drive original are both deleted."""
+    import os
+    import time
+    from photohub.takeout import ArchiveGroup, _archive_parts, collect_from_drive_sync
+    u, _ = add_user(db, settings, "chie")
+    t = settings.homes_root / "chie" / "Google_Drive_chie" / "Takeout"
+    t.mkdir(parents=True)
+    z = t / "takeout-x-001.zip"
+    z.write_bytes(b"zip")
+    old = time.time() - 3600
+    os.utime(z, (old, old))
+    collect_from_drive_sync(db, settings, u)
+    copy = settings.inbox / "chie" / z.name
+    _archive_parts(db, settings, ArchiveGroup("takeout-x", [copy], "chie"))
+    assert not copy.exists() and not z.exists()
+
+
+def test_person_chooses_where_phone_photos_go(settings, db, chie):
+    """Synology Photos' phone backup can be pointed elsewhere; each person picks the same folder."""
+    u, h, c = chie
+    own = Path(u.personal_root) / "スマホ" / "2026"
+    own.mkdir(parents=True)
+    f = c.get("/api/me/folders", headers=h).json()
+    assert {"path": "スマホ", "depth": 1} in f["folders"] and f["backup_dir"] == ""
+    assert c.put("/api/me/settings", json={"backup_dir": "../.."}, headers=h).status_code == 400
+    assert c.put("/api/me/settings", json={"backup_dir": "スマホ"}, headers=h).json()["backup_dir"] == "スマホ"
+    assert c.get("/api/me", headers=h).json()["takeout_target"] == "personal"  # untouched
+    _up_dev(c, h, make_image(91), "PXL_91.jpg")
+    process_incoming(db, settings, apply=True)
+    placed = list((Path(u.personal_root) / "スマホ").rglob("PXL_91.jpg"))
+    assert len(placed) == 1
+    assert not (Path(u.personal_root) / "MobileBackup").exists()
+
+
+def test_person_chooses_their_google_drive_folder(settings, db, chie):
+    """Cloud Sync puts the Drive wherever the person chose; PhotoHub reads PhotoHub/ and Takeout/ there."""
+    import os
+    import time
+    from photohub.takeout import collect_from_drive_sync
+    u, h, c = chie
+    drive = settings.homes_root / "chie" / "クラウド" / "Googleドライブ"
+    (drive / "PhotoHub").mkdir(parents=True)
+    (drive / "Takeout").mkdir()
+    z = drive / "Takeout" / "takeout-1.zip"
+    z.write_bytes(b"z")
+    old = time.time() - 3600
+    os.utime(z, (old, old))
+    f = c.get("/api/me/folders", headers=h).json()
+    assert {"path": "クラウド/Googleドライブ", "depth": 2} in f["home_folders"]
+    assert all(not x["path"].startswith("Photos") for x in f["home_folders"])
+    assert c.put("/api/me/settings", json={"drive_root": "クラウド/Googleドライブ"}, headers=h).status_code == 200
+    assert c.get("/api/me/folders", headers=h).json()["drive_detected"] == "クラウド/Googleドライブ"
+    (drive / "PhotoHub" / "PXL_5.jpg").write_bytes(make_image(5))
+    assert process_incoming(db, settings, apply=True).new == 1
+    from photohub.users import by_name
+    assert collect_from_drive_sync(db, settings, by_name(db, "chie")) == 1
+
+
+def test_drive_removed_deletes_the_synology_copy_of_the_drive_folder(settings, db, chie):
+    u, h, c = chie
+    whole = settings.homes_root / "chie" / "Google_Drive_chie" / "PhotoHub"
+    whole.mkdir(parents=True)
+    img = make_image(55)
+    (whole / "PXL_55.jpg").write_bytes(img)
+    fh = hashlib.sha256(img).hexdigest()
+    assert c.post("/api/drive-removed", json={"hashes": [fh]}, headers=h).json()["deleted"] == 0  # not filed yet
+    process_incoming(db, settings, apply=True)
+    assert c.post("/api/drive-removed", json={"hashes": [fh]}, headers=h).json()["deleted"] == 1
+    assert not (whole / "PXL_55.jpg").exists()
+    assert _count(db) == 1  # the library copy stays

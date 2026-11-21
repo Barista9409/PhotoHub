@@ -1,7 +1,8 @@
 """F1: Takeout import.
 
 inbox/takeout/*.zip  --(stable for N s)-->  work/<key>/extracted  --GPTH-->  work/<key>/gpth-out
-  --> analyse + dedupe + place (ingest.py)  --> ZIPs moved to processed/ (never deleted)
+  --> analyse + dedupe + place (ingest.py)  --> after an error-free real import the ZIPs (and the
+  Google Drive original Cloud Sync brought) are deleted; in check mode nothing is touched
 
 Split archives (takeout-...-001.zip, -002.zip) are grouped by their common prefix.
 Re-running on the same ZIPs changes nothing (job key + content hashes).
@@ -23,7 +24,7 @@ from sqlalchemy import select
 
 from .config import Settings
 from .db import Database, ImportItem, ImportJob, User, kv_get, kv_set, log_event, utcnow
-from .fileops import copy_verified, move_verified, unique_in
+from .fileops import copy_verified
 from .ingest import analyse, collect_media, ingest_takeout_candidate
 from .users import all_users
 
@@ -155,7 +156,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
     if done is not None:
         rep.skipped_job = True
         if apply:
-            _archive_parts(settings, group)
+            _archive_parts(db, settings, group)
         return rep
 
     workdir = settings.work / key
@@ -246,7 +247,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
         s.close()
 
     if apply and rep.error == 0:
-        _archive_parts(settings, group)
+        _archive_parts(db, settings, group)
         shutil.rmtree(workdir, ignore_errors=True)  # our temporary copies only
     return rep
 
@@ -260,13 +261,23 @@ def _recently_tried(db: Database, key: str, apply: bool) -> bool:
     return any(j.state == "failed" and j.finished_at and j.finished_at > utcnow() - timedelta(hours=24) for j in jobs)
 
 
-def _archive_parts(settings: Settings, group: ArchiveGroup) -> None:
-    """All good -> move the ZIPs to processed/<user>/ (copy-verify-move; never delete)."""
-    dest = settings.processed / group.user if group.user else settings.processed
-    dest.mkdir(parents=True, exist_ok=True)
+def _archive_parts(db: Database, settings: Settings, group: ArchiveGroup) -> None:
+    """All imported without errors -> the ZIPs are no longer needed: delete them, and also the
+    original in the Google Drive folder that Cloud Sync brought (with a two-way Cloud Sync task this
+    also removes it from Google Drive, so it stops using Drive space). Only after a real import."""
     for p in group.parts:
+        with db.session() as s:
+            src = kv_get(s, f"takeout_source:{group.user or ''}/{p.name}")
+        if src and Path(src).exists():
+            try:
+                Path(src).unlink()
+            except OSError as e:
+                with db.session() as s:
+                    log_event(s, "warn", "takeout_cleanup", f"could not delete {src}: {e}")
         if p.exists():
-            move_verified(p, unique_in(dest, p.name))
+            p.unlink()
+        with db.session() as s:
+            log_event(s, "info", "takeout_cleanup", f"{group.user or ''}: {p.name} imported and deleted")
 
 
 def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_age: int = 120) -> int:
@@ -277,7 +288,10 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
     import shutil
     home = settings.homes_root / user.name
     try:
-        found = sorted(set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip")))
+        found = set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip"))
+        if user.drive_root:  # the Drive folder the person chose in the app
+            found |= set((home / user.drive_root / "Takeout").glob("*.zip"))
+        found = sorted(found)
     except OSError:
         return 0
     found = [z for z in found if z.parent.parent.name != "Photos"]
@@ -290,8 +304,8 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
             continue
         if time.time() - st.st_mtime < max(min_age, settings.stable_seconds):
             continue  # Cloud Sync may still be writing it
-        key = f"takeout_copied:{z}"
-        sig = f"{st.st_size}:{int(st.st_mtime)}"
+        key = f"takeout_copied:{user.name}/{z.name}"
+        sig = str(st.st_size)
         with db.session() as s:
             if kv_get(s, key) == sig:
                 continue
@@ -307,6 +321,7 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
             copied += 1
         with db.session() as s:
             kv_set(s, key, sig)
+            kv_set(s, f"takeout_source:{user.name}/{z.name}", str(z))
             log_event(s, "info", "takeout_found", f"{user.name}: {z.name} from Google Drive")
     return copied
 

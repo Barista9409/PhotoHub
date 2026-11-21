@@ -45,7 +45,9 @@ class Login(BaseModel):
 
 
 class MySettings(BaseModel):
-    takeout_target: str  # personal / shared
+    takeout_target: str | None = None  # personal / shared
+    backup_dir: str | None = None       # relative to the Photos folder; "" = automatic (MobileBackup/<phone>)
+    drive_root: str | None = None       # relative to their home: where Cloud Sync puts their Google Drive; "" = automatic
 
 
 class DeviceAlbum(BaseModel):
@@ -125,15 +127,71 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
 
     @app.put("/api/me/settings")
     def my_settings(body: MySettings, user: User = Depends(auth)) -> dict:
-        """Each person chooses where photos from *their* Google Takeout go (from the next import on)."""
-        if body.takeout_target not in ("personal", "shared"):
+        """Each person's own Synology places (from the next photo on):
+        takeout_target - photos from *their* Google Takeout / Drive go to their space or the shared one;
+        backup_dir - the folder in their Photos where photos sent from the phone go."""
+        from .db import log_event
+        if body.takeout_target is not None and body.takeout_target not in ("personal", "shared"):
             raise HTTPException(400, "takeout_target must be personal or shared")
+        if body.backup_dir:
+            base = Path(user.personal_root or "/nonexistent").resolve()
+            d = (base / body.backup_dir.strip("/")).resolve()
+            if not d.is_relative_to(base) or d == base or not d.is_dir():
+                raise HTTPException(400, "folder not found in your Photos folder")
+        if body.drive_root:
+            home = (settings.homes_root / user.name).resolve()
+            d = (home / body.drive_root.strip("/")).resolve()
+            if not d.is_relative_to(home) or d == home or not d.is_dir():
+                raise HTTPException(400, "folder not found in your home folder")
         with db.session() as s:
             u = s.get(User, user.id)
-            u.takeout_target = body.takeout_target
-            from .db import log_event
-            log_event(s, "info", "user_setting", f"{u.name}: takeout_target={u.takeout_target}")
-        return {"takeout_target": body.takeout_target}
+            if body.drive_root is not None:
+                u.drive_root = body.drive_root.strip("/") or None
+            if body.takeout_target is not None:
+                u.takeout_target = body.takeout_target
+            if body.backup_dir is not None:
+                u.backup_dir = body.backup_dir.strip("/") or None
+            log_event(s, "info", "user_setting", f"{u.name}: takeout_target={u.takeout_target} backup_dir={u.backup_dir}")
+            return {"takeout_target": u.takeout_target, "backup_dir": u.backup_dir or "", "drive_root": u.drive_root or ""}
+
+    @app.get("/api/me/folders")
+    def my_folders(user: User = Depends(auth)) -> dict:
+        """Folders inside the person's Photos folder (3 levels), to choose where phone photos go."""
+        base = Path(user.personal_root or "/nonexistent")
+        out: list[dict] = []
+        if base.is_dir():
+            def walk(d: Path, depth: int) -> None:
+                try:
+                    kids = sorted(p for p in d.iterdir() if p.is_dir() and not p.name.startswith((".", "@", "#")))
+                except OSError:
+                    return
+                for k in kids:
+                    rel = k.relative_to(base).as_posix()
+                    out.append({"path": rel, "depth": depth})
+                    if depth < 3 and len(out) < 500:
+                        walk(k, depth + 1)
+            walk(base, 1)
+        # their home (for the Google Drive folder): two levels, without Photos
+        home = settings.homes_root / user.name
+        home_out: list[dict] = []
+        try:
+            for a in sorted(p for p in home.iterdir() if p.is_dir() and not p.name.startswith((".", "@", "#"))):
+                if a.name == "Photos":
+                    continue
+                home_out.append({"path": a.name, "depth": 1})
+                for b in sorted(p for p in a.iterdir() if p.is_dir() and not p.name.startswith((".", "@", "#"))):
+                    home_out.append({"path": f"{a.name}/{b.name}", "depth": 2})
+        except OSError:
+            pass
+        from .incoming import drive_dir
+        dd = drive_dir(settings, user)
+        try:
+            detected = dd.parent.relative_to(home).as_posix() if dd.exists() and dd.parent != home else ""
+        except ValueError:
+            detected = ""
+        return {"root": f"homes/{user.name}/Photos", "folders": out, "backup_dir": user.backup_dir or "",
+                "home": f"homes/{user.name}", "home_folders": home_out, "drive_root": user.drive_root or "",
+                "drive_detected": detected}
 
     @app.post("/api/device-albums")
     def device_albums(body: DeviceAlbum, user: User = Depends(auth)) -> dict:
@@ -242,11 +300,18 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         from .incoming import have
         return have(db, user, body.hashes)
 
+    @app.post("/api/drive-removed")
+    def drive_removed_files(body: Hashes, user: User = Depends(auth)) -> dict:
+        """The phone removed these from Google Drive; tidy the Synology's copy of the Drive folder."""
+        from .incoming import drive_removed
+        return {"deleted": drive_removed(db, settings, user, body.hashes)}
+
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:
         return {"id": user.id, "name": user.name, "admin": user.is_admin, "takeout_target": user.takeout_target,
                 # False = their Synology Photos folder (/homes/<name>/Photos) is not there: log in again
-                "photo_folder": bool(user.personal_root and Path(user.personal_root).is_dir())}
+                "photo_folder": bool(user.personal_root and Path(user.personal_root).is_dir()),
+                "backup_dir": user.backup_dir or ""}
 
     @app.get("/api/status")
     def status(user: User = Depends(auth)) -> dict:

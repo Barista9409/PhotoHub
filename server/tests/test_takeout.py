@@ -46,11 +46,11 @@ def test_import_100_matches_metadata_and_is_idempotent(settings, db):
     items[3].albums = ["Album only"]
     _zip(settings, "takeout-20260101T000000Z-001.zip", items[:50])
     _zip(settings, "takeout-20260101T000000Z-002.zip", items[50:])
+    kept = {z.name: z.read_bytes() for z in settings.inbox.rglob("*.zip")}
     rep = import_inbox(db, settings, apply=True)[0]
     assert (rep.new, rep.error) == (100, 0), rep.errors
     assert len(_library_files(settings)) == 100
-    assert not list(settings.inbox.glob("*.zip"))
-    assert len(list(settings.processed.glob("*.zip"))) == 2
+    assert not list(settings.inbox.rglob("*.zip"))  # imported without errors -> deleted
 
     by_name = {i.name: i for i in items}
     with db.session() as s:
@@ -70,8 +70,8 @@ def test_import_100_matches_metadata_and_is_idempotent(settings, db):
     assert albums == {"Trip 2023": 10, "Family": 7, "Album only": 1}
 
     # the very same ZIPs again -> nothing new
-    for z in settings.processed.glob("*.zip"):
-        (settings.inbox / z.name).write_bytes(z.read_bytes())
+    for name, data in kept.items():
+        (settings.inbox / name).write_bytes(data)
     rep2 = import_inbox(db, settings, apply=True)[0]
     assert rep2.skipped_job
     assert len(_library_files(settings)) == 100 and _count(db) == 100

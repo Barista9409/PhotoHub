@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SignalCellularAlt
@@ -98,6 +99,7 @@ enum class Dest(val route: String, val title: String) {
     DEVICE("device", "このスマホ"),
     APP("app", "アプリ"),
     LIBRARY("library", "ライブラリの内訳"),
+    PLACES("places", "Synologyの保存場所"),
 }
 
 @Composable
@@ -148,7 +150,24 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                     base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
                     else -> StatusPill("外出先からつながっています", true)
                 }
-                if (status?.apply == false) { Spacer(Modifier.size(8.dp)); StatusPill("Synologyは確認モード", false) }
+                if (status?.apply == false) { Spacer(Modifier.size(8.dp)); StatusPill("試運転中", false) }
+            }
+        }
+        if (status?.apply == false) {
+            Column(Modifier.padding(16.dp, 8.dp).fillMaxWidth()
+                .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(16.dp)).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("試運転中：Synologyの写真はまだ動かしません", style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text("いまPhotoHubは、Synologyの写真を読んで一覧を作るだけです。スマホやGoogleから届いた写真をSynology Photosのフォルダに入れる、重複を片付ける、取り込み済みのTakeoutを消す、といった作業は、まだしていません（届いた写真は待っています）。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                if (me?.admin == true) {
+                    Text("一覧や件数に問題がなければ、本番に切り替えてください：Container Manager →「プロジェクト」→ photohub →「YAML設定」で PHOTOHUB_APPLY を \"true\" に変えて保存 → 再起動。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                } else {
+                    Text("本番への切り替えは、管理者が行います。", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
             }
         }
 
@@ -185,15 +204,12 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 status?.let { if (it.similarOpen > 0) "${it.similarOpen} 組。残す写真を選べます" else "ありません" } ?: "連写や加工前後の写真を見つけます",
                 onClick = { open(Dest.SIMILAR) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.CleaningServices, "Googleフォトから消してよい写真",
-                "Synologyに保存済みの古い写真を、月ごとに案内します", onClick = { open(Dest.CLEANUP) }) { Chevron() }
-            GroupDivider()
             FreeUpSpaceRow()
         }
 
         SectionTitle("Googleフォトからの移行")
         Group {
-            SettingRow(Icons.Default.PhotoLibrary, "TakeoutのZIPを送る", "Googleフォトの写真をSynologyへ移します",
+            SettingRow(Icons.Default.PhotoLibrary, "Googleフォトからの移行", "Takeoutの作り方・取り込みの様子・Googleフォトを空にする",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.AutoMirrored.Filled.ListAlt, "Synologyへの取り込み記録", "Takeout・スマホ・ドライブから入った件数と結果",
@@ -215,7 +231,8 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
 
         SectionTitle("アカウント")
         Group {
-            PlaceSetting()
+            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真の保存先・Googleドライブのフォルダ・Googleの写真の保存先",
+                onClick = { open(Dest.PLACES) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.AutoMirrored.Filled.Logout, "ログアウト", "別の家族がこのスマホを使うとき", onClick = { confirmLogout = true })
         }
@@ -482,9 +499,9 @@ fun PlaceSetting() {
         }
         if (current == null) Text("Synologyにつながると選べます", style = MaterialTheme.typography.bodySmall)
         else Segmented(listOf("personal" to "自分だけ", "shared" to "家族で共有"), current!!, { key ->
-            scope.launch { try { app.net.api()!!.setMySettings(MySettings(key)); current = key } catch (_: Exception) {} }
+            scope.launch { try { app.net.api()!!.setMySettings(MySettings(takeoutTarget = key)); current = key } catch (_: Exception) {} }
         })
-        Text("スマホから直接送った写真は、Synology Photosのバックアップと同じ場所（自分の個人スペース）に入ります。変更は次に取り込む写真から。", style = MaterialTheme.typography.bodySmall,
+        Text("Googleフォト（Takeout）やGoogleドライブから入った写真が対象です。変更は次に取り込む写真から。", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

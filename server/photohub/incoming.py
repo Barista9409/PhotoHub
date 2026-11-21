@@ -40,6 +40,8 @@ def drive_dir(settings: Settings, user: User) -> Path:
          into their home folder: /volume1/homes/<name>/<anything>/PhotoHub"""
     if user.drive_dir:
         return Path(user.drive_dir)
+    if user.drive_root:
+        return settings.homes_root / user.name / user.drive_root / "PhotoHub"
     default = settings.inbox.parent / "drive" / user.name
     if default.exists() and any(default.iterdir()):
         return default
@@ -129,6 +131,33 @@ def _scan_drive_folder(db: Database, settings: Settings, user: User) -> int:
             else:
                 k.file_hash, k.size, k.mtime, k.processed_at, k.media_id = fh, st.st_size, st.st_mtime, None, None
             n += 1
+    return n
+
+
+def drive_removed(db: Database, settings: Settings, user: User, hashes: list[str]) -> int:
+    """The phone removed these files from Google Drive (outside the window): delete the copies that
+    Cloud Sync left in the Synology's Drive folder - but only ones already filed in the library."""
+    from .db import Location
+    hashes = [h.lower() for h in hashes][:5000]
+    root = drive_dir(settings, user).resolve()
+    n = 0
+    with db.session() as s:
+        for up in s.execute(select(Upload).where(Upload.user_id == user.id, Upload.source == "drive",
+                                                 Upload.file_hash.in_(hashes))).scalars():
+            if up.processed_at is None or up.media_id is None:
+                continue  # not in the library yet (or check mode): keep it
+            safe = s.execute(select(Location).where(Location.media_id == up.media_id, Location.store == "nas",
+                                                    Location.state == "present")).scalars().first()
+            p = Path(up.path)
+            if safe is None or not p.exists() or not p.resolve().is_relative_to(root):
+                continue
+            if Path(safe.source_ref or "").resolve() == p.resolve():
+                continue  # this file IS the library copy
+            p.unlink()
+            set_location(s, up.media_id, "drive", "removed", user_id=user.id)
+            n += 1
+        if n:
+            log_event(s, "info", "drive_cleanup", f"{user.name}: {n} file(s) removed from Google Drive, Synology copy of the Drive folder deleted")
     return n
 
 

@@ -54,6 +54,12 @@ class User(Base):
     # where this person's Drive folder "PhotoHub" appears on the NAS (Cloud Sync). Default:
     # <root>/inbox/drive/<name>. Set when an existing Cloud Sync task already syncs their whole Drive.
     drive_dir: Mapped[str | None] = mapped_column(Text)
+    # where photos sent from the phone go, relative to personal_root (chosen in the app, because each
+    # person may have pointed Synology Photos' own phone backup somewhere else). None = MobileBackup/<phone>
+    backup_dir: Mapped[str | None] = mapped_column(Text)
+    # the folder in their home where Cloud Sync puts their Google Drive (chosen in the app);
+    # Drive photos are read from <it>/PhotoHub and Takeout ZIPs from <it>/Takeout. None = found automatically
+    drive_root: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

@@ -112,7 +112,7 @@ def test_admin_only_for_shared_and_events(settings, db, family):
     assert c.get("/api/events", headers=h_chie).status_code == 403
     assert c.get("/api/events", headers=h_reo).status_code == 200
     assert c.post("/api/amazon/heartbeat", headers=h_chie).status_code == 403
-    assert {k: v for k, v in c.get("/api/me", headers=h_chie).json().items() if k != "photo_folder"} == {"id": chie.id, "name": "chie", "admin": False,
+    assert {k: v for k, v in c.get("/api/me", headers=h_chie).json().items() if k not in ("photo_folder", "backup_dir")} == {"id": chie.id, "name": "chie", "admin": False,
                                                        "takeout_target": "personal"}
 
 

@@ -47,7 +47,21 @@ data class Me(val id: Long, val name: String, val admin: Boolean = false, @Seria
               @SerialName("photo_folder") val photoFolder: Boolean = true)
 
 @Serializable
-data class MySettings(@SerialName("takeout_target") val takeoutTarget: String)
+data class MySettings(
+    @SerialName("takeout_target") val takeoutTarget: String? = null,
+    @SerialName("backup_dir") val backupDir: String? = null,
+    @SerialName("drive_root") val driveRoot: String? = null,
+)
+
+@Serializable
+data class FolderEntry(val path: String, val depth: Int = 1)
+
+@Serializable
+data class MyFolders(
+    val root: String = "", val folders: List<FolderEntry> = emptyList(), @SerialName("backup_dir") val backupDir: String = "",
+    val home: String = "", @SerialName("home_folders") val homeFolders: List<FolderEntry> = emptyList(),
+    @SerialName("drive_root") val driveRoot: String = "", @SerialName("drive_detected") val driveDetected: String = "",
+)
 
 @Serializable
 data class Status(
@@ -155,6 +169,8 @@ interface PhotoHubApi {
     @POST("api/device-albums") suspend fun deviceAlbum(@Body body: DeviceAlbumBody): DeviceAlbumResult
     @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status
+    @GET("api/me/folders") suspend fun myFolders(): MyFolders
+    @POST("api/drive-removed") suspend fun driveRemoved(@Body body: HashesBody): Map<String, Int>
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>
     @GET("api/sync") suspend fun sync(@Query("cursor") cursor: Long, @Query("limit") limit: Int = 2000): SyncPage

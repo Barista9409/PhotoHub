@@ -185,11 +185,12 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.DRIVE_BACKUP.route) { com.photohub.app.ui.DriveBackupScreen() }
                 composable(Dest.SIMILAR.route) { com.photohub.app.ui.SimilarScreen() }
                 composable(Dest.CLEANUP.route) { com.photohub.app.ui.GoogleCleanupScreen() }
-                composable(Dest.MIGRATION.route) { com.photohub.app.ui.MigrationScreen() }
+                composable(Dest.MIGRATION.route) { com.photohub.app.ui.MigrationScreen(open = { d -> nav.navigate(d.route) }) }
                 composable(Dest.IMPORT_LOG.route) { com.photohub.app.ui.ImportLogScreen() }
                 composable(Dest.DEVICE.route) { com.photohub.app.ui.DeviceScreen() }
                 composable(Dest.APP.route) { com.photohub.app.ui.AppScreen() }
                 composable(Dest.LIBRARY.route) { com.photohub.app.ui.LibraryScreen() }
+                composable(Dest.PLACES.route) { com.photohub.app.ui.SynologyPlacesScreen() }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {
                         nav.navigate("timeline") { popUpTo("timeline") { inclusive = true } }
