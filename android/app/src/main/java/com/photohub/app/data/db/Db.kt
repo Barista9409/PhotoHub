@@ -233,6 +233,12 @@ interface MediaDao {
     @Query("UPDATE local_media SET fileHash = :hash WHERE mediaStoreId = :id")
     suspend fun setLocalHash(id: Long, hash: String)
 
+    @Query("UPDATE local_media SET fileHash = :hash, lat = :lat, lon = :lon WHERE mediaStoreId = :id")
+    suspend fun setLocalHashAndPlace(id: Long, hash: String, lat: Double?, lon: Double?)
+
+    @Query("SELECT COUNT(*) FROM local_media WHERE fileHash IS NULL")
+    suspend fun countUnhashed(): Int
+
     @Query("DELETE FROM remote_media")
     suspend fun clearRemote()
 
@@ -271,7 +277,7 @@ interface MediaDao {
 }
 
 @Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
-    version = 3, exportSchema = true)
+    version = 4, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 

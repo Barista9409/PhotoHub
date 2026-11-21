@@ -64,7 +64,7 @@ import kotlinx.coroutines.launch
 /** Pending action that needs a "you are on mobile data" confirmation (spec F6). */
 private data class Confirm(val title: String, val text: String, val run: () -> Unit)
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ViewerScreen(start: Int, onBack: () -> Unit) {
     val items = remember { UiState.viewerItems }
@@ -120,7 +120,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る", tint = Color.White) }
                 Column(Modifier.weight(1f)) {
                     Text(formatDate(cur), color = Color.White)
-                    Row { StoreBadges(cur.stores); Gap(4); Text(cur.name, color = Color(0xCCFFFFFF), maxLines = 1) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { StoreBadges(cur.stores); Gap(6); Text(cur.name, color = Color(0xCCFFFFFF), maxLines = 1) }
                 }
                 cur.hash?.let { h ->
                     IconButton(onClick = { scope.launch { app.prefs.toggleFavorite(h) } }) {
@@ -150,10 +150,16 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                 Text(cur.name)
                 Text(listOfNotNull(cur.w?.let { w -> cur.h?.let { "${w}×${it}" } }, humanBytes(cur.bytes),
                     cur.duration?.let { "%d:%02d".format((it / 60).toInt(), (it % 60).toInt()) }).joinToString("・"))
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("保存先："); StoreBadges(cur.stores) }
-                Text(cur.stores.split(',').filter { it.isNotBlank() }.joinToString("、") {
-                    when (it) { "phone" -> "このスマホ"; "nas" -> "NAS"; "drive" -> "Googleドライブ"; "google" -> "Googleフォト"; "amazon" -> "Amazonフォト"; else -> it }
-                }, style = MaterialTheme.typography.bodySmall)
+                Text("保存されている場所", style = MaterialTheme.typography.labelLarge)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val ps = placesOf(cur.stores)
+                    ps.forEach { PlaceChip(it) }
+                    if (onlyOnPhone(cur.stores)) PlaceChip(NOT_BACKED_UP)
+                }
+                var legend by remember { mutableStateOf(false) }
+                androidx.compose.material3.TextButton({ legend = !legend }) { Text(if (legend) "印の見かたを閉じる" else "一覧の印の見かた") }
+                if (legend) PlaceLegend()
                 if (cur.lat != null && cur.lon != null) {
                     Text("撮影場所：%.5f, %.5f".format(cur.lat, cur.lon))
                     TextButton(onClick = {

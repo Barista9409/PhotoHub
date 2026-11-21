@@ -83,11 +83,14 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
     }
 
     /** Hash files that have none yet (run while charging). Returns how many were hashed. */
-    suspend fun hashPending(limit: Int = 2000, isStopped: () -> Boolean = { false }): Int {
+    suspend fun hashPending(limit: Int = 2000, isStopped: () -> Boolean = { false },
+                            progress: suspend (Int, Int) -> Unit = { _, _ -> }): Int {
         var n = 0
-        for (m in dao.localWithoutHash(limit)) {
+        val todo = dao.localWithoutHash(limit)
+        for (m in todo) {
             if (isStopped()) break
             val uri = android.net.Uri.parse(m.uri)
+            // the original bytes (with GPS) need ACCESS_MEDIA_LOCATION + setRequireOriginal
             val readUri = if (Build.VERSION.SDK_INT >= 29) MediaStore.setRequireOriginal(uri) else uri
             val hash = try {
                 ctx.contentResolver.openInputStream(readUri)?.use { sha256(it) }
@@ -96,11 +99,20 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
             } catch (e: Exception) {
                 null
             } ?: continue
-            dao.setLocalHash(m.mediaStoreId, hash)
+            val (lat, lon) = if (m.kind == "photo") location(readUri) ?: location(uri) ?: (null to null) else (null to null)
+            dao.setLocalHashAndPlace(m.mediaStoreId, hash, lat, lon)
             n++
+            if (n % 20 == 0) progress(n, todo.size)
         }
         return n
     }
+
+    /** Where the photo was taken (EXIF GPS), for the map. */
+    private fun location(uri: android.net.Uri): Pair<Double?, Double?>? = try {
+        ctx.contentResolver.openInputStream(uri)?.use { s ->
+            androidx.exifinterface.media.ExifInterface(s).latLong?.let { (it[0] to it[1]).takeIf { p -> p.first != 0.0 || p.second != 0.0 } }
+        }
+    } catch (e: Exception) { null }
 
     companion object {
         /** The camera roll holds nearly everything, so it is not sent to the NAS as an album. */

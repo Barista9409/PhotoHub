@@ -166,16 +166,29 @@ object Window {
     }
 }
 
+/** Where a backup run is, for the progress bar and the notification. */
+data class BackupStep(val phase: String, val label: String, val done: Int, val total: Int) {
+    val fraction get() = if (total > 0) done.toFloat() / total else 0f
+    companion object {
+        const val PREPARE = "prepare"; const val NAS = "nas"; const val DRIVE = "drive"; const val TIDY = "tidy"
+    }
+}
+
 class BackupEngine(private val app: PhotoHubApp) {
     data class Result(val toNas: Int, val toDrive: Int, val removedFromDrive: Int, val message: String)
 
-    suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
+    suspend fun run(progress: suspend (BackupStep) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
         withContext(Dispatchers.IO) {
             val s = app.prefs.current()
             val metered = app.net.isMetered()
             if (metered && !s.backupOnMobile) return@withContext Result(0, 0, 0, "モバイル回線のため待機中")
             app.indexer.scan()
-            app.indexer.hashPending(limit = 3000) { isStopped() }
+            // first time: every photo is checked once (fingerprint + place); later only new ones
+            val unhashed = app.db.media().countUnhashed()
+            if (unhashed > 0) progress(BackupStep(BackupStep.PREPARE, "写真を確認中", 0, unhashed))
+            app.indexer.hashPending(limit = 1_000_000, isStopped = isStopped) { d, t ->
+                progress(BackupStep(BackupStep.PREPARE, "写真を確認中", d, t))
+            }
             val local = app.db.media().localHashed()
             val api = if (s.configured) app.net.api() else null
             // --- 1. straight to the NAS ---
@@ -183,15 +196,20 @@ class BackupEngine(private val app: PhotoHubApp) {
             val onNas = HashSet<String>(app.db.media().remoteFileHashes())
             if (api != null) {
                 val unknown = local.filter { it.fileHash !in onNas }
+                // ask the NAS first, so the progress bar knows the real number to send
+                val toSend = mutableListOf<LocalMedia>()
                 for (chunk in unknown.chunked(500)) {
                     val have = try { api.have(HashesBody(chunk.map { it.fileHash!! })) } catch (e: Exception) { emptyMap() }
                     have.filterValues { it == "nas" }.keys.forEach { onNas += it }
-                    if (!s.backupNas) continue
-                    for (m in chunk) {
+                    toSend += chunk.filter { have[it.fileHash] == null }
+                }
+                if (s.backupNas) {
+                    for ((i, m) in toSend.withIndex()) {
                         if (isStopped()) break
-                        if (have[m.fileHash] != null) continue
-                        if (uploadToNas(m)) { toNas++; progress("NASへ $toNas 件") }
+                        progress(BackupStep(BackupStep.NAS, "NASへ送信中", i, toSend.size))
+                        if (uploadToNas(m)) toNas++
                     }
+                    if (toSend.isNotEmpty()) progress(BackupStep(BackupStep.NAS, "NASへ送信中", toSend.size, toSend.size))
                 }
             }
             // --- 2. Google Drive window ---
@@ -205,22 +223,21 @@ class BackupEngine(private val app: PhotoHubApp) {
                 val candidates = (local.map { it.fileHash!! to (it.takenAt to it.size) } +
                     inDrive.values.map { it.fileHash to (it.takenAt to it.size) }).distinctBy { it.first }
                 val keep = Window.keep(candidates, s)
-                for (m in local) {
+                val toUpload = local.filter { it.fileHash!! in keep && it.fileHash !in inDrive }
+                for ((i, m) in toUpload.withIndex()) {
                     if (isStopped()) break
-                    val h = m.fileHash!!
-                    if (h in keep && h !in inDrive) {
-                        try {
-                            val f = drive.upload(token, m)
-                            inDrive[h] = f
-                            app.db.media().upsertDrive(listOf(f))
-                            toDrive++
-                            progress("Googleドライブへ $toDrive 件")
-                        } catch (e: Exception) { /* next run */ }
-                    }
+                    progress(BackupStep(BackupStep.DRIVE, "Googleドライブへ送信中", i, toUpload.size))
+                    try {
+                        val f = drive.upload(token, m)
+                        inDrive[m.fileHash!!] = f
+                        app.db.media().upsertDrive(listOf(f))
+                        toDrive++
+                    } catch (e: Exception) { /* next run */ }
                 }
                 // tidy: outside the window AND safely on the NAS
                 val outside = inDrive.values.filter { it.fileHash !in keep }
                 if (outside.isNotEmpty() && api != null) {
+                    progress(BackupStep(BackupStep.TIDY, "Googleドライブを整理中", 0, outside.size))
                     for (chunk in outside.chunked(500)) {
                         val have = try { api.have(HashesBody(chunk.map { it.fileHash })) } catch (e: Exception) { emptyMap() }
                         for (f in chunk) {
@@ -259,7 +276,16 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val s = app.prefs.current()
         if (!s.backupNas && !s.backupDrive) return androidx.work.ListenableWorker.Result.success()
         return try {
-            val r = BackupEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }) { isStopped }
+            var lastNotify = 0L
+            val r = BackupEngine(app).run(progress = { st ->
+                setProgress(workDataOf("phase" to st.phase, "label" to st.label, "done" to st.done, "total" to st.total,
+                    "msg" to "${st.label} ${st.done} / ${st.total}"))
+                val now = System.currentTimeMillis()
+                if (now - lastNotify > 1500 || st.done == st.total) {  // a progress notification while it runs
+                    lastNotify = now
+                    try { setForeground(foregroundInfo(applicationContext, st)) } catch (_: Exception) {}
+                }
+            }) { isStopped }
             app.prefs.setLastBackup(System.currentTimeMillis(), "${r.message}（NAS ${r.toNas}・ドライブ ${r.toDrive}・整理 ${r.removedFromDrive}）")
             androidx.work.ListenableWorker.Result.success()
         } catch (e: Exception) {
@@ -270,11 +296,24 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
     companion object {
         const val ONCE = "photohub-backup-now"
+        const val PERIODIC = "photohub-backup"
+
+        fun foregroundInfo(ctx: Context, st: BackupStep): androidx.work.ForegroundInfo {
+            val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+            nm.createNotificationChannel(android.app.NotificationChannel("backup", "バックアップ", android.app.NotificationManager.IMPORTANCE_LOW))
+            val pct = (st.fraction * 100).toInt()
+            val n = androidx.core.app.NotificationCompat.Builder(ctx, "backup").setSmallIcon(com.photohub.app.R.drawable.ic_stat_update)
+                .setContentTitle(st.label).setContentText("${st.done} / ${st.total}（$pct%）").setOngoing(true).setOnlyAlertOnce(true)
+                .setProgress(100, pct, st.total == 0).build()
+            return if (android.os.Build.VERSION.SDK_INT >= 29)
+                androidx.work.ForegroundInfo(4401, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            else androidx.work.ForegroundInfo(4401, n)
+        }
         fun schedule(ctx: Context) {
             val req = PeriodicWorkRequestBuilder<BackupWorker>(1, TimeUnit.HOURS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES).build()
-            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("photohub-backup", ExistingPeriodicWorkPolicy.UPDATE, req)
+            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, req)
         }
         fun runNow(ctx: Context) {
             val req = OneTimeWorkRequestBuilder<BackupWorker>()

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -120,6 +121,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
     }
     val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
     val updater by app.updater.state.collectAsState()
+    val live = rememberBackupLive()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
         // ---- who / where ----
@@ -149,6 +151,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
 
         SectionTitle("バックアップ")
         Group {
+            if (live.running) { BackupProgress(live); GroupDivider() }
             SettingRow(Icons.Default.Dns, "NASへのバックアップ",
                 if (cur.backupNas) "オン・" + (if (last.first > 0) "最後 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}" else "まだ実行していません") else "オフ",
                 onClick = { open(Dest.NAS_BACKUP) }) { Chevron() }
@@ -232,7 +235,7 @@ fun NasBackupScreen() {
                 cur.backupOnMobile, enabled = cur.backupNas) { save(cur.copy(backupOnMobile = it)) }
         }
         SectionTitle("状況")
-        Group { BackupNowRow() }
+        Group { BackupNowRow(only = "nas") }
     }
 }
 
@@ -290,7 +293,7 @@ fun DriveBackupScreen() {
             }
         }
         SectionTitle("状況")
-        Group { BackupNowRow() }
+        Group { BackupNowRow(only = "drive") }
     }
 }
 
@@ -359,19 +362,57 @@ fun AppScreen() {
     }
 }
 
+/** Live state of whichever backup is running (the "now" one or the hourly one). */
+data class BackupLive(val running: Boolean, val phase: String, val label: String, val done: Int, val total: Int) {
+    val fraction: Float get() = if (total > 0) done.toFloat() / total else 0f
+}
+
 @Composable
-fun BackupNowRow() {
+fun rememberBackupLive(): BackupLive {
+    val ctx = LocalContext.current
+    val wm = WorkManager.getInstance(ctx)
+    val once by wm.getWorkInfosForUniqueWorkFlow(BackupWorker.ONCE).collectAsState(initial = emptyList())
+    val periodic by wm.getWorkInfosForUniqueWorkFlow(BackupWorker.PERIODIC).collectAsState(initial = emptyList())
+    val w = (once + periodic).firstOrNull { it.state == WorkInfo.State.RUNNING }
+        ?: return BackupLive(false, "", "", 0, 0)
+    val p = w.progress
+    return BackupLive(true, p.getString("phase") ?: "", p.getString("label") ?: "準備しています",
+        p.getInt("done", 0), p.getInt("total", 0))
+}
+
+/** Progress card: what it is doing, a bar, "123 / 456 枚（27%）". Hidden when nothing runs. */
+@Composable
+fun BackupProgress(live: BackupLive, only: String? = null) {
+    if (!live.running) return
+    val relevant = only == null || live.phase == only || live.phase == "prepare"
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(10.dp))
+            Text(if (relevant) live.label else "ほかの手順を実行中：${live.label}", style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (live.total > 0) Text("${(live.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary)
+        }
+        if (live.total > 0) {
+            androidx.compose.material3.LinearProgressIndicator(progress = { live.fraction }, modifier = Modifier.fillMaxWidth().height(6.dp))
+            Text("${live.done} / ${live.total} 枚", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(6.dp))
+        }
+    }
+}
+
+@Composable
+fun BackupNowRow(only: String? = null) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
-    val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(BackupWorker.ONCE).collectAsState(initial = emptyList())
-    val running = work.firstOrNull()?.state == WorkInfo.State.RUNNING
-    val sub = when {
-        running -> "実行中… ${work.firstOrNull()?.progress?.getString("msg") ?: ""}"
-        last.first > 0 -> "${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}　${last.second}"
-        else -> "まだ実行していません"
-    }
-    SettingRow(Icons.Default.CloudUpload, "今すぐバックアップ", sub, enabled = !running, onClick = { BackupWorker.runNow(ctx) })
+    val live = rememberBackupLive()
+    if (live.running) { BackupProgress(live, only); return }
+    val sub = if (last.first > 0) "前回 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}　${last.second}"
+        else "まだ実行していません"
+    SettingRow(Icons.Default.CloudUpload, "今すぐバックアップ", sub, onClick = { BackupWorker.runNow(ctx) })
 }
 
 @Composable

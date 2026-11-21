@@ -117,7 +117,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         if (!manual && !app.net.isHomeLan()) return androidx.work.ListenableWorker.Result.success()
         return try {
             app.indexer.scan()
-            app.indexer.hashPending(limit = if (manual) 500 else 5000) { isStopped }
+            app.indexer.hashPending(limit = if (manual) 500 else 5000, isStopped = { isStopped })
             val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }) { isStopped }
             if (r.message == "更新しました") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
             else androidx.work.ListenableWorker.Result.retry()
