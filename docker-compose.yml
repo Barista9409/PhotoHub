@@ -1,0 +1,27 @@
+# PhotoHub on Synology Container Manager (Project -> Create -> this file).
+# Paths are the DSM defaults from spec §6; adjust if your volumes differ.
+services:
+  photohub:
+    build: ./server
+    image: photohub:0.1.0
+    container_name: photohub
+    restart: unless-stopped
+    env_file: .env
+    # run as the DSM user "photohub" (id -u photohub / id -g photohub over SSH)
+    user: "${PUID:-1026}:${PGID:-100}"
+    environment:
+      PHOTOHUB_ROOT: /data/photohub
+      PHOTO_LIBRARY_ROOT: /data/photo
+    volumes:
+      - /volume1/photohub:/data/photohub          # inbox, work, processed, trash, db, cache, outbox
+      - /volume1/photo:/data/photo                # Synology Photos shared space (library)
+      # optional: index phone backups in a personal space (read-only)
+      # - /volume1/homes/USER/Photos/MobileBackup:/data/mobile:ro
+    ports:
+      # LAN only. Reach it from outside through Tailscale, never by router port-forwarding.
+      - "8765:8765"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3g

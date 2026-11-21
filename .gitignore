@@ -7,3 +7,12 @@ __pycache__/
 *.sqlite-*
 /work/
 /samples/private/
+server/*.egg-info/
+.pytest_cache/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.keystore
+*.jks

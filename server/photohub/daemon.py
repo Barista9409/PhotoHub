@@ -1,0 +1,124 @@
+"""P3: the resident service - folder watch, schedules, notifications and the REST API.
+
+Changes files only when PHOTOHUB_APPLY=true. Otherwise every job runs as a dry run and the
+results show up in the job history / events, which is how the first run on real photos is done
+(spec §9 instruction 3).
+"""
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from datetime import datetime
+
+import uvicorn
+from apscheduler.schedulers.background import BackgroundScheduler
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers.polling import PollingObserver
+
+from . import derivatives, notify, scanner, similar, storage, synology
+from .api import create_app
+from .config import Settings
+from .db import Database, log_event
+from .takeout import import_inbox
+
+log = logging.getLogger("photohub")
+
+
+class Service:
+    def __init__(self, settings: Settings, db: Database):
+        self.s, self.db = settings, db
+        self.heavy = threading.Lock()  # one heavy job at a time (NAS load, spec §7)
+        self._kick = threading.Event()
+
+    def _guard(self, name: str, fn, heavy: bool = True) -> None:  # noqa: ANN001
+        if heavy and not self.s.within_work_hours(datetime.now().hour):
+            return
+        if heavy and not self.heavy.acquire(blocking=False):
+            return
+        try:
+            fn()
+        except Exception as e:
+            log.exception("%s failed", name)
+            with self.db.session() as s:
+                log_event(s, "error", "daemon_error", f"{name}: {e}")
+        finally:
+            if heavy:
+                self.heavy.release()
+            notify.flush(self.db, self.s)
+
+    # ---- jobs ----------------------------------------------------------------
+    def job_inbox(self) -> None:
+        reports = import_inbox(self.db, self.s, apply=self.s.apply)
+        if any(r.new or r.merged for r in reports if not r.dry_run):
+            self._after_import()
+
+    def _after_import(self) -> None:
+        derivatives.build_all(self.db, self.s)
+        similar.refresh(self.db, self.s)
+        synology.sync_albums(self.db, self.s, apply=self.s.apply)
+
+    def job_scan(self) -> None:
+        rep = scanner.scan(self.db, self.s, self.s.scan_roots, apply=self.s.apply)
+        if rep.duplicates:
+            scanner.write_duplicate_report(rep, self.s.root / "reports" / f"duplicates-{datetime.now():%Y%m%d}.tsv")
+        if not rep.dry_run:
+            self._after_import()
+
+    def job_storage(self) -> None:
+        storage.verify_nas(self.db, self.s, limit=20000)
+        storage.fill_outbox(self.db, self.s, apply=self.s.apply)
+        storage.google_candidates(self.db, self.s)
+
+    def job_health(self) -> None:
+        notify.health_check(self.db, self.s)
+
+    def job_backup(self) -> None:
+        self.db.backup(self.s.db_dir / "backup")
+
+    # ---- wiring ------------------------------------------------------------------
+    def start_background(self) -> BackgroundScheduler:
+        sch = BackgroundScheduler(job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 3600})
+        sch.add_job(lambda: self._guard("inbox", self.job_inbox), "interval", minutes=10, id="inbox",
+                    next_run_time=datetime.now())
+        sch.add_job(lambda: self._guard("scan", self.job_scan), "cron", hour=2, minute=30, id="scan")
+        sch.add_job(lambda: self._guard("storage", self.job_storage), "cron", hour=5, minute=10, id="storage")
+        sch.add_job(lambda: self._guard("health", self.job_health, heavy=False), "interval", hours=1, id="health",
+                    next_run_time=datetime.now())
+        sch.add_job(lambda: self._guard("backup", self.job_backup, heavy=False), "cron", hour=4, minute=0, id="backup")
+        sch.start()
+
+        svc = self
+
+        class Handler(FileSystemEventHandler):
+            def on_any_event(self, event):  # noqa: ANN001
+                if str(event.src_path).lower().endswith(".zip"):
+                    svc._kick.set()
+
+        # Polling observer: works for files written by Cloud Sync and over bind mounts alike.
+        obs = PollingObserver(timeout=60)
+        obs.schedule(Handler(), str(self.s.inbox), recursive=False)
+        obs.daemon = True
+        obs.start()
+
+        def debounce() -> None:
+            while True:
+                self._kick.wait()
+                self._kick.clear()
+                time.sleep(self.s.stable_seconds + 5)  # wait until the ZIP is stable
+                self._guard("inbox", self.job_inbox)
+
+        threading.Thread(target=debounce, daemon=True).start()
+        return sch
+
+
+def serve(settings: Settings, db: Database) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    settings.ensure_dirs()
+    if not settings.api_token:
+        log.warning("PHOTOHUB_API_TOKEN is empty: the API will refuse every request")
+    log.info("PhotoHub starting (apply=%s, library=%s)", settings.apply, settings.library)
+    with db.session() as s:
+        log_event(s, "info", "daemon_start", f"apply={settings.apply}")
+    Service(settings, db).start_background()
+    uvicorn.run(create_app(settings, db), host=settings.api_host, port=settings.api_port, log_level="info")
