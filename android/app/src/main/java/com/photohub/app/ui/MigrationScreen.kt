@@ -50,10 +50,10 @@ fun MigrationScreen() {
                 "解凍せず、ZIPのまま選んでください。分かれたZIP（-001、-002 …）はまとめて選べます。自宅のWi-Fiで送ります")
             GroupDivider()
             SettingRow(Icons.Default.Inventory2, "3. NASが取り込む",
-                "日時と場所を整え、すでにNASにある写真（スマホのバックアップなど）とは重複しないよう1枚にまとめます。結果は「管理」→「取り込み履歴」で見られます")
+                "日時と場所を整え、すでにNASにある写真（スマホのバックアップなど）とは重複しないよう1枚にまとめます。結果は「NASへの取り込み記録」で見られます")
             GroupDivider()
             SettingRow(Icons.Default.TaskAlt, "4. 確認できたらGoogleフォトを片付ける",
-                "「管理」→「Google削除候補」に、NASに入った月が出ます。Googleフォトのアプリで消してください")
+                "「Googleフォトから消してよい写真」に、NASに入った月が出ます。Googleフォトのアプリで消してください")
         }
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(enabled = !running, modifier = Modifier.fillMaxWidth().height(52.dp),

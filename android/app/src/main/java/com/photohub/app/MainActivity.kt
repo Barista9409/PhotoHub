@@ -31,6 +31,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
@@ -43,13 +48,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.photohub.app.data.db.TimelineItem
-import com.photohub.app.ui.AdminScreen
 import com.photohub.app.ui.AlbumScreen
 import com.photohub.app.ui.AlbumsScreen
 import com.photohub.app.ui.MapScreen
 import com.photohub.app.ui.PhotoHubTheme
 import com.photohub.app.ui.SearchScreen
-import com.photohub.app.ui.SettingsScreen
+import com.photohub.app.ui.Dest
 import com.photohub.app.ui.SetupScreen
 import com.photohub.app.ui.TimelineScreen
 import com.photohub.app.ui.UiState
@@ -94,7 +98,6 @@ private val tabs = listOf(
     Tab("albums", "アルバム", Icons.Default.PhotoAlbum),
     Tab("map", "地図", Icons.Default.Map),
     Tab("search", "検索", Icons.Default.Search),
-    Tab("admin", "管理", Icons.Default.Tune),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,7 +115,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
         perms.launch(if (Build.VERSION.SDK_INT >= 33) wanted + Manifest.permission.POST_NOTIFICATIONS else wanted)
         if (!app.prefs.current().configured) nav.navigate("setup")
-        else if (openUpdate) nav.navigate("admin")
+        else if (openUpdate) nav.navigate(Dest.APP.route)
     }
     LaunchedEffect(setupLink) { if (setupLink != null) nav.navigate("setup") }
     val open: (List<TimelineItem>, Int) -> Unit = { list, i -> UiState.viewerItems = list; nav.navigate("viewer/$i") }
@@ -125,13 +128,8 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                     if (tabs.none { it.route == route }) IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る") }
                 },
                 actions = {
-                    val upd by app.updater.state.collectAsState()
-                    if (upd is com.photohub.app.data.Updater.State.Available || upd is com.photohub.app.data.Updater.State.Ready) {
-                        IconButton({ nav.navigate("admin") }) {
-                            Icon(Icons.Default.SystemUpdate, "アプリの更新があります", tint = androidx.compose.material3.MaterialTheme.colorScheme.secondary)
-                        }
-                    }
-                    if (route != "settings") IconButton({ nav.navigate("settings") }) { Icon(Icons.Default.Settings, "設定") }
+                    // account / backup / tidy-up / settings all live behind the avatar (like Google Photos)
+                    if (route != "account" && tabs.any { it.route == route }) AccountButton(app) { nav.navigate("account") }
                 },
             )
         },
@@ -160,11 +158,18 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 }
                 composable("map") { MapScreen(open) }
                 composable("search") { SearchScreen(open) }
-                composable("admin") { AdminScreen { nav.navigate("settings") } }
-                composable("settings") {
-                    SettingsScreen(onLoggedOut = { nav.navigate("setup") { popUpTo(0) } }, onMigration = { nav.navigate("migration") })
+                composable("account") {
+                    com.photohub.app.ui.AccountHub(open = { d -> nav.navigate(d.route) },
+                        onLoggedOut = { nav.navigate("setup") { popUpTo(0) } })
                 }
-                composable("migration") { com.photohub.app.ui.MigrationScreen() }
+                composable(Dest.NAS_BACKUP.route) { com.photohub.app.ui.NasBackupScreen() }
+                composable(Dest.DRIVE_BACKUP.route) { com.photohub.app.ui.DriveBackupScreen() }
+                composable(Dest.SIMILAR.route) { com.photohub.app.ui.SimilarScreen() }
+                composable(Dest.CLEANUP.route) { com.photohub.app.ui.GoogleCleanupScreen() }
+                composable(Dest.MIGRATION.route) { com.photohub.app.ui.MigrationScreen() }
+                composable(Dest.IMPORT_LOG.route) { com.photohub.app.ui.ImportLogScreen() }
+                composable(Dest.DEVICE.route) { com.photohub.app.ui.DeviceScreen() }
+                composable(Dest.APP.route) { com.photohub.app.ui.AppScreen() }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {
                         nav.navigate("timeline") { popUpTo("timeline") { inclusive = true } }
@@ -178,9 +183,28 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
     }
 }
 
+/** Avatar in the top bar: the person's initial, a dot when an app update is waiting. */
+@Composable
+private fun AccountButton(app: PhotoHubApp, onClick: () -> Unit) {
+    val upd by app.updater.state.collectAsState()
+    val name by produceState("") { value = try { app.net.api()?.me()?.name ?: "" } catch (e: Exception) { "" } }
+    val dot = upd is com.photohub.app.data.Updater.State.Available || upd is com.photohub.app.data.Updater.State.Ready
+    IconButton(onClick) {
+        Box {
+            Box(Modifier.size(32.dp).background(androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer,
+                androidx.compose.foundation.shape.CircleShape), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                if (name.isNotBlank()) Text(name.take(1).uppercase(), color = androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer)
+                else Icon(Icons.Default.Person, "アカウントと設定")
+            }
+            if (dot) Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).size(10.dp)
+                .background(androidx.compose.material3.MaterialTheme.colorScheme.error, androidx.compose.foundation.shape.CircleShape))
+        }
+    }
+}
+
 private fun titleFor(route: String, name: String?) = when {
     route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
-    route == "settings" -> "設定"
-    route == "migration" -> "Googleフォトからの移行"
+    route == "account" -> "アカウントと設定"
+    Dest.entries.any { it.route == route } -> Dest.entries.first { it.route == route }.title
     else -> tabs.firstOrNull { it.route == route }?.label ?: "PhotoHub"
 }

@@ -53,25 +53,7 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun AdminScreen(onSettings: () -> Unit) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    Column(Modifier.fillMaxSize()) {
-        PrimaryTabRow(selectedTabIndex = tab) {
-            listOf("ホーム", "取り込み履歴", "類似の候補", "Google削除候補").forEachIndexed { i, t ->
-                Tab(tab == i, { tab = i }, text = { Text(t, maxLines = 1) })
-            }
-        }
-        when (tab) {
-            0 -> HomeTab(onSettings)
-            1 -> JobsTab()
-            2 -> SimilarTab()
-            else -> CandidatesTab()
-        }
-    }
-}
-
-@Composable
-private fun <T> remote(key: Any = Unit, load: suspend (com.photohub.app.data.api.PhotoHubApi) -> T): Pair<T?, String?> {
+fun <T> remote(key: Any = Unit, load: suspend (com.photohub.app.data.api.PhotoHubApi) -> T): Pair<T?, String?> {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     var value by remember(key) { mutableStateOf<T?>(null) }
     var error by remember(key) { mutableStateOf<String?>(null) }
@@ -86,64 +68,16 @@ private fun <T> remote(key: Any = Unit, load: suspend (com.photohub.app.data.api
     return value to error
 }
 
+/** NAS import log: what came in from Takeout, phones and Drive, and what was new / duplicate / failed. */
 @Composable
-private fun HomeTab(onSettings: () -> Unit) {
-    val ctx = LocalContext.current
-    val app = ctx.applicationContext as PhotoHubApp
-    var refresh by remember { mutableIntStateOf(0) }
-    val (status, err) = remote<Status>(refresh) { it.status() }
-    val settings by app.prefs.settings.collectAsState(initial = null)
-    val remoteCount by app.db.media().remoteCount().collectAsState(initial = 0)
-    val localCount by app.db.media().localCount().collectAsState(initial = 0)
-    val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(SyncWorker.ONCE).collectAsState(initial = emptyList())
-    val running = work.firstOrNull()?.state == WorkInfo.State.RUNNING
-    val progress = work.firstOrNull()?.progress?.getString("msg")
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("NAS", style = MaterialTheme.typography.titleMedium)
-                if (status != null) {
-                    Text("ログイン中: ${status.user ?: "?"}" + if (status.admin) "（管理者）" else "")
-                    Text("見えているのは、共有スペースと、あなたの個人スペースの写真です。", style = MaterialTheme.typography.bodySmall)
-                    Text("写真 ${status.photos} 枚 ・ 動画 ${status.videos} 本")
-                    Text("保存先: " + listOf("nas" to "NAS", "google" to "Google", "amazon" to "Amazon")
-                        .joinToString(" ・ ") { (k, l) -> "$l ${status.stores[k] ?: 0}" })
-                    Text("最後の取り込み: ${status.lastImportAt?.take(16)?.replace('T', ' ') ?: "まだありません"}")
-                    Text("重複: ${status.duplicates} 件 ・ 類似の候補: ${status.similarOpen} グループ")
-                    Text("Amazonアプリの最終確認: ${status.amazonHeartbeat?.take(16)?.replace('T', ' ') ?: "未受信"}")
-                    if (!status.apply) Text("NASは確認モード（dry-run）です。移動・削除は行われません。", color = MaterialTheme.colorScheme.secondary)
-                } else Text(err ?: "読み込み中…")
-            }
-        }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("この端末", style = MaterialTheme.typography.titleMedium)
-                Text("NASの索引 $remoteCount 件 ・ 端末の写真 $localCount 件")
-                Text("サムネイル ${humanBytes(app.files.thumbBytes())} ・ プレビュー ${humanBytes(app.files.previewBytes())}" +
-                    " / 上限 ${settings?.storageCapMb ?: 0} MB")
-                val last = settings?.lastSyncAt ?: 0
-                Text("最後の同期: " + if (last > 0) DateFormat.getDateTimeInstance().format(Date(last)) else "まだありません")
-                if (running) Text("同期中… ${progress ?: ""}")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { SyncWorker.runNow(ctx); refresh++ }, enabled = !running) { Text("今すぐ同期") }
-                    OutlinedButton(onClick = onSettings) { Text("設定") }
-                }
-                Text("通常は自宅のWi-Fiで充電中に自動で同期します。", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-    }
-}
-
-@Composable
-private fun JobsTab() {
+fun ImportLogScreen() {
     val (jobs, err) = remote<List<Job>> { it.jobs() }
     var open by remember { mutableStateOf<Job?>(null) }
     if (jobs == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     LazyColumn(Modifier.fillMaxSize()) {
         items(jobs, key = { it.id }) { j ->
             Column(Modifier.fillMaxWidth().clickable { if (j.error > 0) open = j }.padding(16.dp, 10.dp)) {
-                Text("#${j.id} ${if (j.source == "takeout") "Takeout" + (j.user?.let { "（$it）" } ?: "") else "NASの走査"} ・ ${stateLabel(j.state)}",
+                Text("${sourceLabel(j.source)}" + (j.user?.let { "（$it）" } ?: "") + " ・ ${stateLabel(j.state)}",
                     style = MaterialTheme.typography.titleSmall)
                 Text("新規 ${j.new} ・ 重複 ${j.duplicate} ・ 失敗 ${j.error}", color = if (j.error > 0) Color(0xFFD84315) else Color.Unspecified)
                 Text("${j.startedAt.take(16).replace('T', ' ')}  ${j.archive}", style = MaterialTheme.typography.bodySmall, maxLines = 2)
@@ -161,12 +95,17 @@ private fun JobsTab() {
     }
 }
 
+private fun sourceLabel(s: String) = when (s) {
+    "takeout" -> "Googleフォト（Takeout）"; "phone" -> "スマホ・ドライブから"; "phone_scan" -> "NASの写真の確認"; else -> s
+}
+
 private fun stateLabel(s: String) = when (s) {
     "done" -> "完了"; "failed" -> "失敗あり"; "running" -> "処理中"; "dry_run" -> "確認のみ（dry-run）"; else -> s
 }
 
+/** Similar photos: pick the ones to keep; the rest go to the NAS trash folder. */
 @Composable
-private fun SimilarTab() {
+fun SimilarScreen() {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
@@ -213,8 +152,9 @@ private fun SimilarTab() {
     info?.let { AlertDialog(onDismissRequest = { info = null }, confirmButton = { TextButton({ info = null }) { Text("OK") } }, text = { Text(it) }) }
 }
 
+/** Months of photos that are safely on the NAS and may be deleted from Google Photos. */
 @Composable
-private fun CandidatesTab() {
+fun GoogleCleanupScreen() {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     var refresh by remember { mutableIntStateOf(0) }
     val (rows, err) = remote<List<Candidate>>(refresh) { it.candidates() }

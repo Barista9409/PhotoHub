@@ -79,7 +79,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(8.dp, 16.dp, 8.dp, 4.dp)) {
                     Text("このスマホのフォルダ", style = MaterialTheme.typography.titleSmall)
-                    Text("「カメラ」以外は、自宅で同期したときにNASにも自分のアルバムとして記録されます",
+                    Text("「カメラ」以外は、一覧を更新したときにNASにも自分のアルバムとして記録されます",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }

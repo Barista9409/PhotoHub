@@ -126,7 +126,7 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
 
     if (items.isEmpty() && header == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("写真がありません。NASにログインして同期するか、写真へのアクセスを許可してください。",
+            Text("写真がありません。写真へのアクセスを許可するか、右上のアイコン →「このスマホ」→「今すぐ一覧を更新」を押してください。",
                 modifier = Modifier.padding(24.dp))
         }
         return

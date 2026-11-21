@@ -61,7 +61,7 @@ class SyncEngine(private val app: PhotoHubApp) {
                 changed += page.items.size
                 cursor = page.cursor
                 prefs.setCursor(cursor)
-                progress("メタデータ $changed 件")
+                progress("写真の一覧 $changed 件")
                 if (!page.hasMore) break
             }
             // 2) thumbnails for everything, in packs of 300
@@ -72,7 +72,7 @@ class SyncEngine(private val app: PhotoHubApp) {
                 api.thumbs(HashesBody(chunk)).byteStream().use { s ->
                     ThumbPack.read(s) { h, data -> files.writeThumb(h, data); thumbs++ }
                 }
-                progress("サムネイル $thumbs / ${missing.size}")
+                progress("縮小画像 $thumbs / ${missing.size}")
             }
             // 3) previews within the cap
             val s = prefs.current()
@@ -100,11 +100,11 @@ class SyncEngine(private val app: PhotoHubApp) {
                         previews++
                     }
                 }
-                if (previews % 50 == 0) progress("プレビュー $previews / ${wanted.size}")
+                if (previews % 50 == 0) progress("すぐ開ける画像 $previews / ${wanted.size}")
             }
             files.evict(cap, wanted)
             try { api.deviceSync("{}".toRequestBody()) } catch (_: Exception) {}
-            Result(changed, thumbs, previews, "同期完了")
+            Result(changed, thumbs, previews, "更新しました")
         }
 }
 
@@ -119,7 +119,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             app.indexer.scan()
             app.indexer.hashPending(limit = if (manual) 500 else 5000) { isStopped }
             val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }) { isStopped }
-            if (r.message == "同期完了") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
+            if (r.message == "更新しました") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
             else androidx.work.ListenableWorker.Result.retry()
         } catch (e: Exception) {
             androidx.work.ListenableWorker.Result.retry()
