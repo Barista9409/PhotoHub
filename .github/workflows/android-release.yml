@@ -2,7 +2,8 @@
 # Phones running PhotoHub update themselves from the latest Release.
 #
 # Release (same flow as the family's other apps): bump versionCode/versionName in
-# android/app/build.gradle.kts, write android/app/release-notes.txt, commit and push to main.
+# android/app/build.gradle.kts, write android/app/release-notes.txt, commit and push to the
+# repository's default branch (other branches never release).
 # If release v<versionName> does not exist yet, this builds the signed APK and creates it.
 #
 # Repository secrets (Settings > Secrets and variables > Actions):
@@ -13,7 +14,7 @@ name: Android release
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     paths:
       - android/**
       - .github/workflows/android-release.yml
@@ -23,6 +24,8 @@ permissions:
 
 jobs:
   release:
+    # only the default branch releases (main in the other apps; here the default branch)
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     defaults:
       run:

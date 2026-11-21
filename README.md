@@ -34,6 +34,6 @@ cd server && pytest            # GPTH・ExifTool・ffmpeg があれば全テス�
 cd android && ./gradlew testDebugUnitTest assembleDebug
 ```
 
-アプリの新しい版を配る：`versionCode`/`versionName` を上げて main にプッシュ → GitHub Actions がReleaseを作り、スマホが自動で更新（docs/setup.md §8b）
+アプリの新しい版を配る：`versionCode`/`versionName` を上げて 既定のブランチにプッシュ → GitHub Actions がReleaseを作り、スマホが自動で更新（docs/setup.md §8b）
 
 サンプルのTakeout（本物の写真を使わない）：`photohub make-sample /tmp/takeout-sample-001.zip -n 100`
