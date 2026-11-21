@@ -1,6 +1,7 @@
 package com.photohub.app.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -23,6 +24,7 @@ data class Settings(
     val previewAlbums: Set<String> = emptySet(),
     val cursor: Long = 0,
     val lastSyncAt: Long = 0,
+    val autoUpdate: Boolean = true,   // download + install new app versions from the NAS
 ) {
     val configured get() = token.isNotBlank() && (lanUrl.isNotBlank() || remoteUrl.isNotBlank())
 }
@@ -39,6 +41,7 @@ class Prefs(private val ctx: Context) {
         val cursor = longPreferencesKey("cursor")
         val lastSync = longPreferencesKey("last_sync")
         val favorites = stringSetPreferencesKey("favorites")
+        val autoUpdate = booleanPreferencesKey("auto_update")
     }
 
     val settings: Flow<Settings> = ctx.store.data.map { p ->
@@ -46,6 +49,7 @@ class Prefs(private val ctx: Context) {
             lanUrl = p[K.lan] ?: "", remoteUrl = p[K.remote] ?: "", token = p[K.token] ?: "",
             homeSsid = p[K.ssid] ?: "", storageCapMb = p[K.cap] ?: 4096, previewMonths = p[K.months] ?: 6,
             previewAlbums = p[K.albums] ?: emptySet(), cursor = p[K.cursor] ?: 0, lastSyncAt = p[K.lastSync] ?: 0,
+            autoUpdate = p[K.autoUpdate] ?: true,
         )
     }
 
@@ -61,6 +65,7 @@ class Prefs(private val ctx: Context) {
         p[K.cap] = s.storageCapMb
         p[K.months] = s.previewMonths
         p[K.albums] = s.previewAlbums
+        p[K.autoUpdate] = s.autoUpdate
     }
 
     suspend fun setCursor(cursor: Long) = ctx.store.edit {

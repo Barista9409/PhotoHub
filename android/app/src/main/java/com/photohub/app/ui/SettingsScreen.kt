@@ -73,6 +73,12 @@ fun SettingsScreen(onDone: () -> Unit) {
             s = cur.copy(previewAlbums = it.split(',').map(String::trim).filter(String::isNotEmpty).toSet())
         }, label = { Text("プレビューを持つアルバム（カンマ区切り）") }, modifier = Modifier.fillMaxWidth())
 
+        Text("アプリの更新", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("新しい版をWi-Fiで自動的に取り込んで更新する", modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(cur.autoUpdate, { s = cur.copy(autoUpdate = it) })
+        }
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {

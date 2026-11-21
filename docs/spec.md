@@ -274,4 +274,5 @@ P0調査（[research.md](research.md)）の提案D1〜D5をすべて採用し、
 | 整理の権限 | 共有スペースの類似写真の整理、全員の取り込み履歴、イベント、Amazonの確認は管理者だけ。個人スペースの類似写真は本人だけが整理できる（管理者も他人の個人スペースは見えない） |
 | Amazon | 家族で1アカウント。`amazon-outbox/shared/` と `amazon-outbox/<user>/` に分けて置く |
 | 端末の利用者の交代 | アプリでトークンを変えると、前の人の索引・サムネイル・プレビューを端末から消す |
+| アプリの自動更新 | NASの `app-updates/` に置いた `photohub-<版>.apk`＋`.json` を配る（`/api/app/latest`、`/api/app/download/{code}`）。端末はWi-Fiで12時間ごとに確認し、ハッシュ・パッケージ名・新しさ・署名鍵の一致を確かめてからPackageInstallerで入れる（Android 12以降は2回目から確認なし） |
 | Dockerの土台 | Ubuntu 24.04（Python 3.12）＋ExifTool＋ffmpeg＋7-Zip＋GPTH Neo v6.4.1（チェックサム固定） |

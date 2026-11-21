@@ -19,6 +19,7 @@ import com.photohub.app.data.MediaFiles
 import com.photohub.app.data.Net
 import com.photohub.app.data.Prefs
 import com.photohub.app.data.SyncWorker
+import com.photohub.app.data.Updater
 import com.photohub.app.data.db.AppDb
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
     lateinit var net: Net
     lateinit var files: MediaFiles
     lateinit var indexer: LocalIndexer
+    lateinit var updater: Updater
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Volatile var token: String = ""
@@ -48,6 +50,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         net = Net(this, prefs)
         files = MediaFiles(this)
         indexer = LocalIndexer(this, db.media())
+        updater = Updater(this)
         OsmConfig.getInstance().apply {
             userAgentValue = packageName
             osmdroidBasePath = filesDir.resolve("osmdroid")
@@ -55,6 +58,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         }
         scope.launch { prefs.settings.collect { token = it.token } }
         SyncWorker.schedule(this)
+        Updater.schedule(this)
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "photohub-local-index", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<LocalIndexWorker>(1, TimeUnit.HOURS).build(),

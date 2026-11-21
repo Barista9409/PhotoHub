@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
@@ -55,6 +57,8 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_OPEN_UPDATE = "open_update" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -63,9 +67,11 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 UiState.refreshBase(app, force = true)
                 app.indexer.scan()
+                if (app.prefs.current().configured) app.updater.check()
             }
         }
-        setContent { PhotoHubTheme { Root(app) } }
+        val openUpdate = intent?.getBooleanExtra(EXTRA_OPEN_UPDATE, false) == true
+        setContent { PhotoHubTheme { Root(app, openUpdate) } }
     }
 }
 
@@ -81,7 +87,7 @@ private val tabs = listOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Root(app: PhotoHubApp) {
+private fun Root(app: PhotoHubApp, openUpdate: Boolean = false) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: "timeline"
@@ -92,8 +98,9 @@ private fun Root(app: PhotoHubApp) {
         val wanted = if (Build.VERSION.SDK_INT >= 33)
             arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.ACCESS_MEDIA_LOCATION)
         else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
-        perms.launch(wanted)
+        perms.launch(if (Build.VERSION.SDK_INT >= 33) wanted + Manifest.permission.POST_NOTIFICATIONS else wanted)
         if (!app.prefs.current().configured) nav.navigate("settings")
+        else if (openUpdate) nav.navigate("admin")
     }
     val open: (List<TimelineItem>, Int) -> Unit = { list, i -> UiState.viewerItems = list; nav.navigate("viewer/$i") }
     val fullScreen = route.startsWith("viewer")
@@ -104,7 +111,15 @@ private fun Root(app: PhotoHubApp) {
                 navigationIcon = {
                     if (tabs.none { it.route == route }) IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る") }
                 },
-                actions = { if (route != "settings") IconButton({ nav.navigate("settings") }) { Icon(Icons.Default.Settings, "設定") } },
+                actions = {
+                    val upd by app.updater.state.collectAsState()
+                    if (upd is com.photohub.app.data.Updater.State.Available || upd is com.photohub.app.data.Updater.State.Ready) {
+                        IconButton({ nav.navigate("admin") }) {
+                            Icon(Icons.Default.SystemUpdate, "アプリの更新があります", tint = androidx.compose.material3.MaterialTheme.colorScheme.secondary)
+                        }
+                    }
+                    if (route != "settings") IconButton({ nav.navigate("settings") }) { Icon(Icons.Default.Settings, "設定") }
+                },
             )
         },
         bottomBar = {

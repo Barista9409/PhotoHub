@@ -114,11 +114,21 @@ data class Candidate(
 data class ConfirmResult(@SerialName("marked_removed") val markedRemoved: Int)
 
 @Serializable
+data class AppRelease(
+    @SerialName("version_code") val versionCode: Long = 0,
+    @SerialName("version_name") val versionName: String = "",
+    val notes: String = "",
+    val size: Long = 0,
+    val sha256: String = "",
+)
+
+@Serializable
 data class HashesBody(val hashes: List<String>)
 
 interface PhotoHubApi {
     @GET("api/health") suspend fun health(): Map<String, kotlinx.serialization.json.JsonElement>
     @GET("api/me") suspend fun me(): Me
+    @GET("api/app/latest") suspend fun appLatest(): AppRelease
     @GET("api/status") suspend fun status(): Status
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>

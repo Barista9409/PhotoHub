@@ -14,8 +14,8 @@ android {
         applicationId = "com.photohub.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -95,4 +95,31 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+}
+
+/**
+ * In-app update package: ./gradlew publishUpdate
+ * writes dist/photohub-<ver>.apk + dist/photohub-<ver>.json (notes from release-notes.txt).
+ * Copy both files to /volume1/photohub/app-updates/ on the NAS; phones pick it up.
+ * Must be signed with the release key (PHOTOHUB_KEYSTORE...), or installed apps cannot update.
+ */
+tasks.register("publishUpdate") {
+    dependsOn("assembleRelease")
+    doLast {
+        if (System.getenv("PHOTOHUB_KEYSTORE") == null && project.findProperty("photohub.keystore") == null) {
+            throw GradleException("release key not configured (PHOTOHUB_KEYSTORE / photohub.keystore)")
+        }
+        val name = android.defaultConfig.versionName!!
+        val code = android.defaultConfig.versionCode!!
+        val out = rootProject.file("../dist").apply { mkdirs() }
+        val apk = file("build/outputs/apk/release/app-release.apk")
+        val dst = File(out, "photohub-$name.apk")
+        apk.copyTo(dst, overwrite = true)
+        val notesFile = file("release-notes.txt")
+        val notes = if (notesFile.exists()) notesFile.readText().trim() else ""
+        fun esc(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        File(out, "photohub-$name.json").writeText(
+            "{\"versionCode\": $code, \"versionName\": \"${esc(name)}\", \"notes\": \"${esc(notes)}\", \"apk\": \"${dst.name}\"}\n")
+        println("wrote ${dst.path} and photohub-$name.json")
+    }
 }

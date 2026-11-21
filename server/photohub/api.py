@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from . import derivatives, similar, storage
+from . import app_updates, derivatives, similar, storage
 from .config import Settings
 from .db import (Album, AlbumItem, Database, Event, ImportItem, ImportJob, Location, Media, SimilarGroup,
                  SimilarMember, User, can_see, kv_get, kv_set, utcnow, visible_clause)
@@ -263,6 +263,19 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         with db.session() as s:
             kv_set(s, f"last_device_sync:{user.id}", utcnow().isoformat())
         return {"ok": True}
+
+    # ---- in-app updates (any family member) -------------------------------------
+    @app.get("/api/app/latest")
+    def app_latest(user: User = Depends(auth)) -> dict:
+        r = app_updates.latest(settings)
+        return r.to_json() if r else {"version_code": 0}
+
+    @app.get("/api/app/download/{version_code}")
+    def app_download(version_code: int, user: User = Depends(auth)) -> FileResponse:
+        r = next((x for x in app_updates.releases(settings) if x.version_code == version_code), None)
+        if r is None:
+            raise HTTPException(404)
+        return FileResponse(r.apk, media_type="application/vnd.android.package-archive", filename=r.apk.name)
 
     @app.exception_handler(Exception)
     async def errors(_: Request, exc: Exception) -> JSONResponse:  # pragma: no cover
