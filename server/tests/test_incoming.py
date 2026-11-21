@@ -216,3 +216,23 @@ def test_both_backups_running_converge_to_one_copy(settings, db, chie):
     with db.session() as s:
         m = s.execute(select(Media)).scalar_one()
         assert m.nas_path == str(theirs) and not m.placed
+
+
+def test_synology_photos_space_is_indexed_in_check_mode(settings, db, chie):
+    """In check mode (PHOTOHUB_APPLY off) the index is still saved, so photos Synology Photos
+    backed up appear in the app; only file moves wait."""
+    from photohub.scanner import scan
+    from photohub.users import scan_roots
+    u, h, c = chie
+    d = Path(u.personal_root) / "MobileBackup" / "edge 60 pro" / "DCIM" / "Camera"
+    d.mkdir(parents=True)
+    (d / "PXL_1.jpg").write_bytes(make_image(1))
+    (d / "PXL_2.jpg").write_bytes(make_image(2))
+    (d / "PXL_2 copy.jpg").write_bytes(make_image(2))
+    rep = scan(db, settings, scan_roots(db, settings), apply=True, move_files=False)
+    assert rep.new == 2
+    with db.session() as s:
+        assert {m.owner_id for m in s.execute(select(Media)).scalars()} == {u.id}
+    assert (d / "PXL_2 copy.jpg").exists()  # nothing moved
+    r = c.get("/api/sync", headers=h).json()
+    assert len(r["items"]) == 2

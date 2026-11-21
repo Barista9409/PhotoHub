@@ -88,7 +88,7 @@ class TakeoutUploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWor
         val nm = applicationContext.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Googleフォトの移行", NotificationManager.IMPORTANCE_LOW))
         val n = NotificationCompat.Builder(applicationContext, CHANNEL).setSmallIcon(R.drawable.ic_stat_update)
-            .setContentTitle("TakeoutをNASへ送信中").setContentText(text).setOngoing(true)
+            .setContentTitle("TakeoutをSynologyへ送信中").setContentText(text).setOngoing(true)
             .setProgress(100, pct, pct == 0).build()
         return if (Build.VERSION.SDK_INT >= 29) ForegroundInfo(NOTIFY_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else ForegroundInfo(NOTIFY_ID, n)

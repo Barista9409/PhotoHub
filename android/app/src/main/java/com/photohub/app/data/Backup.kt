@@ -23,6 +23,7 @@ import com.photohub.app.data.api.HashesBody
 import com.photohub.app.data.db.DriveFile
 import com.photohub.app.data.db.LocalMedia
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -166,22 +167,25 @@ object Window {
     }
 }
 
-/** Where a backup run is, for the progress bar and the notification. */
-data class BackupStep(val phase: String, val label: String, val done: Int, val total: Int) {
+/** Where one part of a backup run is, for the progress bars and the notification. */
+data class BackupStep(val phase: String, val label: String, val done: Int, val total: Int, val finished: Boolean = false) {
     val fraction get() = if (total > 0) done.toFloat() / total else 0f
     companion object {
-        const val PREPARE = "prepare"; const val NAS = "nas"; const val DRIVE = "drive"; const val TIDY = "tidy"
+        const val PREPARE = "prepare"; const val NAS = "nas"; const val DRIVE = "drive"
+        val ORDER = listOf(PREPARE, NAS, DRIVE)
     }
 }
 
 class BackupEngine(private val app: PhotoHubApp) {
     companion object {
-        /** Set by the "止める" button and by turning a backup off; checked before every file. */
+        /** Set by the "止める" button; checked before every file. Turning a backup off also stops it. */
         val stopRequested = java.util.concurrent.atomic.AtomicBoolean(false)
     }
+
     data class Result(val toNas: Int, val toDrive: Int, val removedFromDrive: Int, val message: String,
                       val checked: Int = 0, val alreadyOnNas: Int = 0, val failed: Int = 0)
 
+    /** Phone photos are checked once, then the Synology and Google Drive parts run at the same time. */
     suspend fun run(progress: suspend (BackupStep) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
         withContext(Dispatchers.IO) {
             stopRequested.set(false)
@@ -191,78 +195,109 @@ class BackupEngine(private val app: PhotoHubApp) {
             app.indexer.scan()
             // first time: every photo is checked once (fingerprint + place); later only new ones
             val unhashed = app.db.media().countUnhashed()
-            if (unhashed > 0) progress(BackupStep(BackupStep.PREPARE, "写真を確認中", 0, unhashed))
-            app.indexer.hashPending(limit = 1_000_000, isStopped = { isStopped() || stopRequested.get() }) { d, t ->
-                progress(BackupStep(BackupStep.PREPARE, "写真を確認中", d, t))
+            if (unhashed > 0) {
+                progress(BackupStep(BackupStep.PREPARE, "スマホの写真を確認中", 0, unhashed))
+                app.indexer.hashPending(limit = 1_000_000, isStopped = { isStopped() || stopRequested.get() }) { d, t ->
+                    progress(BackupStep(BackupStep.PREPARE, "スマホの写真を確認中", d, t))
+                }
+                progress(BackupStep(BackupStep.PREPARE, "スマホの写真を確認中", unhashed, unhashed, finished = true))
             }
             val local = app.db.media().localHashed()
             val api = if (s.configured) app.net.api() else null
-            // --- 1. straight to the NAS ---
-            var toNas = 0
-            var failed = 0
-            var already = 0
-            val onNas = HashSet<String>(app.db.media().remoteFileHashes())
-            if (api != null) {
-                val unknown = local.filter { it.fileHash !in onNas }
-                // ask the NAS first, so the progress bar knows the real number to send
-                val toSend = mutableListOf<LocalMedia>()
-                for (chunk in unknown.chunked(500)) {
-                    val have = try { api.have(HashesBody(chunk.map { it.fileHash!! })) } catch (e: Exception) { emptyMap() }
-                    have.filterValues { it == "nas" }.keys.forEach { onNas += it }
-                    // "queued" = the NAS already received it and is filing it away
-                    if (have.isNotEmpty()) app.db.media().markOnNas(have.keys.toList())
-                    toSend += chunk.filter { have[it.fileHash] == null }
-                }
-                already = local.size - toSend.size
-                if (s.backupNas) {
-                    for ((i, m) in toSend.withIndex()) {
-                        if (isStopped() || stopRequested.get() || !app.prefs.current().backupNas) break
-                        progress(BackupStep(BackupStep.NAS, "NASへ送信中", i, toSend.size))
-                        if (uploadToNas(m)) { toNas++; app.db.media().markOnNas(listOf(m.fileHash!!)) } else failed++
-                    }
-                    if (toSend.isNotEmpty()) progress(BackupStep(BackupStep.NAS, "NASへ送信中", toSend.size, toSend.size))
-                }
+            val nasPart = async { nasPart(local, api, s.backupNas, progress, isStopped) }
+            val drivePart = async { drivePart(local, api, s.backupDrive, progress, isStopped) }
+            val n = nasPart.await()
+            val d = drivePart.await()
+            val stopped = stopRequested.getAndSet(false)
+            val message = when {
+                stopped -> "途中で止めました"
+                d.error != null -> d.error
+                n.failed > 0 -> "一部送れませんでした"
+                else -> "バックアップ完了"
             }
-            // --- 2. Google Drive window ---
-            var toDrive = 0
-            var removed = 0
-            if (s.backupDrive && !stopRequested.get() && app.prefs.current().backupDrive) {
-                val drive = app.drive
-                progress(BackupStep(BackupStep.DRIVE, "Googleドライブの中身を確認中", 0, 0))
-                val token = drive.token() ?: return@withContext Result(toNas, 0, 0, "Googleドライブに再接続してください")
-                val inDrive = drive.list(token).also { app.db.media().clearDrive(); app.db.media().upsertDrive(it) }
-                    .associateBy { it.fileHash }.toMutableMap()
-                val candidates = (local.map { it.fileHash!! to (it.takenAt to it.size) } +
-                    inDrive.values.map { it.fileHash to (it.takenAt to it.size) }).distinctBy { it.first }
-                val keep = Window.keep(candidates, s)
-                val toUpload = local.filter { it.fileHash!! in keep && it.fileHash !in inDrive }
-                for ((i, m) in toUpload.withIndex()) {
-                    if (isStopped() || stopRequested.get() || !app.prefs.current().backupDrive) break
-                    progress(BackupStep(BackupStep.DRIVE, "Googleドライブへ送信中", i, toUpload.size))
-                    try {
-                        val f = drive.upload(token, m)
-                        inDrive[m.fileHash!!] = f
-                        app.db.media().upsertDrive(listOf(f))
-                        toDrive++
-                    } catch (e: Exception) { /* next run */ }
-                }
-                // tidy: outside the window AND safely on the NAS
-                val outside = inDrive.values.filter { it.fileHash !in keep }
-                if (outside.isNotEmpty() && api != null && !stopRequested.get() && app.prefs.current().backupDrive) {
-                    progress(BackupStep(BackupStep.TIDY, "Googleドライブを整理中", 0, outside.size))
-                    for (chunk in outside.chunked(500)) {
-                        val have = try { api.have(HashesBody(chunk.map { it.fileHash })) } catch (e: Exception) { emptyMap() }
-                        for (f in chunk) {
-                            if (have[f.fileHash] != "nas") continue
-                            try { drive.delete(token, f.driveId); app.db.media().deleteDrive(listOf(f.fileHash)); removed++ }
-                            catch (e: Exception) { }
-                        }
-                    }
-                }
-            }
-            if (stopRequested.getAndSet(false)) return@withContext Result(toNas, toDrive, removed, "途中で止めました", local.size, already, failed)
-            Result(toNas, toDrive, removed, if (failed > 0) "一部送れませんでした" else "バックアップ完了", local.size, already, failed)
+            Result(n.sent, d.sent, d.removed, message, local.size, n.already, n.failed)
         }
+
+    private data class NasOut(val sent: Int = 0, val already: Int = 0, val failed: Int = 0)
+    private data class DriveOut(val sent: Int = 0, val removed: Int = 0, val error: String? = null)
+
+    private suspend fun nasPart(local: List<LocalMedia>, api: com.photohub.app.data.api.PhotoHubApi?, on: Boolean,
+                                progress: suspend (BackupStep) -> Unit, isStopped: () -> Boolean): NasOut {
+        if (api == null) return NasOut()
+        val label = "Synologyへ送信中"
+        if (on) progress(BackupStep(BackupStep.NAS, "Synologyにある写真を確認中", 0, 0))
+        val onNas = HashSet<String>(app.db.media().remoteFileHashes())
+        val unknown = local.filter { it.fileHash !in onNas }
+        // ask the Synology first, so the bar knows the real number to send
+        val toSend = mutableListOf<LocalMedia>()
+        for (chunk in unknown.chunked(500)) {
+            val have = try { api.have(HashesBody(chunk.map { it.fileHash!! })) } catch (e: Exception) { emptyMap() }
+            // "queued" = it already received it and is filing it away
+            if (have.isNotEmpty()) app.db.media().markOnNas(have.keys.toList())
+            toSend += chunk.filter { have[it.fileHash] == null }
+        }
+        val already = local.size - toSend.size
+        if (!on) return NasOut(already = already)
+        var sent = 0; var failed = 0
+        for ((i, m) in toSend.withIndex()) {
+            if (isStopped() || stopRequested.get() || !app.prefs.current().backupNas) break
+            progress(BackupStep(BackupStep.NAS, label, i, toSend.size))
+            if (uploadToNas(m)) { sent++; app.db.media().markOnNas(listOf(m.fileHash!!)) } else failed++
+        }
+        progress(BackupStep(BackupStep.NAS, label, toSend.size, toSend.size, finished = true))
+        return NasOut(sent, already, failed)
+    }
+
+    /** Google Drive window: the recent ones go to Drive whether or not the Synology has them too. */
+    private suspend fun drivePart(local: List<LocalMedia>, api: com.photohub.app.data.api.PhotoHubApi?, on: Boolean,
+                                  progress: suspend (BackupStep) -> Unit, isStopped: () -> Boolean): DriveOut {
+        if (!on || stopRequested.get()) return DriveOut()
+        val s = app.prefs.current()
+        val drive = app.drive
+        progress(BackupStep(BackupStep.DRIVE, "Googleドライブの中身を確認中", 0, 0))
+        val token = drive.token()
+        if (token == null) {
+            progress(BackupStep(BackupStep.DRIVE, "", 0, 0, finished = true))
+            return DriveOut(error = "Googleドライブに再接続してください")
+        }
+        val inDrive = drive.list(token).also { app.db.media().clearDrive(); app.db.media().upsertDrive(it) }
+            .associateBy { it.fileHash }.toMutableMap()
+        val candidates = (local.map { it.fileHash!! to (it.takenAt to it.size) } +
+            inDrive.values.map { it.fileHash to (it.takenAt to it.size) }).distinctBy { it.first }
+        val keep = Window.keep(candidates, s)
+        val toUpload = local.filter { it.fileHash!! in keep && it.fileHash !in inDrive }
+        var sent = 0
+        val label = "Googleドライブへ送信中"
+        for ((i, m) in toUpload.withIndex()) {
+            if (isStopped() || stopRequested.get() || !app.prefs.current().backupDrive) break
+            progress(BackupStep(BackupStep.DRIVE, label, i, toUpload.size))
+            try {
+                val f = drive.upload(token, m)
+                inDrive[m.fileHash!!] = f
+                app.db.media().upsertDrive(listOf(f))
+                sent++
+            } catch (e: Exception) { /* next run */ }
+        }
+        // tidy: outside the window AND safely on the Synology
+        var removed = 0
+        val outside = inDrive.values.filter { it.fileHash !in keep }
+        if (outside.isNotEmpty() && api != null && !stopRequested.get() && app.prefs.current().backupDrive) {
+            progress(BackupStep(BackupStep.DRIVE, "Googleドライブの古い写真を整理中", 0, outside.size))
+            var done = 0
+            for (chunk in outside.chunked(500)) {
+                val have = try { api.have(HashesBody(chunk.map { it.fileHash })) } catch (e: Exception) { emptyMap() }
+                for (f in chunk) {
+                    done++
+                    if (have[f.fileHash] != "nas") continue
+                    try { drive.delete(token, f.driveId); app.db.media().deleteDrive(listOf(f.fileHash)); removed++ }
+                    catch (e: Exception) { }
+                }
+                progress(BackupStep(BackupStep.DRIVE, "Googleドライブの古い写真を整理中", done, outside.size))
+            }
+        }
+        progress(BackupStep(BackupStep.DRIVE, label, toUpload.size, toUpload.size, finished = true))
+        return DriveOut(sent, removed)
+    }
 
     private fun deviceName(): String =
         android.provider.Settings.Global.getString(app.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
@@ -290,19 +325,24 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         if (!s.backupNas && !s.backupDrive) return androidx.work.ListenableWorker.Result.success()
         return try {
             var lastNotify = 0L
+            val running = java.util.concurrent.ConcurrentHashMap<String, BackupStep>()
             val r = BackupEngine(app).run(progress = { st ->
-                setProgress(workDataOf("phase" to st.phase, "label" to st.label, "done" to st.done, "total" to st.total,
-                    "msg" to "${st.label} ${st.done} / ${st.total}"))
+                if (st.finished) running.remove(st.phase) else running[st.phase] = st
+                val active = BackupStep.ORDER.mapNotNull { running[it] }
+                val data = mutableMapOf<String, Any?>("active" to active.joinToString(",") { it.phase },
+                    "msg" to active.joinToString("・") { "${it.label} ${it.done}/${it.total}" })
+                active.forEach { data["${it.phase}_label"] = it.label; data["${it.phase}_done"] = it.done; data["${it.phase}_total"] = it.total }
+                setProgress(workDataOf(*data.map { it.key to it.value }.toTypedArray()))
                 val now = System.currentTimeMillis()
-                if (now - lastNotify > 1500 || st.done == st.total) {  // a progress notification while it runs
+                if (active.isNotEmpty() && (now - lastNotify > 1500)) {  // a progress notification while it runs
                     lastNotify = now
-                    try { setForeground(foregroundInfo(applicationContext, st)) } catch (_: Exception) {}
+                    try { setForeground(foregroundInfo(applicationContext, active)) } catch (_: Exception) {}
                 }
             }) { isStopped }
             val parts = buildList {
                 add("スマホの写真 ${r.checked} 枚")
-                if (r.alreadyOnNas > 0) add("NASに保存済み ${r.alreadyOnNas} 枚")
-                add("今回NASへ ${r.toNas} 枚")
+                if (r.alreadyOnNas > 0) add("Synologyに保存済み ${r.alreadyOnNas} 枚")
+                if (s.backupNas) add("今回Synologyへ ${r.toNas} 枚")
                 if (r.failed > 0) add("送れなかった ${r.failed} 枚（次回再送）")
                 if (s.backupDrive) add("ドライブへ ${r.toDrive} 枚・整理 ${r.removedFromDrive} 枚")
             }
@@ -319,13 +359,19 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         const val ONCE = "photohub-backup-now"
         const val PERIODIC = "photohub-backup"
 
-        fun foregroundInfo(ctx: Context, st: BackupStep): androidx.work.ForegroundInfo {
+        fun foregroundInfo(ctx: Context, active: List<BackupStep>): androidx.work.ForegroundInfo {
             val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
             nm.createNotificationChannel(android.app.NotificationChannel("backup", "バックアップ", android.app.NotificationManager.IMPORTANCE_LOW))
-            val pct = (st.fraction * 100).toInt()
+            val main = active.first()
+            val pct = (main.fraction * 100).toInt()
+            val text = active.joinToString("　") { st ->
+                val name = when (st.phase) { BackupStep.NAS -> "Synology"; BackupStep.DRIVE -> "ドライブ"; else -> "確認" }
+                if (st.total > 0) "$name ${st.done}/${st.total}" else "$name 準備中"
+            }
             val n = androidx.core.app.NotificationCompat.Builder(ctx, "backup").setSmallIcon(com.photohub.app.R.drawable.ic_stat_update)
-                .setContentTitle(st.label).setContentText("${st.done} / ${st.total}（$pct%）").setOngoing(true).setOnlyAlertOnce(true)
-                .setProgress(100, pct, st.total == 0).build()
+                .setContentTitle(if (active.size > 1) "バックアップ中" else main.label).setContentText(text)
+                .setOngoing(true).setOnlyAlertOnce(true)
+                .setProgress(100, pct, main.total == 0).build()
             return if (android.os.Build.VERSION.SDK_INT >= 29)
                 androidx.work.ForegroundInfo(4401, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
             else androidx.work.ForegroundInfo(4401, n)

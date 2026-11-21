@@ -88,12 +88,12 @@ val APP_DOWNLOAD_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/l
 
 /** Where the account hub's rows lead. */
 enum class Dest(val route: String, val title: String) {
-    NAS_BACKUP("backup_nas", "NASへのバックアップ"),
+    NAS_BACKUP("backup_nas", "Synologyへのバックアップ"),
     DRIVE_BACKUP("backup_drive", "Googleドライブへのバックアップ"),
     SIMILAR("similar", "似ている写真"),
     CLEANUP("cleanup", "Googleフォトから消してよい写真"),
     MIGRATION("migration", "Googleフォトからの移行"),
-    IMPORT_LOG("import_log", "NASへの取り込み記録"),
+    IMPORT_LOG("import_log", "Synologyへの取り込み記録"),
     DEVICE("device", "このスマホ"),
     APP("app", "アプリ"),
     LIBRARY("library", "ライブラリの内訳"),
@@ -137,17 +137,17 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 Spacer(Modifier.size(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(me?.let { "${it.name} さん" } ?: "PhotoHub", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text(status?.let { "NASの写真 ${it.photos} 枚・動画 ${it.videos} 本" } ?: "NASの情報を読み込み中…",
+                    Text(status?.let { "Synologyの写真 ${it.photos} 枚・動画 ${it.videos} 本" } ?: "Synologyの情報を読み込み中…",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
                 when {
-                    base == null -> StatusPill("NASにつながりません", false)
+                    base == null -> StatusPill("Synologyにつながりません", false)
                     base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
                     else -> StatusPill("外出先からつながっています", true)
                 }
-                if (status?.apply == false) { Spacer(Modifier.size(8.dp)); StatusPill("NASは確認モード", false) }
+                if (status?.apply == false) { Spacer(Modifier.size(8.dp)); StatusPill("Synologyは確認モード", false) }
             }
         }
 
@@ -157,7 +157,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(),
                 onClick = { open(Dest.LIBRARY) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.Dns, "NASへのバックアップ",
+            SettingRow(Icons.Default.Dns, "Synologyへのバックアップ",
                 if (cur.backupNas) "オン・" + (if (last.first > 0) "最後 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}" else "まだ実行していません") else "オフ",
                 onClick = { open(Dest.NAS_BACKUP) }) { Chevron() }
             GroupDivider()
@@ -173,17 +173,17 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.SIMILAR) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.CleaningServices, "Googleフォトから消してよい写真",
-                "NASに保存済みの古い写真を、月ごとに案内します", onClick = { open(Dest.CLEANUP) }) { Chevron() }
+                "Synologyに保存済みの古い写真を、月ごとに案内します", onClick = { open(Dest.CLEANUP) }) { Chevron() }
             GroupDivider()
             FreeUpSpaceRow()
         }
 
         SectionTitle("Googleフォトからの移行")
         Group {
-            SettingRow(Icons.Default.PhotoLibrary, "TakeoutのZIPを送る", "Googleフォトの写真をNASへ移します",
+            SettingRow(Icons.Default.PhotoLibrary, "TakeoutのZIPを送る", "Googleフォトの写真をSynologyへ移します",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "NASへの取り込み記録", "Takeout・スマホ・ドライブから入った件数と結果",
+            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "Synologyへの取り込み記録", "Takeout・スマホ・ドライブから入った件数と結果",
                 onClick = { open(Dest.IMPORT_LOG) }) { Chevron() }
         }
 
@@ -211,7 +211,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
     if (confirmLogout) {
         AlertDialog(onDismissRequest = { confirmLogout = false },
             title = { Text("ログアウトしますか？") },
-            text = { Text("このスマホに持っている一覧と縮小画像を消します。NASやドライブの写真はそのままです。") },
+            text = { Text("このスマホに持っている一覧と縮小画像を消します。Synologyやドライブの写真はそのままです。") },
             confirmButton = { TextButton({
                 confirmLogout = false
                 scope.launch { app.switchUser(); app.prefs.save(app.prefs.current().copy(token = "")); UiState.refreshBase(app, true); onLoggedOut() }
@@ -230,11 +230,11 @@ fun NasBackupScreen() {
     val cur = s ?: return
     fun save(n: Settings, run: Boolean = false) = scope.launch { app.prefs.save(n); if (run) BackupWorker.runNow(ctx) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text("撮った写真と動画を、自宅のNASに保存します。Synology Photosのバックアップと同じフォルダに入るので、両方オンでも重複しません。",
+        Text("撮った写真と動画を、自宅のSynologyに保存します。Synology Photosのバックアップと同じフォルダに入るので、両方オンでも重複しません。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
         SectionTitle("設定")
         Group {
-            SwitchRow(Icons.Default.Dns, "NASへのバックアップ", if (cur.backupNas) "オン" else "オフ", cur.backupNas) { save(cur.copy(backupNas = it), it) }
+            SwitchRow(Icons.Default.Dns, "Synologyへのバックアップ", if (cur.backupNas) "オン" else "オフ", cur.backupNas) { save(cur.copy(backupNas = it), it) }
             GroupDivider()
             SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも送る", "オフならWi-Fiのときだけ（外出先はTailscale経由）",
                 cur.backupOnMobile, enabled = cur.backupNas) { save(cur.copy(backupOnMobile = it)) }
@@ -261,7 +261,7 @@ fun DriveBackupScreen() {
         }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text("最近の写真だけを、自分のGoogleドライブ（フォルダ「PhotoHub」）にも置きます。範囲を過ぎてNASに入った写真は、ドライブから自動で片付けるので溜まりません。外出先ではVPNなしでもここから見られます。",
+        Text("最近の写真だけを、自分のGoogleドライブ（フォルダ「PhotoHub」）にも置きます。範囲を過ぎてSynologyに入った写真は、ドライブから自動で片付けるので溜まりません。外出先ではVPNなしでもここから見られます。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
         SectionTitle("設定")
         Group {
@@ -314,9 +314,9 @@ fun DeviceScreen() {
     val running = work.firstOrNull()?.state == WorkInfo.State.RUNNING
     fun save(n: Settings) = scope.launch { app.prefs.save(n) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text("NASの写真を外出先でもすぐ見られるよう、一覧と縮小画像をこのスマホに持っています。自宅のWi-Fiで充電中に自動で更新します。",
+        Text("Synologyの写真を外出先でもすぐ見られるよう、一覧と縮小画像をこのスマホに持っています。自宅のWi-Fiで充電中に自動で更新します。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
-        SectionTitle("NASの写真の一覧")
+        SectionTitle("Synologyの写真の一覧")
         Group {
             SettingRow(Icons.Default.Refresh, "今すぐ一覧を更新",
                 if (running) "更新中… ${work.firstOrNull()?.progress?.getString("msg") ?: ""}"
@@ -367,10 +367,8 @@ fun AppScreen() {
     }
 }
 
-/** Live state of whichever backup is running (the "now" one or the hourly one). */
-data class BackupLive(val running: Boolean, val phase: String, val label: String, val done: Int, val total: Int) {
-    val fraction: Float get() = if (total > 0) done.toFloat() / total else 0f
-}
+/** Live state of whichever backup is running (the "now" one or the hourly one): one entry per running part. */
+data class BackupLive(val running: Boolean, val parts: List<com.photohub.app.data.BackupStep>)
 
 @Composable
 fun rememberBackupLive(): BackupLive {
@@ -378,33 +376,44 @@ fun rememberBackupLive(): BackupLive {
     val wm = WorkManager.getInstance(ctx)
     val once by wm.getWorkInfosForUniqueWorkFlow(BackupWorker.ONCE).collectAsState(initial = emptyList())
     val periodic by wm.getWorkInfosForUniqueWorkFlow(BackupWorker.PERIODIC).collectAsState(initial = emptyList())
-    val w = (once + periodic).firstOrNull { it.state == WorkInfo.State.RUNNING }
-        ?: return BackupLive(false, "", "", 0, 0)
+    val w = (once + periodic).firstOrNull { it.state == WorkInfo.State.RUNNING } ?: return BackupLive(false, emptyList())
     val p = w.progress
-    return BackupLive(true, p.getString("phase") ?: "", p.getString("label") ?: "準備しています",
-        p.getInt("done", 0), p.getInt("total", 0))
+    val parts = (p.getString("active") ?: "").split(',').filter { it.isNotBlank() }.map { ph ->
+        com.photohub.app.data.BackupStep(ph, p.getString("${ph}_label") ?: "", p.getInt("${ph}_done", 0), p.getInt("${ph}_total", 0))
+    }
+    return BackupLive(true, parts)
 }
 
-/** Progress card: what it is doing, a bar, "123 / 456 枚（27%）". Hidden when nothing runs. */
+/** Progress card: one bar per running part (Synology and Google Drive run side by side). */
 @Composable
 fun BackupProgress(live: BackupLive, only: String? = null) {
     if (!live.running) return
-    val relevant = only == null || live.phase == only || live.phase == "prepare"
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val shown = live.parts.filter { only == null || it.phase == only || it.phase == "prepare" }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.size(10.dp))
-            Text(if (relevant) live.label else "ほかの手順を実行中：${live.label}", style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (live.total > 0) Text("${(live.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary)
+            Text("バックアップ中", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton({ com.photohub.app.data.BackupEngine.stopRequested.set(true) }) { Text("止める") }
         }
-        if (live.total > 0) {
-            androidx.compose.material3.LinearProgressIndicator(progress = { live.fraction }, modifier = Modifier.fillMaxWidth().height(6.dp))
-            Text("${live.done} / ${live.total} 枚", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(6.dp))
+        if (shown.isEmpty()) {
+            Text(if (only == null) "準備しています" else "このバックアップは待機中です（ほかの手順を実行中）",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        shown.forEach { st ->
+            val place = when (st.phase) { "nas" -> PLACES.first { it.key == "nas" }; "drive" -> PLACES.first { it.key == "drive" }; else -> PLACES.first { it.key == "phone" } }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(place.icon, null, tint = place.color, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(st.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    if (st.total > 0) Text("${st.done} / ${st.total}（${(st.fraction * 100).toInt()}%）",
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (st.total > 0) androidx.compose.material3.LinearProgressIndicator(progress = { st.fraction },
+                    modifier = Modifier.fillMaxWidth().height(6.dp), color = place.color)
+                else androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(6.dp), color = place.color)
+            }
         }
     }
 }
@@ -431,9 +440,9 @@ fun PlaceSetting() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.Icon(if (current == "shared") Icons.Default.FamilyRestroom else Icons.Default.Lock, null)
             Spacer(Modifier.size(12.dp))
-            Text("GoogleフォトやGoogleドライブから取り込んだ写真を、NASのどこに置くか", style = MaterialTheme.typography.bodyMedium)
+            Text("GoogleフォトやGoogleドライブから取り込んだ写真を、Synologyのどこに置くか", style = MaterialTheme.typography.bodyMedium)
         }
-        if (current == null) Text("NASにつながると選べます", style = MaterialTheme.typography.bodySmall)
+        if (current == null) Text("Synologyにつながると選べます", style = MaterialTheme.typography.bodySmall)
         else Segmented(listOf("personal" to "自分だけ", "shared" to "家族で共有"), current!!, { key ->
             scope.launch { try { app.net.api()!!.setMySettings(MySettings(key)); current = key } catch (_: Exception) {} }
         })
@@ -456,8 +465,8 @@ fun FreeUpSpaceRow() {
     }
     val f = freeable
     SettingRow(Icons.Default.DataSaverOn, "空き容量を増やす",
-        when { f == null -> "計算中…"; f.first == 0 -> "消せる写真はありません（NASに保存済みで30日以上前のもの）"
-            else -> "NASに保存済みの写真 ${f.first} 枚（${humanBytes(f.second)}）をスマホから削除。消してもこのアプリで見られます" },
+        when { f == null -> "計算中…"; f.first == 0 -> "消せる写真はありません（Synologyに保存済みで30日以上前のもの）"
+            else -> "Synologyに保存済みの写真 ${f.first} 枚（${humanBytes(f.second)}）をスマホから削除。消してもこのアプリで見られます" },
         enabled = (f?.first ?: 0) > 0 && Build.VERSION.SDK_INT >= 30, onClick = {
             scope.launch {
                 val uris = app.db.media().localOnNas(System.currentTimeMillis() - olderThan).map { android.net.Uri.parse(it.uri) }
@@ -511,7 +520,7 @@ fun NasListBanner(modifier: Modifier = Modifier) {
     val w = work.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: return
     Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
         androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
-        Text(w.progress.getString("msg") ?: "NASの写真の一覧を確認中…", style = MaterialTheme.typography.labelMedium,
+        Text(w.progress.getString("msg") ?: "Synologyの写真の一覧を確認中…", style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
     }
 }

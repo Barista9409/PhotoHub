@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -75,18 +75,13 @@ class Service:
         synology.sync_albums(self.db, self.s, apply=self.s.apply)
 
     def job_scan(self) -> None:
-        if not self.s.apply:
-            # a dry-run scan hashes the whole library; once is enough for review
-            with self.db.session() as s:
-                if kv_get(s, "dry_scan_done"):
-                    return
-        rep = scanner.scan(self.db, self.s, scan_roots(self.db, self.s), apply=self.s.apply)
-        if not self.s.apply:
-            with self.db.session() as s:
-                kv_set(s, "dry_scan_done", "1")
+        # Indexing only reads the photos, so it always runs and is saved (that is what makes
+        # Synology Photos' own backups show up in the app). Moving PhotoHub's own duplicate
+        # copies to trash still waits for PHOTOHUB_APPLY.
+        rep = scanner.scan(self.db, self.s, scan_roots(self.db, self.s), apply=True, move_files=self.s.apply)
         if rep.duplicates:
             scanner.write_duplicate_report(rep, self.s.root / "reports" / f"duplicates-{datetime.now():%Y%m%d}.tsv")
-        if not rep.dry_run:
+        if rep.new:
             self._after_import()
 
     def job_storage(self) -> None:
@@ -108,7 +103,9 @@ class Service:
         sch.add_job(lambda: self._guard("inbox", self.job_inbox), "interval", minutes=10, id="inbox",
                     next_run_time=datetime.now())
         sch.add_job(lambda: self._guard("incoming", self.job_incoming), "interval", minutes=5, id="incoming")
-        sch.add_job(lambda: self._guard("scan", self.job_scan), "cron", hour=2, minute=30, id="scan")
+        # new photos from Synology Photos' phone backup show up within a few hours (unchanged files are skipped quickly)
+        sch.add_job(lambda: self._guard("scan", self.job_scan), "interval", hours=3, id="scan",
+                    next_run_time=datetime.now() + timedelta(minutes=2))
         sch.add_job(lambda: self._guard("storage", self.job_storage), "cron", hour=5, minute=10, id="storage")
         sch.add_job(lambda: self._guard("health", self.job_health, heavy=False), "interval", hours=1, id="health",
                     next_run_time=datetime.now())

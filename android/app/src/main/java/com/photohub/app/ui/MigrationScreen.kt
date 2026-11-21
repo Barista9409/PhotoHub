@@ -46,14 +46,14 @@ fun MigrationScreen() {
             SettingRow(Icons.Default.Download, "1. Googleフォトを書き出す",
                 "takeout.google.com で「Googleフォト」だけを選び、配信方法「ダウンロードリンクをメールで送信」、形式 ZIP。届いたメールから、このスマホにZIPをダウンロードします")
             GroupDivider()
-            SettingRow(Icons.Default.FolderZip, "2. ZIPを選んでNASへ送る",
+            SettingRow(Icons.Default.FolderZip, "2. ZIPを選んでSynologyへ送る",
                 "解凍せず、ZIPのまま選んでください。分かれたZIP（-001、-002 …）はまとめて選べます。自宅のWi-Fiで送ります")
             GroupDivider()
-            SettingRow(Icons.Default.Inventory2, "3. NASが取り込む",
-                "日時と場所を整え、すでにNASにある写真（スマホのバックアップなど）とは重複しないよう1枚にまとめます。結果は「NASへの取り込み記録」で見られます")
+            SettingRow(Icons.Default.Inventory2, "3. Synologyが取り込む",
+                "日時と場所を整え、すでにSynologyにある写真（スマホのバックアップなど）とは重複しないよう1枚にまとめます。結果は「Synologyへの取り込み記録」で見られます")
             GroupDivider()
             SettingRow(Icons.Default.TaskAlt, "4. 確認できたらGoogleフォトを片付ける",
-                "「Googleフォトから消してよい写真」に、NASに入った月が出ます。Googleフォトのアプリで消してください")
+                "「Googleフォトから消してよい写真」に、Synologyに入った月が出ます。Googleフォトのアプリで消してください")
         }
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(enabled = !running, modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -69,7 +69,7 @@ fun MigrationScreen() {
                     Text("アプリを閉じても続きます。途中で切れても、続きから送ります。", style = MaterialTheme.typography.bodySmall)
                 }
                 WorkInfo.State.ENQUEUED -> Text("自宅のWi-Fiにつながると送り始めます")
-                WorkInfo.State.SUCCEEDED -> Text("送り終わりました。NASが順に取り込みます（大きいZIPは数時間かかります）")
+                WorkInfo.State.SUCCEEDED -> Text("送り終わりました。Synologyが順に取り込みます（大きいZIPは数時間かかります）")
                 else -> {}
             }
         }

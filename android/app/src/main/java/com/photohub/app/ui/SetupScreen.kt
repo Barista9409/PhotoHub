@@ -95,14 +95,14 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
         when {
             searching -> {
                 CircularProgressIndicator()
-                Text("自宅のNASを探しています…")
+                Text("自宅のSynologyを探しています…")
             }
             base == null -> {
-                Text("NASが見つかりません。自宅のWi-Fiにつないでから、もう一度探してください。", textAlign = TextAlign.Center)
+                Text("Synologyが見つかりません。自宅のWi-Fiにつないでから、もう一度探してください。", textAlign = TextAlign.Center)
                 OutlinedButton(onClick = { searchRound++ }) { Text("もう一度探す") }
             }
             else -> {
-                Text("NASが見つかりました。Synology（Synology Photos）のユーザー名とパスワードでログインします。",
+                Text("Synologyが見つかりました。Synology（Synology Photos）のユーザー名とパスワードでログインします。",
                     textAlign = TextAlign.Center)
                 OutlinedTextField(user, { user = it }, label = { Text("ユーザー名") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth())
@@ -126,7 +126,7 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
                             } finally { busy = false }
                         }
                     }) { Text("ログイン") }
-                Text("パスワードはPhotoHubに保存されません。NASで確かめたあと、このスマホ専用の鍵だけを受け取ります。",
+                Text("パスワードはPhotoHubに保存されません。Synologyで確かめたあと、このスマホ専用の鍵だけを受け取ります。",
                     style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             }
         }
@@ -138,9 +138,9 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
                 .addOnSuccessListener { code -> code.rawValue?.let { fromQr(it) } }
                 .addOnFailureListener { message = "カメラを起動できませんでした: ${it.message}" }
         }) { Text("管理者のQRコードで設定する") }
-        if (!manual) TextButton(onClick = { manual = true }) { Text("NASのアドレスを入力する") }
+        if (!manual) TextButton(onClick = { manual = true }) { Text("Synologyのアドレスを入力する") }
         else {
-            OutlinedTextField(address, { address = it }, label = { Text("NASのアドレス（例 http://192.168.1.10:8765）") },
+            OutlinedTextField(address, { address = it }, label = { Text("Synologyのアドレス（例 http://192.168.1.10:8765）") },
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
             OutlinedButton(onClick = {
                 scope.launch {

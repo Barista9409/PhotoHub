@@ -61,6 +61,7 @@ data class Status(
     @SerialName("similar_open") val similarOpen: Int = 0,
     val apply: Boolean = false,
     @SerialName("amazon_heartbeat") val amazonHeartbeat: String? = null,
+    @SerialName("scan_progress") val scanProgress: String? = null,
 )
 
 @Serializable

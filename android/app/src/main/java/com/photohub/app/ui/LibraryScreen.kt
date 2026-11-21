@@ -62,20 +62,23 @@ fun LibraryScreen() {
         if (warn > 0 || unchecked > 0) {
             Card(NOT_BACKED_UP, "このスマホにしかない", phoneOnly,
                 note = buildString {
-                    append("NASにもドライブにもまだない写真です。スマホをなくすと消えてしまいます。")
+                    append("Synologyにもドライブにもまだない写真です。スマホをなくすと消えてしまいます。")
                     if (unchecked > 0) append("\n（うち ${num(unchecked)} 枚はまだ確認していません。バックアップを実行すると確認します）")
                 }, highlight = true)
         }
         Card(PLACES.first { it.key == "phone" }, "このスマホ", phone)
-        Card(PLACES.first { it.key == "nas" }, "NAS（あなたが見られる分）", nas,
-            note = status?.let { "NASの集計：写真 ${num(it.photos)} 枚・動画 ${num(it.videos)} 本（家族の共有スペースを含む）" }
-                ?: "NASにつながると、NAS側の集計も表示します")
+        Card(PLACES.first { it.key == "nas" }, "Synology（あなたが見られる分）", nas,
+            note = status?.let {
+                "Synologyの集計：写真 ${num(it.photos)} 枚・動画 ${num(it.videos)} 本（家族の共有スペースを含む）" +
+                    (it.scanProgress?.let { n -> "\nいまSynologyが写真フォルダを読み込み中です（${num(n.toIntOrNull() ?: 0)} 件確認済み）。終わると増えます" } ?: "")
+            }
+                ?: "Synologyにつながると、Synology側の集計も表示します")
         Card(PLACES.first { it.key == "drive" }, "Googleドライブ", drive,
             note = if (!app.prefs.settings.collectAsState(initial = null).value.let { it?.backupDrive ?: false })
                 "ドライブへのバックアップはオフです" else null)
         if (google.isNotEmpty()) Card(PLACES.first { it.key == "google" }, "Googleフォト（Takeoutで確認できた分）", google)
 
-        OutlinedButton({ SyncWorker.runNow(ctx) }, Modifier.fillMaxWidth()) { Text("NASの一覧を読み込み直す") }
+        OutlinedButton({ SyncWorker.runNow(ctx) }, Modifier.fillMaxWidth()) { Text("Synologyの一覧を読み込み直す") }
     }
 }
 
@@ -116,6 +119,6 @@ fun librarySummary(): String {
     val drive by dao.driveCounts().collectAsState(initial = emptyList())
     val only by dao.phoneOnlyCounts().collectAsState(initial = emptyList())
     val o = only.photos() + only.videos()
-    return "スマホ ${num(phone.photos() + phone.videos())}・NAS ${num(nas.photos() + nas.videos())}・ドライブ ${num(drive.photos() + drive.videos())}" +
+    return "スマホ ${num(phone.photos() + phone.videos())}・Synology ${num(nas.photos() + nas.videos())}・ドライブ ${num(drive.photos() + drive.videos())}" +
         if (o > 0) "\nまだバックアップされていない ${num(o)}" else ""
 }

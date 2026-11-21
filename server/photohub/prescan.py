@@ -8,9 +8,10 @@ from .config import Settings
 from .db import Database, User
 
 
-def refresh_index(db: Database, settings: Settings, user: User | None) -> None:
+def refresh_index(db: Database, settings: Settings, user: User | None, move_files: bool | None = None) -> None:
     from .scanner import scan
     roots: list = [(settings.library, None)]
     if user is not None and user.personal_root and Path(user.personal_root).exists():
         roots.insert(0, (Path(user.personal_root), user.id))
-    scan(db, settings, roots, apply=True)  # incremental: unchanged files are skipped
+    # incremental: unchanged files are skipped
+    scan(db, settings, roots, apply=True, move_files=settings.apply if move_files is None else move_files)

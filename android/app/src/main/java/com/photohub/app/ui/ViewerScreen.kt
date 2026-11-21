@@ -1,6 +1,7 @@
 package com.photohub.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -85,7 +86,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     fun guarded(item: TimelineItem, what: String, action: () -> Unit) {
         val remote = item.localUri == null
         if (remote && app.net.isMetered()) {
-            confirm = Confirm("モバイル回線です", "$what（${humanBytes(item.bytes)}）をNASから取得します。よろしいですか？", action)
+            confirm = Confirm("モバイル回線です", "$what（${humanBytes(item.bytes)}）をSynologyから取得します。よろしいですか？", action)
         } else action()
     }
 
@@ -102,7 +103,8 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
             scaleX = 1f - kotlin.math.abs(dragY) / 4000f, scaleY = 1f - kotlin.math.abs(dragY) / 4000f),
             key = { items[it].itemKey }) { page ->
             val item = items[page]
-            if (item.kind == "video" && playing == item.itemKey) {
+            val auto = item.kind == "video" && page == pager.currentPage && (item.localUri != null || !app.net.isMetered())
+            if (item.kind == "video" && (playing == item.itemKey || auto)) {
                 VideoPlayer(app, item, base)
             } else {
                 ZoomableImage(previewModel(app, item, base), item.name, onTap = { barsVisible = !barsVisible })
@@ -133,7 +135,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                             message = "準備中…"
                             val uri = fetchOriginal(ctx, app, cur, base)
                             message = null
-                            if (uri != null) shareUri(ctx, uri, cur.mime) else message = "NASに接続できません"
+                            if (uri != null) shareUri(ctx, uri, cur.mime) else message = "Synologyに接続できません"
                         }
                     }
                 }) { Icon(Icons.Default.Share, "共有", tint = Color.White) }
@@ -217,18 +219,41 @@ fun ZoomableImage(model: Any?, desc: String, onTap: () -> Unit = {}) {
 @Composable
 fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
     val ctx = LocalContext.current
-    val player = remember(item.itemKey) {
-        val http = OkHttpDataSource.Factory(app.net.client(app.token))
-        val ds = DefaultDataSource.Factory(ctx, http)
-        ExoPlayer.Builder(ctx).setMediaSourceFactory(DefaultMediaSourceFactory(ds)).build().apply {
-            val uri = item.localUri ?: originalUrl(base, item)
-            if (uri != null) {
-                setMediaItem(MediaItem.fromUri(uri))
-                prepare()
-                playWhenReady = true
+    var error by remember(item.itemKey) { mutableStateOf<String?>(null) }
+    // where to play from, best first: the phone's own file, the Synology, Google Drive
+    val sources = remember(item.itemKey, base) {
+        listOfNotNull(item.localUri, originalUrl(base, item), item.driveId?.let { app.drive.mediaUrl(it) })
+    }
+    var at by remember(item.itemKey) { mutableStateOf(0) }
+    val player = remember(item.itemKey) { ExoPlayer.Builder(ctx).build() }
+    androidx.compose.runtime.LaunchedEffect(item.itemKey, at, sources) {
+        val uri = sources.getOrNull(at) ?: run { error = "再生できる場所がありません（Synologyにつながっていないかもしれません）"; return@LaunchedEffect }
+        error = null
+        val http = if (uri.contains("googleapis.com")) {
+            app.drive.token()
+            OkHttpDataSource.Factory(okhttp3.OkHttpClient()).setDefaultRequestProperties(mapOf("Authorization" to "Bearer ${app.driveToken}"))
+        } else OkHttpDataSource.Factory(app.net.client(app.token))
+        val src = DefaultMediaSourceFactory(DefaultDataSource.Factory(ctx, http)).createMediaSource(MediaItem.fromUri(uri))
+        player.setMediaSource(src)
+        player.prepare()
+        player.playWhenReady = true
+    }
+    DisposableEffect(item.itemKey) {
+        val l = object : androidx.media3.common.Player.Listener {
+            override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
+                if (at + 1 < sources.size) at++   // try the next place
+                else error = "再生できませんでした（${e.errorCodeName}）"
             }
         }
+        player.addListener(l)
+        onDispose { player.removeListener(l); player.release() }
     }
-    DisposableEffect(item.itemKey) { onDispose { player.release() } }
-    AndroidView(factory = { PlayerView(it).apply { this.player = player } }, modifier = Modifier.fillMaxSize())
+    Box(Modifier.fillMaxSize()) {
+        AndroidView(factory = { PlayerView(it).apply { this.player = player; setShowNextButton(false); setShowPreviousButton(false) } },
+            modifier = Modifier.fillMaxSize())
+        error?.let {
+            Text(it, color = Color.White, modifier = Modifier.align(Alignment.Center)
+                .background(Color(0xCC000000), RoundedCornerShape(12.dp)).padding(16.dp))
+        }
+    }
 }

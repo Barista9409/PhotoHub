@@ -134,24 +134,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
-                title = {
-                    if (route == "timeline" || route == "albums") {
-                        // Photos <-> Albums, always one tap away (like Google Photos)
-                        val goTab: (String) -> Unit = { r ->
-                            nav.navigate(r) { popUpTo("timeline") { saveState = true }; launchSingleTop = true; restoreState = true }
-                        }
-                        Row(Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(3.dp)) {
-                            listOf("timeline" to "フォト", "albums" to "アルバム").forEach { (r, label) ->
-                                val on = route == r
-                                Text(label, Modifier.clip(RoundedCornerShape(50))
-                                    .background(if (on) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
-                                    .clickable { if (!on) goTab(r) }.padding(horizontal = 18.dp, vertical = 7.dp),
-                                    color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.titleSmall)
-                            }
-                        }
-                    } else Text(titleFor(route, entry?.arguments?.getString("name")))
-                },
+                title = { Text(titleFor(route, entry?.arguments?.getString("name"))) },
                 navigationIcon = {
                     if (tabs.none { it.route == route }) IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る") }
                 },

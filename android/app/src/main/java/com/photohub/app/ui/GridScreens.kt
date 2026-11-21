@@ -58,7 +58,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
         if (albums.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Text("アルバム（NAS）", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(8.dp))
+                Text("アルバム（Synology）", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(8.dp))
             }
         }
         items(albums, key = { "a${it.id}" }) { a ->
@@ -79,7 +79,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(8.dp, 16.dp, 8.dp, 4.dp)) {
                     Text("このスマホのフォルダ", style = MaterialTheme.typography.titleSmall)
-                    Text("「カメラ」以外は、一覧を更新したときにNASにも自分のアルバムとして記録されます",
+                    Text("「カメラ」以外は、一覧を更新したときにSynologyにも自分のアルバムとして記録されます",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }

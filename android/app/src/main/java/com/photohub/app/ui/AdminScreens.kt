@@ -60,7 +60,7 @@ fun <T> remote(key: Any = Unit, load: suspend (com.photohub.app.data.api.PhotoHu
     LaunchedEffect(key) {
         try {
             val api = app.net.api()
-            if (api == null) error = "NASに接続できません（外出先ではTailscaleを確認）" else value = load(api)
+            if (api == null) error = "Synologyに接続できません（外出先ではTailscaleを確認）" else value = load(api)
         } catch (e: Exception) {
             error = "取得できません: ${e.message}"
         }
@@ -96,7 +96,7 @@ fun ImportLogScreen() {
 }
 
 private fun sourceLabel(s: String) = when (s) {
-    "takeout" -> "Googleフォト（Takeout）"; "phone" -> "スマホ・ドライブから"; "phone_scan" -> "NASの写真の確認"; else -> s
+    "takeout" -> "Googleフォト（Takeout）"; "phone" -> "スマホ・ドライブから"; "phone_scan" -> "Synologyの写真の確認"; else -> s
 }
 
 private fun stateLabel(s: String) = when (s) {
@@ -116,7 +116,7 @@ fun SimilarScreen() {
     if (groups == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     if (groups.isEmpty()) { Text("類似の候補はありません", Modifier.padding(16.dp)); return }
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
-        item { Text("残す写真をタップして選び、「決定」を押します。残さない写真はNASのゴミ箱フォルダへ移ります（削除はしません）。" +
+        item { Text("残す写真をタップして選び、「決定」を押します。残さない写真はSynologyのゴミ箱フォルダへ移ります（削除はしません）。" +
             "共有スペースの写真は管理者だけが、個人スペースの写真は本人だけが整理できます。",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }
         items(groups, key = { it.id }) { g ->
@@ -141,7 +141,7 @@ fun SimilarScreen() {
                             info = try {
                                 val r = app.net.api()!!.resolve(g.id, com.photohub.app.data.api.KeepBody(keep.toList()))
                                 if (r.applied) { refresh++; "移動しました: ${r.actions.size} 件" }
-                                else "NASが確認モードのため実行していません。予定: \n" + r.actions.joinToString("\n")
+                                else "Synologyが確認モードのため実行していません。予定: \n" + r.actions.joinToString("\n")
                             } catch (e: Exception) { "失敗しました: ${e.message}" }
                         }
                     }) { Text("決定") }
@@ -163,7 +163,7 @@ fun GoogleCleanupScreen() {
     if (rows == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
         item {
-            Text("あなたのGoogleアカウントの分です。NASに保存されハッシュが一致した、撮影から一定期間たった写真・動画です。PhotoHubはGoogleから削除しません。" +
+            Text("あなたのGoogleアカウントの分です。Synologyに保存されハッシュが一致した、撮影から一定期間たった写真・動画です。PhotoHubはGoogleから削除しません。" +
                 "Googleフォトのアプリで該当する月を削除したら「削除した」を押してください。", style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(8.dp))
         }
@@ -174,7 +174,7 @@ fun GoogleCleanupScreen() {
                     Text("${c.month} ・ ${if (c.match == "exact") "完全一致" else "節約画質（似ている）・数枚確認してから"}",
                         style = MaterialTheme.typography.titleSmall)
                     Text("写真 ${c.photos} 枚 ・ 動画 ${c.videos} 本")
-                    if (c.videos > 0) Text("動画は削除後、NASだけに残ります（外部の控えはありません）。", color = Color(0xFFD84315),
+                    if (c.videos > 0) Text("動画は削除後、Synologyだけに残ります（外部の控えはありません）。", color = Color(0xFFD84315),
                         style = MaterialTheme.typography.bodySmall)
                     if (c.confirmedAt != null) Text("確認済み ${c.confirmedAt.take(10)}", style = MaterialTheme.typography.bodySmall)
                     else OutlinedButton(onClick = { ask = c }) { Text("Googleから削除した") }

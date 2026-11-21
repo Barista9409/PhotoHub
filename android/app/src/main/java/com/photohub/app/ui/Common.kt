@@ -49,7 +49,7 @@ data class Place(val key: String, val icon: androidx.compose.ui.graphics.vector.
 
 val PLACES = listOf(
     Place("phone", androidx.compose.material.icons.Icons.Default.PhoneAndroid, Color(0xFF546E7A), "このスマホ"),
-    Place("nas", androidx.compose.material.icons.Icons.Default.Dns, Color(0xFF2E7D32), "NAS"),
+    Place("nas", androidx.compose.material.icons.Icons.Default.Dns, Color(0xFF2E7D32), "Synology"),
     Place("drive", androidx.compose.material.icons.Icons.Default.Cloud, Color(0xFF00897B), "Googleドライブ"),
     Place("google", androidx.compose.material.icons.Icons.Default.PhotoLibrary, Color(0xFF1565C0), "Googleフォト"),
     Place("amazon", androidx.compose.material.icons.Icons.Default.Inventory2, Color(0xFFEF6C00), "Amazonフォト"),
@@ -93,7 +93,7 @@ fun PlaceChip(p: Place) {
 
 /** Short names for the legend strip. */
 private fun shortLabel(p: Place) = when (p.key) {
-    "phone" -> "スマホ"; "nas" -> "NAS"; "drive" -> "ドライブ"; "google" -> "Gフォト"; "none" -> "スマホだけ（未バックアップ）"; else -> p.label
+    "phone" -> "スマホ"; "nas" -> "Synology"; "drive" -> "ドライブ"; "google" -> "Gフォト"; "none" -> "スマホだけ（未バックアップ）"; else -> p.label
 }
 
 /** The strip at the top of the photo list: what the marks on the thumbnails mean. */

@@ -6,6 +6,8 @@ and progress is committed every batch, so a stopped scan continues where it left
 """
 from __future__ import annotations
 
+import threading
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,8 +54,21 @@ def walk(root: Path):  # noqa: ANN201
                 yield p
 
 
+_SCAN_LOCK = threading.Lock()
+
+
 def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
-         batch: int = 200, limit: int | None = None) -> ScanReport:
+         batch: int = 200, limit: int | None = None, move_files: bool | None = None) -> ScanReport:
+    """See _scan. apply=True records what was found in the index (reading files only);
+    move_files (default: apply) also lets it move PhotoHub's own duplicate copies to trash.
+    Only one scan runs at a time."""
+    with _SCAN_LOCK:
+        return _scan(db, settings, roots, apply=apply, batch=batch, limit=limit,
+                     move_files=apply if move_files is None else move_files)
+
+
+def _scan(db: Database, settings: Settings, roots: list, *, apply: bool,
+          batch: int, limit: int | None, move_files: bool) -> ScanReport:
     """roots: folders, or (folder, owner user id | None) pairs. A personal space's owner is the
     only one who sees its photos (plus anyone who has the same photo, see media_access)."""
     roots = [r if isinstance(r, tuple) else (Path(r), None) for r in roots]
@@ -96,7 +111,7 @@ def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
                         # The same photo now exists where someone else (e.g. Synology Photos' backup)
                         # put it: keep theirs, move PhotoHub's own copy to trash (never deleted).
                         rep.resolved.append((m.nas_path, key))
-                        if apply:
+                        if apply and move_files:
                             _trash_own_copy(s, settings, m, Path(key))
                         changed = True
                     else:
@@ -118,6 +133,7 @@ def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
                 s.merge(ss)
             pending.clear()
             if apply:
+                kv_set(s, "scan_progress", f"{rep.scanned}")
                 s.commit()
 
         seen = 0
@@ -145,6 +161,8 @@ def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
                 set_location(s, m.id, "nas", "removed")
                 touch_media(s, m)
 
+        if apply:
+            kv_set(s, "scan_progress", "")
         job.finished_at = utcnow()
         job.new_count, job.dup_count, job.error_count = rep.new, len(rep.duplicates), len(rep.errors)
         job.message = rep.summary()

@@ -314,8 +314,8 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
             title = { Text("スマホから ${list.size} 件を削除") },
             text = {
                 Text(if (list.isEmpty()) "スマホにある写真が選ばれていません。"
-                else if (unsafe > 0) "うち $unsafe 件はまだNASにもドライブにもありません。削除すると元に戻せません。"
-                else "NASやドライブにある写真なので、削除してもこのアプリで見られます。")
+                else if (unsafe > 0) "うち $unsafe 件はまだSynologyにもドライブにもありません。削除すると元に戻せません。"
+                else "Synologyやドライブにある写真なので、削除してもこのアプリで見られます。")
             },
             confirmButton = {
                 TextButton(enabled = list.isNotEmpty() && Build.VERSION.SDK_INT >= 30, onClick = {

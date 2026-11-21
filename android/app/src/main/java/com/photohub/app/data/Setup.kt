@@ -71,13 +71,13 @@ object Setup {
                             detail == "denied" || detail == "disabled" -> SetupFailed("このアカウントでは使えません。")
                             detail == "otp_setup_required" -> SetupFailed("DSMで2段階認証の設定を終えてから、もう一度どうぞ。")
                             detail == "password_expired" -> SetupFailed("DSMのパスワードの期限が切れています。DSMで変更してください。")
-                            detail == "unreachable" -> SetupFailed("NASのログイン機能に接続できませんでした。少し待ってもう一度どうぞ。")
+                            detail == "unreachable" -> SetupFailed("Synologyのログイン機能に接続できませんでした。少し待ってもう一度どうぞ。")
                             else -> SetupFailed("ユーザー名かパスワードが違います（Synologyのものを入れてください）。")
                         }
                     }
                 }
             } catch (e: SetupFailed) { throw e } catch (e: Exception) {
-                throw SetupFailed("NASに接続できません。自宅のWi-Fiにつないでください。")
+                throw SetupFailed("Synologyに接続できません。自宅のWi-Fiにつないでください。")
             }
             save(app, r, base, r.remote, onLan = true)
             r.user
@@ -95,7 +95,7 @@ object Setup {
     /** QR code (spare way). Returns the person's name. Throws SetupFailed with a message for the screen. */
     suspend fun run(app: PhotoHubApp, link: SetupLink): String = withContext(Dispatchers.IO) {
         val body = json.encodeToString(RedeemBody.serializer(), RedeemBody(link.code, "${Build.MANUFACTURER} ${Build.MODEL}"))
-        var lastError = "NASに接続できません。自宅のWi-Fiか、外出先ならTailscaleをオンにして、もう一度読み取ってください。"
+        var lastError = "Synologyに接続できません。自宅のWi-Fiか、外出先ならTailscaleをオンにして、もう一度読み取ってください。"
         var usedLan = false
         var result: RedeemResult? = null
         for (base in listOf(link.lan, link.remote).filter { it.isNotBlank() }) {
@@ -107,7 +107,7 @@ object Setup {
                         r.isSuccessful -> { result = json.decodeFromString(RedeemResult.serializer(), r.body!!.string()); usedLan = base == link.lan }
                         r.code == 400 -> throw SetupFailed("このQRコードは使用済みか期限切れです。管理者に新しいコードを出してもらってください。")
                         r.code == 429 -> throw SetupFailed("試行が多すぎます。10分ほど待ってから読み取ってください。")
-                        else -> lastError = "NASがエラーを返しました（${r.code}）"
+                        else -> lastError = "Synologyがエラーを返しました（${r.code}）"
                     }
                 }
             } catch (e: SetupFailed) {

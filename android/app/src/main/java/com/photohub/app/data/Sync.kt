@@ -38,7 +38,7 @@ class SyncEngine(private val app: PhotoHubApp) {
 
     suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
         withContext(Dispatchers.IO) {
-            val api = app.net.api(force = true) ?: return@withContext Result(0, 0, 0, "NASに接続できません")
+            val api = app.net.api(force = true) ?: return@withContext Result(0, 0, 0, "Synologyに接続できません")
             // phone folders -> albums on the NAS first, so the delta below already carries them
             try { app.indexer.pushFolderAlbums(api) } catch (_: Exception) {}
             var cursor = prefs.current().cursor
@@ -61,7 +61,7 @@ class SyncEngine(private val app: PhotoHubApp) {
                 changed += page.items.size
                 cursor = page.cursor
                 prefs.setCursor(cursor)
-                progress("NASの写真の一覧を読み込み中 $changed 件")
+                progress("Synologyの写真の一覧を読み込み中 $changed 件")
                 if (!page.hasMore) break
             }
             // 2) thumbnails for everything, in packs of 300
@@ -83,7 +83,7 @@ class SyncEngine(private val app: PhotoHubApp) {
             if (s.previewAlbums.isNotEmpty()) dao.remoteInAlbums(s.previewAlbums.toList()).forEach { wanted += it.hash }
             dao.remoteSince(since).filter { it.kind == "photo" }.forEach { wanted += it.hash }
             val cap = s.storageCapMb.toLong() * 1024 * 1024
-            val base = app.net.baseUrl() ?: return@withContext Result(changed, thumbs, 0, "NASに接続できません")
+            val base = app.net.baseUrl() ?: return@withContext Result(changed, thumbs, 0, "Synologyに接続できません")
             val client = app.net.client(s.token)
             var previews = 0
             var used = files.usedBytes()

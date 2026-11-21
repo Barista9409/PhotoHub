@@ -56,5 +56,9 @@ def login(db: Database, settings: Settings, username: str, password: str, otp: s
         if not settings.auto_users:
             return "not_registered", None
         u, _ = add_user(db, settings, username, admin=username in settings.admins)
+        # index their Synology Photos space now, so the app shows it without waiting for the next scan
+        import threading
+        from .prescan import refresh_index
+        threading.Thread(target=lambda: refresh_index(db, settings, u), daemon=True, name="first-scan").start()
     token = issue_device_token(db, u.id, device)
     return "ok", {"token": token, "user": u.name, "admin": u.is_admin}
