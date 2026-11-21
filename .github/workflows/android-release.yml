@@ -1,9 +1,9 @@
 # Builds the signed Android app and publishes it as a GitHub Release.
 # Phones running PhotoHub update themselves from the latest Release.
 #
-# Release: bump versionCode/versionName in android/app/build.gradle.kts, write
-# android/app/release-notes.txt, commit, then push a tag v<versionName>, e.g.
-#   git tag v0.4.0 && git push origin v0.4.0
+# Release (same flow as the family's other apps): bump versionCode/versionName in
+# android/app/build.gradle.kts, write android/app/release-notes.txt, commit and push to main.
+# If release v<versionName> does not exist yet, this builds the signed APK and creates it.
 #
 # Repository secrets (Settings > Secrets and variables > Actions):
 #   PHOTOHUB_KEYSTORE_BASE64    base64 of photohub-release.jks
@@ -13,7 +13,10 @@ name: Android release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - android/**
+      - .github/workflows/android-release.yml
 
 permissions:
   contents: write
@@ -34,14 +37,22 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Check tag matches versionName
+      - name: Decide the release tag
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           name=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
-          if [ "v$name" != "$GITHUB_REF_NAME" ]; then
-            echo "tag $GITHUB_REF_NAME does not match versionName $name"; exit 1
+          echo "tag=v$name" >> "$GITHUB_OUTPUT"
+          if gh release view "v$name" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release v$name already exists (bump versionName to publish); nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Restore release key
+        if: steps.ver.outputs.skip == 'false'
         env:
           KEYSTORE_B64: ${{ secrets.PHOTOHUB_KEYSTORE_BASE64 }}
         run: |
@@ -49,6 +60,7 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/photohub-release.jks"
 
       - name: Build signed APK
+        if: steps.ver.outputs.skip == 'false'
         env:
           PHOTOHUB_KEYSTORE: ${{ runner.temp }}/photohub-release.jks
           PHOTOHUB_KEYSTORE_PASSWORD: ${{ secrets.PHOTOHUB_KEYSTORE_PASSWORD }}
@@ -57,11 +69,13 @@ jobs:
         run: ./gradlew --no-daemon testDebugUnitTest publishUpdate
 
       - name: Publish GitHub Release
+        if: steps.ver.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" ../dist/photohub-*.apk ../dist/photohub-*.json \
-            --title "写真ハブ $GITHUB_REF_NAME" --notes-file app/release-notes.txt
+          gh release create "$TAG" ../dist/photohub-*.apk ../dist/photohub-*.json \
+            --target "$GITHUB_SHA" --title "写真ハブ $TAG" --notes-file app/release-notes.txt
 
       - name: Remove key
         if: always()

@@ -126,8 +126,8 @@ photohub import-takeout --no-wait
 
 **新しい版を配るとき**
 1. `android/app/build.gradle.kts` の `versionCode` を1つ上げ、`versionName` を変え、`android/app/release-notes.txt` に変更点を書いてコミット
-2. `v<versionName>` のタグを付けてプッシュ（例：`git tag v0.5.0 && git push origin v0.5.0`）
-3. GitHub Actions（`.github/workflows/android-release.yml`）が署名付きAPKをビルドし、Releaseを作る（APKと `.json` が付く）
+2. main ブランチにプッシュ（ほかのアプリと同じ流れ。Claudeに「ビルドに出して」と頼めばここまで行います）
+3. GitHub Actions（`.github/workflows/android-release.yml`）が、その版のReleaseがまだなければ署名付きAPKをビルドし、タグ `v<versionName>` とReleaseを作る（APKと `.json` が付く）
 
 **スマホ側の動き**
 - 12時間ごと（Wi-Fiのとき）とアプリを開いたときに、最新のReleaseを確認し、新しければダウンロードしてインストール
