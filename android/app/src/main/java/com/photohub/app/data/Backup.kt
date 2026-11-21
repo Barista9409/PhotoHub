@@ -175,7 +175,8 @@ data class BackupStep(val phase: String, val label: String, val done: Int, val t
 }
 
 class BackupEngine(private val app: PhotoHubApp) {
-    data class Result(val toNas: Int, val toDrive: Int, val removedFromDrive: Int, val message: String)
+    data class Result(val toNas: Int, val toDrive: Int, val removedFromDrive: Int, val message: String,
+                      val checked: Int = 0, val alreadyOnNas: Int = 0, val failed: Int = 0)
 
     suspend fun run(progress: suspend (BackupStep) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
         withContext(Dispatchers.IO) {
@@ -193,6 +194,8 @@ class BackupEngine(private val app: PhotoHubApp) {
             val api = if (s.configured) app.net.api() else null
             // --- 1. straight to the NAS ---
             var toNas = 0
+            var failed = 0
+            var already = 0
             val onNas = HashSet<String>(app.db.media().remoteFileHashes())
             if (api != null) {
                 val unknown = local.filter { it.fileHash !in onNas }
@@ -203,11 +206,12 @@ class BackupEngine(private val app: PhotoHubApp) {
                     have.filterValues { it == "nas" }.keys.forEach { onNas += it }
                     toSend += chunk.filter { have[it.fileHash] == null }
                 }
+                already = local.size - toSend.size
                 if (s.backupNas) {
                     for ((i, m) in toSend.withIndex()) {
                         if (isStopped()) break
                         progress(BackupStep(BackupStep.NAS, "NASへ送信中", i, toSend.size))
-                        if (uploadToNas(m)) toNas++
+                        if (uploadToNas(m)) toNas++ else failed++
                     }
                     if (toSend.isNotEmpty()) progress(BackupStep(BackupStep.NAS, "NASへ送信中", toSend.size, toSend.size))
                 }
@@ -248,7 +252,7 @@ class BackupEngine(private val app: PhotoHubApp) {
                     }
                 }
             }
-            Result(toNas, toDrive, removed, "バックアップ完了")
+            Result(toNas, toDrive, removed, if (failed > 0) "一部送れませんでした" else "バックアップ完了", local.size, already, failed)
         }
 
     private fun deviceName(): String =
@@ -286,7 +290,15 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                     try { setForeground(foregroundInfo(applicationContext, st)) } catch (_: Exception) {}
                 }
             }) { isStopped }
-            app.prefs.setLastBackup(System.currentTimeMillis(), "${r.message}（NAS ${r.toNas}・ドライブ ${r.toDrive}・整理 ${r.removedFromDrive}）")
+            val parts = buildList {
+                add("スマホの写真 ${r.checked} 枚")
+                if (r.alreadyOnNas > 0) add("NASに保存済み ${r.alreadyOnNas} 枚")
+                add("今回NASへ ${r.toNas} 枚")
+                if (r.failed > 0) add("送れなかった ${r.failed} 枚（次回再送）")
+                if (s.backupDrive) add("ドライブへ ${r.toDrive} 枚・整理 ${r.removedFromDrive} 枚")
+            }
+            app.prefs.setLastBackup(System.currentTimeMillis(), "${r.message}：" + parts.joinToString("・"))
+            SyncWorker.runNow(applicationContext)  // marks (NAS / Drive) refresh
             androidx.work.ListenableWorker.Result.success()
         } catch (e: Exception) {
             app.prefs.setLastBackup(System.currentTimeMillis(), "失敗: ${e.message?.take(120)}")

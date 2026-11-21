@@ -494,3 +494,18 @@ fun ShareAppRows() {
         if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "コピーしました", Toast.LENGTH_SHORT).show()
     })
 }
+
+
+/** Thin bar under the top bar while the NAS list / thumbnails are loading. */
+@Composable
+fun NasListBanner(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(com.photohub.app.data.SyncWorker.ONCE)
+        .collectAsState(initial = emptyList())
+    val w = work.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: return
+    Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+        Text(w.progress.getString("msg") ?: "NASの写真の一覧を確認中…", style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+    }
+}

@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -115,7 +117,11 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
         perms.launch(if (Build.VERSION.SDK_INT >= 33) wanted + Manifest.permission.POST_NOTIFICATIONS else wanted)
         if (!app.prefs.current().configured) nav.navigate("setup")
-        else if (openUpdate) nav.navigate(Dest.APP.route)
+        else {
+            // fetch what is new on the NAS (photos Synology Photos backed up, Takeout, other phones)
+            com.photohub.app.data.SyncWorker.runNow(app)
+            if (openUpdate) nav.navigate(Dest.APP.route)
+        }
     }
     LaunchedEffect(setupLink) { if (setupLink != null) nav.navigate("setup") }
     val open: (List<TimelineItem>, Int) -> Unit = { list, i -> UiState.viewerItems = list; nav.navigate("viewer/$i") }
@@ -144,6 +150,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         },
     ) { pad ->
         Box(if (fullScreen) Modifier else Modifier.padding(pad)) {
+            if (!fullScreen) com.photohub.app.ui.NasListBanner(Modifier.align(Alignment.TopCenter).zIndex(1f))
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
                 composable("albums") {

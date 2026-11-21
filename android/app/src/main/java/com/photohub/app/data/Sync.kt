@@ -61,7 +61,7 @@ class SyncEngine(private val app: PhotoHubApp) {
                 changed += page.items.size
                 cursor = page.cursor
                 prefs.setCursor(cursor)
-                progress("写真の一覧 $changed 件")
+                progress("NASの写真の一覧を読み込み中 $changed 件")
                 if (!page.hasMore) break
             }
             // 2) thumbnails for everything, in packs of 300
@@ -72,7 +72,7 @@ class SyncEngine(private val app: PhotoHubApp) {
                 api.thumbs(HashesBody(chunk)).byteStream().use { s ->
                     ThumbPack.read(s) { h, data -> files.writeThumb(h, data); thumbs++ }
                 }
-                progress("縮小画像 $thumbs / ${missing.size}")
+                progress("縮小画像を読み込み中 $thumbs / ${missing.size}")
             }
             // 3) previews within the cap
             val s = prefs.current()
@@ -87,8 +87,9 @@ class SyncEngine(private val app: PhotoHubApp) {
             val client = app.net.client(s.token)
             var previews = 0
             var used = files.usedBytes()
+            val metered = app.net.isMetered()
             for (h in wanted) {
-                if (isStopped()) break
+                if (isStopped() || metered) break  // previews only on Wi-Fi
                 if (files.hasPreview(h)) continue
                 if (used > cap) break
                 val req = Request.Builder().url("$base/api/preview/$h").build()
