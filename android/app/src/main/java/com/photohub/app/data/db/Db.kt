@@ -35,10 +35,11 @@ data class RemoteMedia(
     val pair: String?,
     val description: String?,
     val rev: Long,
+    val space: String = "mine",   // mine / shared (family) / granted
 )
 
 @Entity(tableName = "album")
-data class AlbumRow(@PrimaryKey val id: Long, val name: String, val origin: String)
+data class AlbumRow(@PrimaryKey val id: Long, val name: String, val origin: String, val shared: Boolean = false)
 
 @Entity(tableName = "album_media", primaryKeys = ["albumId", "hash"], indices = [Index("hash")])
 data class AlbumMedia(val albumId: Long, val hash: String)
@@ -132,7 +133,8 @@ private const val TIMELINE_SELECT = """
       AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
 """
 
-data class AlbumWithCount(val id: Long, val name: String, val origin: String, val count: Int, val coverHash: String?)
+data class AlbumWithCount(val id: Long, val name: String, val origin: String, val count: Int, val coverHash: String?,
+                          val shared: Boolean = false)
 
 data class GeoPoint(val itemKey: String, val hash: String?, val localUri: String?, val lat: Double, val lon: Double, val takenAt: Long)
 
@@ -150,7 +152,10 @@ interface MediaDao {
     @Query("SELECT itemKey, hash, localUri, lat, lon, takenAt FROM ($TIMELINE_SELECT) WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY takenAt DESC")
     fun geo(): Flow<List<GeoPoint>>
 
-    @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(am.hash) AS count,
+    @Query("SELECT * FROM ($TIMELINE_SELECT) WHERE hash IN (SELECT hash FROM remote_media WHERE space = 'shared') ORDER BY takenAt DESC")
+    fun sharedSpace(): Flow<List<TimelineItem>>
+
+    @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(am.hash) AS count, a.shared AS shared,
               (SELECT am2.hash FROM album_media am2 JOIN remote_media r ON r.hash = am2.hash
                WHERE am2.albumId = a.id ORDER BY r.takenAt DESC LIMIT 1) AS coverHash
               FROM album a LEFT JOIN album_media am ON am.albumId = a.id GROUP BY a.id ORDER BY a.name""")
@@ -317,15 +322,31 @@ interface MediaDao {
 }
 
 @Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
-    version = 5, exportSchema = true)
+    version = 6, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 
     companion object {
         fun build(ctx: Context): AppDb =
             Room.databaseBuilder(ctx, AppDb::class.java, "photohub.db")
-                .addMigrations(MIGRATION_4_5)   // keep the phone's checked photos (hashing takes a while)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6)   // keep the phone's checked photos (hashing takes a while)
                 .fallbackToDestructiveMigration(true).build()
+
+        /** Photos and albums now say whether they are in the family's shared space: fetch them again
+         *  (PhotoHubApp restarts the Synology list from the beginning when it finds it empty). */
+        private val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS remote_media")
+                db.execSQL(REMOTE_SQL)
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_remote_media_takenAt ON remote_media (takenAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_remote_media_fileHash ON remote_media (fileHash)")
+                db.execSQL("DROP TABLE IF EXISTS album")
+                db.execSQL(ALBUM_SQL)
+                db.execSQL("DELETE FROM album_media")
+            }
+        }
+        private const val REMOTE_SQL = "CREATE TABLE IF NOT EXISTS `remote_media` (`hash` TEXT NOT NULL, `fileHash` TEXT NOT NULL, `kind` TEXT NOT NULL, `mime` TEXT, `takenAt` INTEGER NOT NULL, `tz` INTEGER, `lat` REAL, `lon` REAL, `w` INTEGER, `h` INTEGER, `duration` REAL, `bytes` INTEGER NOT NULL, `name` TEXT NOT NULL, `stores` TEXT NOT NULL, `pair` TEXT, `description` TEXT, `rev` INTEGER NOT NULL, `space` TEXT NOT NULL, PRIMARY KEY(`hash`))"
+        private const val ALBUM_SQL = "CREATE TABLE IF NOT EXISTS `album` (`id` INTEGER NOT NULL, `name` TEXT NOT NULL, `origin` TEXT NOT NULL, `shared` INTEGER NOT NULL, PRIMARY KEY(`id`))"
 
         private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

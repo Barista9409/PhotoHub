@@ -157,7 +157,6 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val ps = placesOf(cur.stores)
                     ps.forEach { PlaceChip(it) }
-                    if (onlyOnPhone(cur.stores)) PlaceChip(NOT_BACKED_UP)
                 }
                 var legend by remember { mutableStateOf(false) }
                 androidx.compose.material3.TextButton({ legend = !legend }) { Text(if (legend) "印の見かたを閉じる" else "一覧の印の見かた") }

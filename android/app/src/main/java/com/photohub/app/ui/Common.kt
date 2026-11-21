@@ -56,9 +56,12 @@ val PLACES = listOf(
 )
 val NOT_BACKED_UP = Place("none", androidx.compose.material.icons.Icons.Default.CloudOff, Color(0xFFE65100), "まだスマホにしかありません")
 
+/** The places shown as marks: this phone, the Synology, Google Drive. */
+val SHOWN_PLACES = setOf("phone", "nas", "drive")
+
 fun placesOf(stores: String): List<Place> {
     val set = stores.split(',').filter { it.isNotBlank() }.toSet()
-    return PLACES.filter { it.key in set }
+    return PLACES.filter { it.key in set && it.key in SHOWN_PLACES }
 }
 
 /** True when the photo exists only on this phone (nothing else holds a copy yet). */
@@ -70,13 +73,12 @@ fun onlyOnPhone(stores: String): Boolean = placesOf(stores).map { it.key } == li
  */
 @Composable
 fun StoreBadges(stores: String, modifier: Modifier = Modifier) {
-    val places = if (onlyOnPhone(stores)) listOf(NOT_BACKED_UP) else placesOf(stores)
+    val places = placesOf(stores)
     if (places.isEmpty()) return
     Row(modifier.background(Color(0xAA000000), RoundedCornerShape(50)).padding(horizontal = 4.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         places.forEach { p ->
-            androidx.compose.material3.Icon(p.icon, p.label, tint = if (p == NOT_BACKED_UP) Color(0xFFFFB74D) else Color.White,
-                modifier = Modifier.size(12.dp))
+            androidx.compose.material3.Icon(p.icon, p.label, tint = Color.White, modifier = Modifier.size(12.dp))
         }
     }
 }
@@ -93,7 +95,7 @@ fun PlaceChip(p: Place) {
 
 /** Short names for the legend strip. */
 private fun shortLabel(p: Place) = when (p.key) {
-    "phone" -> "スマホ"; "nas" -> "Synology"; "drive" -> "ドライブ"; "google" -> "Gフォト"; "none" -> "スマホだけ（まだ送っていない）"; else -> p.label
+    "phone" -> "スマホ"; "nas" -> "Synology"; "drive" -> "Googleドライブ"; "google" -> "Gフォト"; "none" -> "スマホだけ（まだ送っていない）"; else -> p.label
 }
 
 /** The strip at the top of the photo list: what the marks on the thumbnails mean. */
@@ -107,11 +109,10 @@ fun MarksLegend(modifier: Modifier = Modifier) {
             color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            (PLACES.filter { it.key != "amazon" } + NOT_BACKED_UP).forEach { p ->
+            PLACES.filter { it.key in SHOWN_PLACES }.forEach { p ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.background(Color(0xAA000000), RoundedCornerShape(50)).padding(3.dp)) {
-                        androidx.compose.material3.Icon(p.icon, null, tint = if (p == NOT_BACKED_UP) Color(0xFFFFB74D) else Color.White,
-                            modifier = Modifier.size(12.dp))
+                        androidx.compose.material3.Icon(p.icon, null, tint = Color.White, modifier = Modifier.size(12.dp))
                     }
                     Spacer(Modifier.width(4.dp))
                     Text(shortLabel(p), fontSize = 12.sp)
@@ -125,10 +126,10 @@ fun MarksLegend(modifier: Modifier = Modifier) {
 @Composable
 fun PlaceLegend() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        (PLACES.filter { it.key != "amazon" } + NOT_BACKED_UP).forEach { p ->
+        PLACES.filter { it.key in SHOWN_PLACES }.forEach { p ->
             Row(verticalAlignment = Alignment.CenterVertically) { PlaceChip(p) }
         }
-        Text("一覧では、写真の左下に小さなアイコンで出ます。オレンジの印は、まだこのスマホにしかない写真です。", fontSize = 12.sp)
+        Text("一覧では、写真の左下に小さなアイコンで出ます。スマホの印だけの写真は、まだこのスマホにしかありません。", fontSize = 12.sp)
     }
 }
 

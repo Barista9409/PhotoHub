@@ -51,12 +51,12 @@ class SyncEngine(private val app: PhotoHubApp) {
                         hash = it.hash, fileHash = it.fileHash, kind = it.kind, mime = it.mime,
                         takenAt = it.takenAt ?: 0, tz = it.tz, lat = it.lat, lon = it.lon, w = it.w, h = it.h,
                         duration = it.duration, bytes = it.bytes, name = it.name,
-                        stores = it.stores.joinToString(","), pair = it.pair, description = it.desc, rev = it.rev,
+                        stores = it.stores.joinToString(","), pair = it.pair, description = it.desc, rev = it.rev, space = it.space,
                     )
                 }
                 val dels = page.items.filter { it.deleted }.map { it.hash }
                 val links = page.items.filter { !it.deleted }.flatMap { i -> i.albums.map { AlbumMedia(it, i.hash) } }
-                dao.applySync(ups, dels, links, page.albums.map { AlbumRow(it.id, it.name, it.origin) })
+                dao.applySync(ups, dels, links, page.albums.map { AlbumRow(it.id, it.name, it.origin, it.shared) })
                 files.removeFor(dels)
                 changed += page.items.size
                 cursor = page.cursor

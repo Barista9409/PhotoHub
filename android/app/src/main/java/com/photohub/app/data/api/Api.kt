@@ -33,10 +33,11 @@ data class SyncItem(
     val rev: Long,
     val pair: String? = null,
     val desc: String? = null,
+    val space: String = "mine",
 )
 
 @Serializable
-data class SyncAlbum(val id: Long, val name: String, val origin: String)
+data class SyncAlbum(val id: Long, val name: String, val origin: String, val shared: Boolean = false)
 
 @Serializable
 data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>, val cursor: Long, @SerialName("has_more") val hasMore: Boolean)

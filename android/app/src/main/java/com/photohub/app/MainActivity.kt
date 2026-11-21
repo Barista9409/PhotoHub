@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
@@ -103,6 +105,7 @@ private data class Tab(val route: String, val label: String, val icon: androidx.
 private val tabs = listOf(
     Tab("timeline", "写真", Icons.Default.PhotoLibrary),
     Tab("albums", "アルバム", Icons.Default.PhotoAlbum),
+    Tab("shared", "共有", Icons.Default.FamilyRestroom),
     Tab("map", "地図", Icons.Default.Map),
     Tab("search", "検索", Icons.Default.Search),
 )
@@ -154,8 +157,9 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
             }
         },
     ) { pad ->
-        Box(if (fullScreen) Modifier else Modifier.padding(pad)) {
-            if (!fullScreen) com.photohub.app.ui.NasListBanner(Modifier.align(Alignment.TopCenter).zIndex(1f))
+        Column(if (fullScreen) Modifier else Modifier.padding(pad)) {
+            // loading bar above the content (never on top of it)
+            if (!fullScreen) com.photohub.app.ui.NasListBanner()
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
                 composable("albums") {
@@ -169,7 +173,10 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                     AlbumScreen(it.arguments!!.getLong("id"), open)
                 }
                 composable("map") { MapScreen(open) }
-                composable("search") { SearchScreen(open) }
+                composable("search") { SearchScreen(open) { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") } }
+                composable("shared") {
+                    com.photohub.app.ui.SharedScreen(onAlbum = { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") }, onOpen = open)
+                }
                 composable("account") {
                     com.photohub.app.ui.AccountHub(open = { d -> nav.navigate(d.route) },
                         onLoggedOut = { nav.navigate("setup") { popUpTo(0) } })

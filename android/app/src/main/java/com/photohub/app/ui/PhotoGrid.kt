@@ -114,8 +114,10 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
+fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
               zoomBar: Boolean = false) {
+    var kindFilter by rememberSaveable { mutableStateOf("") }   // "" / photo / video
+    val items = remember(allItems, kindFilter) { if (kindFilter == "") allItems else allItems.filter { it.kind == kindFilter } }
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
@@ -130,7 +132,7 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
     var confirmDelete by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
 
-    if (items.isEmpty() && header == null) {
+    if (allItems.isEmpty() && header == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("写真がありません。写真へのアクセスを許可するか、右上のアイコン →「このスマホ」→「今すぐ一覧を更新」を押してください。",
                 modifier = Modifier.padding(24.dp))
@@ -177,6 +179,15 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
         scope.launch { app.indexer.scan() }
     }
 
+    Column(Modifier.fillMaxSize()) {
+    if (zoomBar) {
+        // 年 / 月 / 日 and 写真 / 動画: always at the top, never over the photos
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Pills(listOf("年" to 3, "月" to 2, "日" to DAY_LEVEL), if (colIdx <= DAY_LEVEL) DAY_LEVEL else colIdx) { setLevel(it) }
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            Pills(listOf("すべて" to "", "写真" to "photo", "動画" to "video"), kindFilter) { kindFilter = it }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols), state = grid,
@@ -198,7 +209,7 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
             },
             horizontalArrangement = Arrangement.spacedBy(if (cols >= 6) 1.dp else 2.dp),
             verticalArrangement = Arrangement.spacedBy(if (cols >= 6) 1.dp else 2.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = if (zoomBar) 56.dp else 0.dp, bottom = 24.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
         ) {
             if (header != null) item(span = { GridItemSpan(maxLineSpan) }) { header() }
             items(rows, key = { r -> if (r is Header) "h:${r.key}" else items[r as Int].itemKey },
@@ -251,29 +262,11 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
             }
         }
 
-        // 日 / 月 / 年
-        if (zoomBar && !selecting) {
-            Surface(shape = RoundedCornerShape(50), tonalElevation = 6.dp, shadowElevation = 3.dp,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)) {
-                Row(Modifier.padding(3.dp)) {
-                    listOf("日" to DAY_LEVEL, "月" to 2, "年" to 3).forEach { (label, lv) ->
-                        val on = if (lv == DAY_LEVEL) colIdx <= DAY_LEVEL else colIdx == lv
-                        Text(label, modifier = Modifier.clip(RoundedCornerShape(50))
-                            .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent)
-                            .combinedClickable(onClick = { setLevel(lv) })
-                            .padding(horizontal = 18.dp, vertical = 7.dp),
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-
         // fast scroller with a date bubble
         if (rows.size > 60) FastScroller(grid, rows, items, Modifier.align(Alignment.CenterEnd))
 
         // selection bar
-        AnimatedVisibility(selecting, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
+        androidx.compose.animation.AnimatedVisibility(visible = selecting, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ selected = emptySet() }) { Icon(Icons.Default.Close, "選択をやめる") }
@@ -307,6 +300,7 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
         }
         busy?.let { Text(it, Modifier.align(Alignment.Center).background(Color(0xAA000000), RoundedCornerShape(8.dp)).padding(16.dp), color = Color.White) }
     }
+    }
 
     confirmDelete?.let { list ->
         val unsafe = list.count { "nas" !in it.stores && "drive" !in it.stores }
@@ -329,6 +323,23 @@ fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Un
 }
 
 private data class Header(val label: String, val key: String, val first: Int)
+
+/** Small segmented pill row (年月日 / 写真動画). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun <T> Pills(options: List<Pair<String, T>>, selected: T, onPick: (T) -> Unit) {
+    Row(Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(3.dp)) {
+        options.forEach { (label, v) ->
+            val on = v == selected
+            Text(label, modifier = Modifier.clip(RoundedCornerShape(50))
+                .background(if (on) MaterialTheme.colorScheme.primary else Color.Transparent)
+                .combinedClickable(onClick = { onPick(v) })
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+                color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
 
 @Composable
 private fun FastScroller(grid: androidx.compose.foundation.lazy.grid.LazyGridState, rows: List<Any>, items: List<TimelineItem>,
