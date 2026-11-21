@@ -154,6 +154,42 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     added += 1
         return {"album_id": album.id, "matched": matched, "added": added}
 
+    @app.post("/api/upload")
+    async def upload(request: Request, user: User = Depends(auth)) -> dict:
+        """Phone backup straight to the NAS. Body: the file. Headers: X-File-Hash (sha256), X-File-Name."""
+        import os
+        import tempfile
+        from urllib.parse import unquote
+        fh = request.headers.get("x-file-hash", "")
+        name = unquote(request.headers.get("x-file-name", "upload"))
+        if len(fh) != 64:
+            raise HTTPException(400, "X-File-Hash required")
+        tmp_dir = settings.root / "incoming" / ".tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=tmp_dir)
+        size = 0
+        try:
+            with os.fdopen(fd, "wb") as f:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > 8 * 1024**3:
+                        raise HTTPException(413, "too large")
+                    f.write(chunk)
+            from .incoming import UploadRejected, store_upload
+            try:
+                return store_upload(db, settings, user, Path(tmp), fh, name)
+            except UploadRejected as e:
+                raise HTTPException(400, str(e))
+        finally:
+            if Path(tmp).exists():
+                Path(tmp).unlink()
+
+    @app.post("/api/have")
+    def have_files(body: Hashes, user: User = Depends(auth)) -> dict:
+        """Which of these file hashes are safely on the NAS ('nas') or received ('queued')."""
+        from .incoming import have
+        return have(db, user, body.hashes)
+
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:
         return {"id": user.id, "name": user.name, "admin": user.is_admin, "takeout_target": user.takeout_target}

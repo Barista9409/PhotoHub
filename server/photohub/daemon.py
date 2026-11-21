@@ -54,6 +54,12 @@ class Service:
         if any(r.new or r.merged for r in reports if not r.dry_run):
             self._after_import()
 
+    def job_incoming(self) -> None:
+        from .incoming import process_incoming
+        rep = process_incoming(self.db, self.s, apply=self.s.apply)
+        if rep.new and not rep.dry_run:
+            self._after_import()
+
     def _after_import(self) -> None:
         derivatives.build_all(self.db, self.s)
         similar.refresh(self.db, self.s)
@@ -92,6 +98,7 @@ class Service:
         sch = BackgroundScheduler(job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 3600})
         sch.add_job(lambda: self._guard("inbox", self.job_inbox), "interval", minutes=10, id="inbox",
                     next_run_time=datetime.now())
+        sch.add_job(lambda: self._guard("incoming", self.job_incoming), "interval", minutes=5, id="incoming")
         sch.add_job(lambda: self._guard("scan", self.job_scan), "cron", hour=2, minute=30, id="scan")
         sch.add_job(lambda: self._guard("storage", self.job_storage), "cron", hour=5, minute=10, id="storage")
         sch.add_job(lambda: self._guard("health", self.job_health, heavy=False), "interval", hours=1, id="health",

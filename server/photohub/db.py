@@ -205,6 +205,23 @@ class GoogleCleanup(Base):
     __table_args__ = (UniqueConstraint("user_id", "month", "match"),)
 
 
+class Upload(Base):
+    """A file a phone sent (or one seen in the Drive folder), and what became of it."""
+    __tablename__ = "upload"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    source: Mapped[str] = mapped_column(String(8))  # phone / drive
+    file_hash: Mapped[str] = mapped_column(String(64), index=True)
+    path: Mapped[str] = mapped_column(Text)
+    size: Mapped[int] = mapped_column(Integer)
+    mtime: Mapped[float] = mapped_column(Float, default=0)
+    name: Mapped[str] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    media_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    held: Mapped[bool] = mapped_column(Boolean, default=False)  # dry-run: waiting for apply
+
+
 class ScanState(Base):
     """P2: per-file progress so a full library scan can stop and resume."""
     __tablename__ = "scan_state"

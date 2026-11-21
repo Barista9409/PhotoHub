@@ -91,6 +91,22 @@ def scan_cmd(root, library, apply, limit):  # noqa: ANN001
         click.echo(f"  error: {e}")
 
 
+@main.command("incoming")
+@root_opt
+@lib_opt
+@apply_opt
+def incoming_cmd(root, library, apply):  # noqa: ANN001
+    """Place photos that phones sent (directly or via Google Drive)."""
+    from .incoming import process_incoming
+
+    _banner(apply)
+    s, db = _ctx(root, library)
+    rep = process_incoming(db, s, apply=apply)
+    click.echo(rep.summary())
+    for e in rep.errors[:20]:
+        click.echo(f"  error: {e}")
+
+
 @main.command("derive")
 @root_opt
 @lib_opt
