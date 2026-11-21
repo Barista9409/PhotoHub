@@ -271,8 +271,9 @@ def import_inbox(db: Database, settings: Settings, *, apply: bool, wait_stable: 
     reports = []
     users = all_users(db)
     work: list[tuple[ArchiveGroup, User | None]] = []
+    from .users import ensure_user_dirs
     for u in users:
-        (settings.inbox / u.name).mkdir(parents=True, exist_ok=True)
+        ensure_user_dirs(settings, u.name)
         work += [(g, u) for g in find_groups(settings.inbox / u.name, u.name)]
     loose = find_groups(settings.inbox)
     if loose and users:

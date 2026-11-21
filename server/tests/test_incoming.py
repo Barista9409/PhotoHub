@@ -84,3 +84,9 @@ def test_shared_choice_places_in_shared_space(settings, db, chie):
     _up(c, h, make_image(9), "PXL_9.jpg")
     process_incoming(db, settings, apply=True)
     assert list(settings.library.rglob("PXL_9.jpg"))
+
+
+def test_user_folders_are_created(settings, db):
+    add_user(db, settings, "mio")
+    assert (settings.inbox / "mio").is_dir()
+    assert (settings.inbox.parent / "drive" / "mio").is_dir()

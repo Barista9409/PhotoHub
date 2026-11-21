@@ -41,8 +41,17 @@ def add_user(db: Database, settings: Settings, name: str, *, admin: bool = False
         s.add(u)
         s.flush()
         log_event(s, "info", "user_added", f"user {name} (admin={admin})")
-    (settings.inbox / name).mkdir(parents=True, exist_ok=True)
+    ensure_user_dirs(settings, name)
     return u, token
+
+
+def ensure_user_dirs(settings: Settings, name: str) -> None:
+    """Folders Cloud Sync writes into: Takeout ZIPs and the person's Google Drive window."""
+    for d in (settings.inbox / name, settings.inbox.parent / "drive" / name):
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
 
 def reset_token(db: Database, name: str) -> str:
