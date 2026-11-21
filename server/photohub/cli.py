@@ -267,39 +267,6 @@ def user_set(root, library, name, admin, personal_root, target, start):  # noqa:
     click.echo("ok")
 
 
-@main.group("app")
-def app_grp() -> None:
-    """Android app updates served from the NAS."""
-
-
-@app_grp.command("publish")
-@root_opt
-@lib_opt
-@click.argument("apk", type=click.Path(exists=True, dir_okay=False))
-@click.option("--version-code", type=int, required=True)
-@click.option("--version-name", required=True)
-@click.option("--notes", default="")
-def app_publish(root, library, apk, version_code, version_name, notes):  # noqa: ANN001
-    """Offer APK to the family's phones (usually you just copy the files from publishUpdate)."""
-    from .app_updates import publish
-
-    s, _ = _ctx(root, library)
-    click.echo(publish(s, Path(apk), version_code, version_name, notes))
-
-
-@app_grp.command("list")
-@root_opt
-@lib_opt
-def app_list(root, library):  # noqa: ANN001
-    from .app_updates import latest, releases
-
-    s, _ = _ctx(root, library)
-    for r in releases(s):
-        click.echo(f"{r.version_code}\t{r.version_name}\t{r.apk.name}\t{r.size} bytes")
-    lt = latest(s)
-    click.echo(f"offered: {lt.version_name} sha256={lt.sha256}" if lt else "nothing published")
-
-
 @main.command("health")
 @root_opt
 @lib_opt

@@ -113,14 +113,24 @@ data class Candidate(
 @Serializable
 data class ConfirmResult(@SerialName("marked_removed") val markedRemoved: Int)
 
+/** photohub-<ver>.json attached to each GitHub Release (written by ./gradlew publishUpdate). */
 @Serializable
 data class AppRelease(
-    @SerialName("version_code") val versionCode: Long = 0,
-    @SerialName("version_name") val versionName: String = "",
+    val versionCode: Long = 0,
+    val versionName: String = "",
     val notes: String = "",
+    val apk: String = "",
     val size: Long = 0,
     val sha256: String = "",
+    val apkUrl: String = "",   // filled in from the release's asset list
 )
+
+@Serializable
+data class GhAsset(val name: String, @SerialName("browser_download_url") val url: String, val size: Long = 0)
+
+@Serializable
+data class GhRelease(@SerialName("tag_name") val tag: String, val draft: Boolean = false,
+                     val prerelease: Boolean = false, val assets: List<GhAsset> = emptyList())
 
 @Serializable
 data class HashesBody(val hashes: List<String>)
@@ -128,7 +138,6 @@ data class HashesBody(val hashes: List<String>)
 interface PhotoHubApi {
     @GET("api/health") suspend fun health(): Map<String, kotlinx.serialization.json.JsonElement>
     @GET("api/me") suspend fun me(): Me
-    @GET("api/app/latest") suspend fun appLatest(): AppRelease
     @GET("api/status") suspend fun status(): Status
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>

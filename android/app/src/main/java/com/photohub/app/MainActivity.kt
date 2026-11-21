@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 UiState.refreshBase(app, force = true)
                 app.indexer.scan()
-                if (app.prefs.current().configured) app.updater.check()
+                app.updater.check()
             }
         }
         val openUpdate = intent?.getBooleanExtra(EXTRA_OPEN_UPDATE, false) == true

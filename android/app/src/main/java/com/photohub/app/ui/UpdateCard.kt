@@ -23,7 +23,7 @@ import com.photohub.app.PhotoHubApp
 import com.photohub.app.data.Updater.State
 import kotlinx.coroutines.launch
 
-/** "アプリの更新" card (admin home). New versions come from the family NAS. */
+/** "アプリの更新" card (admin home). New versions come from the GitHub repository's Releases. */
 @Composable
 fun UpdateCard() {
     val ctx = LocalContext.current

@@ -24,7 +24,11 @@ import androidx.work.WorkerParameters
 import com.photohub.app.MainActivity
 import com.photohub.app.PhotoHubApp
 import com.photohub.app.R
+import com.photohub.app.BuildConfig
 import com.photohub.app.data.api.AppRelease
+import com.photohub.app.data.api.GhRelease
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,9 +39,10 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
- * In-app updates from the NAS (GET /api/app/latest, /api/app/download/{code}).
+ * In-app updates from the GitHub repository's latest Release (public; no token needed).
+ * The release carries photohub-<ver>.apk and photohub-<ver>.json (versionCode, sha256, notes).
  *
- * Safety: an APK is installed only if its SHA-256 matches the NAS manifest, its package name is
+ * Safety: an APK is installed only if its SHA-256 matches the release manifest, its package name is
  * ours, its version is newer, and it is signed with the same key as the installed app.
  * Android itself refuses an update signed with a different key as well.
  */
@@ -70,11 +75,35 @@ class Updater(private val app: PhotoHubApp) {
         Intent(AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
+    // Plain client: the NAS token is never sent to GitHub.
+    private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private fun get(url: String, accept: String? = null): String =
+        http.newCall(Request.Builder().url(url).apply { if (accept != null) header("Accept", accept) }.build()).execute().use { r ->
+            if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}")
+            r.body!!.string()
+        }
+
+    private fun fetchLatest(): AppRelease? {
+        val body = try {
+            get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest", "application/vnd.github+json")
+        } catch (e: IllegalStateException) {
+            if (e.message == "HTTP 404") return null  // no release published yet
+            throw e
+        }
+        val rel = json.decodeFromString<GhRelease>(body)
+        if (rel.draft || rel.prerelease) return null
+        val manifest = rel.assets.firstOrNull { it.name.startsWith("photohub-") && it.name.endsWith(".json") } ?: return null
+        val r = json.decodeFromString<AppRelease>(get(manifest.url))
+        val apk = rel.assets.firstOrNull { it.name == r.apk } ?: return null
+        return r.copy(apkUrl = apk.url, size = if (r.size > 0) r.size else apk.size)
+    }
+
     suspend fun check(): AppRelease? = withContext(Dispatchers.IO) {
         _state.value = State.Checking
         try {
-            val api = app.net.api() ?: run { _state.value = State.Failed("NASに接続できません"); return@withContext null }
-            val r = api.appLatest()
+            val r = fetchLatest() ?: run { _state.value = State.UpToDate; return@withContext null }
             if (r.versionCode > currentVersionCode) {
                 // a file downloaded earlier and still valid?
                 val f = apkFile(r)
@@ -94,12 +123,10 @@ class Updater(private val app: PhotoHubApp) {
 
     suspend fun download(r: AppRelease): File? = withContext(Dispatchers.IO) {
         try {
-            val base = app.net.baseUrl() ?: throw IllegalStateException("NASに接続できません")
             val out = apkFile(r)
             File(out.parentFile, "").listFiles()?.filter { it != out }?.forEach { it.delete() }  // old downloads
             val tmp = File(out.path + ".part")
-            app.net.client(app.prefs.current().token)
-                .newCall(Request.Builder().url("$base/api/app/download/${r.versionCode}").build()).execute().use { resp ->
+            http.newCall(Request.Builder().url(r.apkUrl).build()).execute().use { resp ->
                     if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
                     val body = resp.body!!
                     val total = body.contentLength().takeIf { it > 0 } ?: r.size
@@ -129,7 +156,7 @@ class Updater(private val app: PhotoHubApp) {
 
     /** null = OK, else the reason the file must not be installed. */
     fun verify(file: File, r: AppRelease): String? {
-        if (sha256(file) != r.sha256) return "ファイルが壊れています（ハッシュ不一致）"
+        if (r.sha256.isBlank() || sha256(file) != r.sha256.lowercase()) return "ファイルが壊れています（ハッシュ不一致）"
         val pm = app.packageManager
         val info = pm.getPackageArchiveInfo(file.path, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: return "APKとして読めません"
@@ -204,7 +231,7 @@ class Updater(private val app: PhotoHubApp) {
 class UpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext as PhotoHubApp
-        if (!app.prefs.current().configured || !app.prefs.current().autoUpdate) return Result.success()
+        if (!app.prefs.current().autoUpdate) return Result.success()
         val u = app.updater
         val r = u.check() ?: return Result.success()
         val file = (u.state.value as? Updater.State.Ready)?.file ?: u.download(r) ?: return Result.retry()

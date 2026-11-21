@@ -53,6 +53,16 @@ class ApiContractTest {
         got.values.forEach { assertEquals("RIFF", String(it, 0, 4)) }
     }
 
+    @Test fun githubReleaseAndManifest() {
+        val rel = json.decodeFromString<com.photohub.app.data.api.GhRelease>(res("gh_release.json").bufferedReader().readText())
+        assertEquals("v0.4.0", rel.tag)
+        assertEquals(2, rel.assets.size)
+        val m = json.decodeFromString<com.photohub.app.data.api.AppRelease>(
+            """{"versionCode": 4, "versionName": "0.4.0", "notes": "x", "apk": "photohub-0.4.0.apk", "size": 10, "sha256": "ab"}""")
+        assertEquals(4L, m.versionCode)
+        assertTrue(rel.assets.any { it.name == m.apk })
+    }
+
     @Test fun fileHashMatchesServer() {
         // same algorithm as photohub.hashing.file_sha256 (whole-file SHA-256, lowercase hex)
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",

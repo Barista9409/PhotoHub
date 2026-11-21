@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,9 +16,11 @@ android {
         applicationId = "com.photohub.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // GitHub repository whose latest Release the app updates itself from
+        buildConfigField("String", "UPDATE_REPO", "\"Barista9409/PhotoHub\"")
     }
 
     signingConfigs {
@@ -45,7 +49,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     testOptions { unitTests.isReturnDefaultValues = true }
 }
@@ -100,7 +104,8 @@ dependencies {
 /**
  * In-app update package: ./gradlew publishUpdate
  * writes dist/photohub-<ver>.apk + dist/photohub-<ver>.json (notes from release-notes.txt).
- * Copy both files to /volume1/photohub/app-updates/ on the NAS; phones pick it up.
+ * Both files are attached to a GitHub Release (done by .github/workflows/android-release.yml
+ * when a tag v<versionName> is pushed); phones pick up the latest Release.
  * Must be signed with the release key (PHOTOHUB_KEYSTORE...), or installed apps cannot update.
  */
 tasks.register("publishUpdate") {
@@ -118,8 +123,10 @@ tasks.register("publishUpdate") {
         val notesFile = file("release-notes.txt")
         val notes = if (notesFile.exists()) notesFile.readText().trim() else ""
         fun esc(v: String) = v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        val sha = MessageDigest.getInstance("SHA-256").digest(dst.readBytes()).joinToString("") { "%02x".format(it) }
         File(out, "photohub-$name.json").writeText(
-            "{\"versionCode\": $code, \"versionName\": \"${esc(name)}\", \"notes\": \"${esc(notes)}\", \"apk\": \"${dst.name}\"}\n")
+            "{\"versionCode\": $code, \"versionName\": \"${esc(name)}\", \"notes\": \"${esc(notes)}\", " +
+                "\"apk\": \"${dst.name}\", \"size\": ${dst.length()}, \"sha256\": \"$sha\"}\n")
         println("wrote ${dst.path} and photohub-$name.json")
     }
 }

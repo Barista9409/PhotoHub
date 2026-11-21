@@ -75,7 +75,7 @@ fun SettingsScreen(onDone: () -> Unit) {
 
         Text("アプリの更新", style = MaterialTheme.typography.titleMedium)
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("新しい版をWi-Fiで自動的に取り込んで更新する", modifier = Modifier.weight(1f))
+            Text("新しい版をWi-Fiで自動的に取り込んで更新する（GitHubから）", modifier = Modifier.weight(1f))
             androidx.compose.material3.Switch(cur.autoUpdate, { s = cur.copy(autoUpdate = it) })
         }
 

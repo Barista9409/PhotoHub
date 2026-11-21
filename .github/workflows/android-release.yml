@@ -1,0 +1,68 @@
+# Builds the signed Android app and publishes it as a GitHub Release.
+# Phones running PhotoHub update themselves from the latest Release.
+#
+# Release: bump versionCode/versionName in android/app/build.gradle.kts, write
+# android/app/release-notes.txt, commit, then push a tag v<versionName>, e.g.
+#   git tag v0.4.0 && git push origin v0.4.0
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   PHOTOHUB_KEYSTORE_BASE64    base64 of photohub-release.jks
+#   PHOTOHUB_KEYSTORE_PASSWORD  keystore password
+#   PHOTOHUB_KEY_PASSWORD       key password
+name: Android release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Check tag matches versionName
+        run: |
+          name=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
+          if [ "v$name" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match versionName $name"; exit 1
+          fi
+
+      - name: Restore release key
+        env:
+          KEYSTORE_B64: ${{ secrets.PHOTOHUB_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "secret PHOTOHUB_KEYSTORE_BASE64 is missing"; exit 1; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/photohub-release.jks"
+
+      - name: Build signed APK
+        env:
+          PHOTOHUB_KEYSTORE: ${{ runner.temp }}/photohub-release.jks
+          PHOTOHUB_KEYSTORE_PASSWORD: ${{ secrets.PHOTOHUB_KEYSTORE_PASSWORD }}
+          PHOTOHUB_KEY_ALIAS: photohub
+          PHOTOHUB_KEY_PASSWORD: ${{ secrets.PHOTOHUB_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon testDebugUnitTest publishUpdate
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" ../dist/photohub-*.apk ../dist/photohub-*.json \
+            --title "写真ハブ $GITHUB_REF_NAME" --notes-file app/release-notes.txt
+
+      - name: Remove key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/photohub-release.jks"

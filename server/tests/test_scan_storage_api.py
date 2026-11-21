@@ -174,25 +174,3 @@ def test_health_takeout_overdue_and_schedule_end(settings, db):
     assert "takeout_schedule_ending" in raised and "takeout_overdue" in raised
     assert health_check(db, settings, today=date(2026, 12, 15)) == []  # rate-limited
 
-
-def test_app_update_endpoints(settings, db):
-    import hashlib
-    import json
-
-    from photohub.users import add_user
-    _, token = add_user(db, settings, "chie")
-    h = {"Authorization": f"Bearer {token}"}
-    c = TestClient(create_app(settings, db))
-    assert c.get("/api/app/latest", headers=h).json() == {"version_code": 0}
-    for code, name in ((2, "0.2.0"), (3, "0.3.0")):
-        (settings.app_updates / f"photohub-{name}.apk").write_bytes(b"APK" + name.encode())
-        (settings.app_updates / f"photohub-{name}.json").write_text(json.dumps(
-            {"versionCode": code, "versionName": name, "notes": f"n{code}", "apk": f"photohub-{name}.apk"}))
-    (settings.app_updates / "photohub-9.json").write_text('{"versionCode": 9}')  # manifest without APK: ignored
-    r = c.get("/api/app/latest", headers=h).json()
-    assert r["version_code"] == 3 and r["notes"] == "n3"
-    assert r["sha256"] == hashlib.sha256(b"APK0.3.0").hexdigest()
-    d = c.get("/api/app/download/3", headers=h)
-    assert d.status_code == 200 and d.content == b"APK0.3.0"
-    assert c.get("/api/app/download/9", headers=h).status_code == 404
-    assert c.get("/api/app/latest").status_code == 401

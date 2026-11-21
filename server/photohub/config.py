@@ -103,18 +103,13 @@ class Settings:
         return self.root / "amazon-outbox"
 
     @property
-    def app_updates(self) -> Path:
-        """Android app releases: photohub-<ver>.apk + photohub-<ver>.json (see app_updates.py)."""
-        return self.root / "app-updates"
-
-    @property
     def google_trash(self) -> Path:
         """Takeout items from Google's Trash are kept here, not in the library (D5)."""
         return self.root / "google-trash"
 
     def ensure_dirs(self) -> None:
         for p in (self.inbox, self.work, self.processed, self.trash, self.db_dir,
-                  self.cache, self.outbox, self.google_trash, self.library, self.app_updates):
+                  self.cache, self.outbox, self.google_trash, self.library):
             p.mkdir(parents=True, exist_ok=True)
 
     @classmethod

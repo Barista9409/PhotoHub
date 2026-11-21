@@ -111,31 +111,35 @@ photohub import-takeout --no-wait
 3. 「管理」→「今すぐ同期」で初回同期（自宅のWi-Fiで）。以後は自宅のWi-Fiで充電中に自動
 4. 既定のギャラリーにする：Androidの設定 → アプリ → 既定のアプリ → 写真を開くアプリ で「写真ハブ」
 
-## 8b. アプリの自動更新
+## 8b. アプリの自動更新（GitHubのリリースから）
 
-新しい版は**NASから**家族のスマホへ配ります（外部には公開しません）。
+新しい版は、このリポジトリ（公開）の **GitHub Releases** から各スマホが自分で取り込みます。NASの設定は不要です。
 
 **初回だけ**
-1. 各スマホに `photohub-0.3.0.apk` を入れる。0.2.0以前（テスト用の鍵で署名）を入れていた場合は、**一度アンインストールしてから**入れる（署名の鍵が変わったため。以後は不要）
+1. 各スマホに最新のAPK（`photohub-0.4.0.apk` 以降）を入れる。0.2.0以前（テスト用の鍵で署名）を入れていた場合は、**一度アンインストールしてから**入れる
 2. アプリの「管理」→「アプリの更新」で「許可の設定を開く」→「この提供元のアプリを許可」をオン
 3. 通知の許可を求められたら許可する
+4. GitHubのリポジトリに、署名用の鍵を **Secrets** として登録する（Settings → Secrets and variables → Actions → New repository secret）
+   - `PHOTOHUB_KEYSTORE_BASE64`：`base64 -w0 photohub-release.jks` の出力（Macは `base64 -i photohub-release.jks`）
+   - `PHOTOHUB_KEYSTORE_PASSWORD`：`photohub-release-key.txt` のパスワード
+   - `PHOTOHUB_KEY_PASSWORD`：同じパスワード
 
-**新しい版を配るとき（管理者）**
-1. `android/app/build.gradle.kts` の `versionCode` を1つ上げ、`versionName` を変え、`android/app/release-notes.txt` に変更点を書く
-2. リリース用の鍵を指定して `./gradlew publishUpdate` を実行（鍵は下記）。`dist/photohub-<版>.apk` と `.json` ができる
-3. その2つを File Station で `/volume1/photohub/app-updates/` に置く（`photohub app list` で確認できる）
+**新しい版を配るとき**
+1. `android/app/build.gradle.kts` の `versionCode` を1つ上げ、`versionName` を変え、`android/app/release-notes.txt` に変更点を書いてコミット
+2. `v<versionName>` のタグを付けてプッシュ（例：`git tag v0.5.0 && git push origin v0.5.0`）
+3. GitHub Actions（`.github/workflows/android-release.yml`）が署名付きAPKをビルドし、Releaseを作る（APKと `.json` が付く）
 
 **スマホ側の動き**
-- 12時間ごと（Wi-Fiのとき）に確認し、新しい版があればダウンロードして、そのままインストール
-- Android 12以降は、2回目からは確認なしで更新されます。それ以外は通知が出るので、タップして「更新」を押す
-- アプリを開いたときにも確認し、上のバーに更新のアイコンが出ます。「管理」→「アプリの更新」から手動でも更新できます
-- 設定の「新しい版をWi-Fiで自動的に取り込んで更新する」をオフにすると、通知だけになります
-- 入れる前に、ファイルのハッシュ・アプリ名・新しい版であること・**署名の鍵がインストール済みのアプリと同じこと**を確かめます。どれかが違えば入れません
+- 12時間ごと（Wi-Fiのとき）とアプリを開いたときに、最新のReleaseを確認し、新しければダウンロードしてインストール
+- Android 12以降は2回目から確認なしで更新。それ以外は通知をタップして「更新」
+- 上のバーに更新のアイコンが出ます。「管理」→「アプリの更新」から手動でも更新できます
+- 設定の自動更新をオフにすると、通知だけになります
+- 入れる前に、ハッシュ（`.json` の値）・アプリ名・新しい版であること・**署名の鍵がインストール済みのアプリと同じこと**を確かめます。公開リポジトリから取るので、誰かが別のAPKを用意しても、鍵が違えば入りません
+- GitHubへはNASのトークンを送りません
 
 **リリース用の鍵（とても大事）**
-- `photohub-release.jks`（鍵）と `photohub-release-key.txt`（パスワード）は、**なくすと二度と更新を配れません**（全員がアンインストールして入れ直しになります）
-- リポジトリには入れず、パスワード管理アプリやUSBメモリなど2か所に保管する
-- ビルド時は環境変数で渡す：`PHOTOHUB_KEYSTORE=/path/photohub-release.jks PHOTOHUB_KEYSTORE_PASSWORD=... PHOTOHUB_KEY_PASSWORD=... ./gradlew publishUpdate`
+- `photohub-release.jks` と `photohub-release-key.txt` は、**なくすと二度と更新を配れません**。リポジトリには入れず、2か所に保管する
+- GitHubのSecretsに入れた値は、Actionsの中でだけ使われ、外からは読めません
 
 ## 9. Tailscale（外出先からの接続）
 
