@@ -62,7 +62,19 @@ PhotoHubは写真を**自動で削除しません**。整理で「残さない�
 4. 「次へ」→「完了」。イメージのダウンロードが終わると起動します
 5. 動作確認：スマホのブラウザで `http://NASのIP:8765/api/health` を開き、`"ok":true` と `"apply":false` が出ればよい
 
-> PhotoHubの新しい版は、GitHubに入ると自動で作られます（`ghcr.io/barista9409/photohub:latest`）。NASに入れるには、Container Manager →「プロジェクト」→ photohub →「操作」→「ビルド」（または「イメージ」で最新を取得してから再起動）。
+### サーバー（Synology側）を新しい版にする
+
+PhotoHubの新しい版は、GitHubに入ると自動で作られます（`ghcr.io/barista9409/photohub:latest`）。写真・設定・データベースはすべてNASのフォルダ（`photohub`・`photo`・`homes`）にあり、入れ替えるのは「プログラム」だけなので、下の手順で消えるものはありません。
+
+1. Container Manager →「プロジェクト」→ `photohub` を選んで「停止」
+2. 同じ画面で「操作」→「クリーン」（古いコンテナを片付けます。データは消えません）
+3. 左の「イメージ」→ `ghcr.io/barista9409/photohub`（タグ `latest`）を選んで「削除」
+4. 「プロジェクト」→ `photohub` →「操作」→「ビルド」。最新の版をダウンロードして起動します（数分）
+5. 確かめ方（どちらか）
+   - アプリ：右上のアイコン →「更新と共有」→「Synology側の版」に日付（例 `2026-11-22-xxxxxxx`）が出る
+   - スマホのブラウザで `http://NASのIP:8765/api/health` を開き、`"build"` の日付を見る
+
+> うまくいかないとき：「プロジェクト」→ `photohub` の「ログ」を開くと、起動時のエラーが見られます。
 
 ## 3. アプリを入れてログイン（家族それぞれ）
 

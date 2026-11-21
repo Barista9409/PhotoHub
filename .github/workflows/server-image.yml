@@ -47,11 +47,16 @@ jobs:
         id: img
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
+      - name: Build stamp
+        id: stamp
+        run: echo "b=$(TZ=Asia/Tokyo date +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: server
           platforms: linux/amd64
           push: true
+          build-args: PHOTOHUB_BUILD=${{ steps.stamp.outputs.b }}
           tags: |
             ${{ steps.img.outputs.name }}:latest
             ${{ steps.img.outputs.name }}:${{ github.sha }}

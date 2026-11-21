@@ -21,6 +21,9 @@ COPY pyproject.toml ./
 COPY photohub ./photohub
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir .
 ENV PATH=/opt/venv/bin:$PATH TZ=UTC PYTHONUNBUFFERED=1 HOME=/tmp
+# which build this is (shown in the app: アプリ → Synology側の版), set by GitHub Actions
+ARG PHOTOHUB_BUILD=dev
+ENV PHOTOHUB_BUILD=$PHOTOHUB_BUILD
 
 EXPOSE 8765
 ENTRYPOINT ["/usr/bin/tini", "--"]

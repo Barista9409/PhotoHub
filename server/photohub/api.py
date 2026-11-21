@@ -6,6 +6,8 @@ shared space, their own personal space, and personal items they were granted (me
 Admins additionally organise the shared space and see every import job and the event log."""
 from __future__ import annotations
 
+import os
+
 import struct
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,7 +89,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         # "app" lets the phone recognise a PhotoHub server when it looks around the home network
-        return {"ok": True, "app": "photohub", "version": "0.1.0", "apply": settings.apply}
+        return {"ok": True, "app": "photohub", "version": "0.1.0", "apply": settings.apply,
+                "build": os.environ.get("PHOTOHUB_BUILD", "dev")}
 
     fails: dict[str, list[float]] = {}
 
@@ -268,6 +271,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "last_import_at": last_import, "last_scan_at": last_scan, "last_device_sync_at": last_device,
                 "duplicates": dups, "similar_open": open_groups, "rev": max_rev, "apply": settings.apply,
                 "scan_progress": scan_progress or None,
+                "build": os.environ.get("PHOTOHUB_BUILD", "dev"),
                 "amazon_heartbeat": (hb.isoformat() if (hb := storage.amazon_heartbeat(db, settings)) else None)}
 
     def _group_scope(user: User):  # noqa: ANN202

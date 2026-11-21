@@ -63,6 +63,7 @@ data class Status(
     val apply: Boolean = false,
     @SerialName("amazon_heartbeat") val amazonHeartbeat: String? = null,
     @SerialName("scan_progress") val scanProgress: String? = null,
+    val build: String? = null,
 )
 
 @Serializable

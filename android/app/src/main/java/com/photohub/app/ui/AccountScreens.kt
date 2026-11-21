@@ -370,6 +370,15 @@ fun AppScreen() {
                 scope.launch { app.prefs.save(cur.copy(autoUpdate = it)) }
             }
         }
+        SectionTitle("Synology側（サーバー）")
+        Group {
+            var server by remember { mutableStateOf<String?>("確認中…") }
+            LaunchedEffect(Unit) {
+                server = try { app.net.api()?.status()?.let { it.build ?: "古い版（2026-11-22より前）" } ?: "Synologyにつながりません" }
+                    catch (e: Exception) { "Synologyにつながりません" }
+            }
+            SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
+        }
         SectionTitle("家族に送る")
         Group { ShareAppRows() }
         Text("PhotoHub ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall,
