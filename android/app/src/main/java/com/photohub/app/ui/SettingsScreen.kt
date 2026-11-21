@@ -55,7 +55,7 @@ fun SettingsScreen(onDone: () -> Unit) {
         OutlinedTextField(cur.remoteUrl, { s = cur.copy(remoteUrl = it) }, label = { Text("外出先（Tailscale）のアドレス") },
             placeholder = { Text("http://100.x.y.z:8765") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-        OutlinedTextField(cur.token, { s = cur.copy(token = it) }, label = { Text("APIトークン（NASの .env の PHOTOHUB_API_TOKEN）") },
+        OutlinedTextField(cur.token, { s = cur.copy(token = it) }, label = { Text("あなたのトークン（管理者が photohub user add で発行）") },
             singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(cur.homeSsid, { s = cur.copy(homeSsid = it) }, label = { Text("自宅のWi-Fi名（SSID）") },
@@ -76,6 +76,7 @@ fun SettingsScreen(onDone: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
+                    if (app.prefs.current().token != cur.token) app.switchUser()
                     app.prefs.save(cur)
                     UiState.refreshBase(app, force = true)
                     SyncWorker.schedule(ctx)
@@ -84,13 +85,15 @@ fun SettingsScreen(onDone: () -> Unit) {
             }) { Text("保存") }
             OutlinedButton(onClick = {
                 scope.launch {
+                    if (app.prefs.current().token != cur.token) app.switchUser()
                     app.prefs.save(cur)
                     test = "確認中…"
                     test = try {
                         val api = app.net.api(force = true)
                         if (api == null) "どちらのアドレスにも接続できません" else {
+                            val me = api.me()
                             val st = api.status()
-                            "接続できました（${app.net.baseUrl()}）: 写真 ${st.photos} 枚・動画 ${st.videos} 本"
+                            "${me.name}さんとして接続できました（${app.net.baseUrl()}）: 写真 ${st.photos} 枚・動画 ${st.videos} 本"
                         }
                     } catch (e: Exception) { "接続できましたが認証に失敗しました: ${e.message}" }
                 }

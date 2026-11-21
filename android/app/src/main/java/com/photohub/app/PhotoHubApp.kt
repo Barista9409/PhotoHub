@@ -61,6 +61,15 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         )
     }
 
+    /** A different family member's token: forget the previous person's NAS index and copies. */
+    suspend fun switchUser() {
+        prefs.resetCursor()
+        db.media().clearRemote()
+        db.media().clearAlbums()
+        files.clearAll()
+        coil3.SingletonImageLoader.get(this).let { it.diskCache?.clear(); it.memoryCache?.clear() }
+    }
+
     /** Coil: adds the NAS token to remote image/preview requests. */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val client = OkHttpClient.Builder()

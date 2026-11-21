@@ -32,11 +32,16 @@ class ApiContractTest {
     @Test fun statusJobsSimilarCandidates() {
         val st = json.decodeFromString<Status>(res("status.json").bufferedReader().readText())
         assertEquals(4, st.photos)
+        assertEquals("reo", st.user)
+        assertTrue(st.admin)
+        val me = json.decodeFromString<com.photohub.app.data.api.Me>(res("me.json").bufferedReader().readText())
+        assertEquals("reo", me.name)
         val jobs = json.decodeFromString<List<Job>>(res("jobs.json").bufferedReader().readText())
         assertTrue(jobs.isNotEmpty())
         val groups = json.decodeFromString<List<SimilarGroup>>(res("similar.json").bufferedReader().readText())
         assertEquals(1, groups.size)
         assertEquals(2, groups[0].members.size)
+        assertEquals("shared", groups[0].space)
         json.decodeFromString<List<Candidate>>(res("candidates.json").bufferedReader().readText())
     }
 

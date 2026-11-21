@@ -1,7 +1,7 @@
 # PhotoHub: tell the NAS that the Amazon Photos desktop app is running (spec F4).
 # Run every hour with Windows Task Scheduler:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\photohub\amazon-heartbeat.ps1
-# Edit the two values below. The token is the PHOTOHUB_API_TOKEN from the NAS .env.
+# Edit the two values below. Use an admin's token (photohub user add ... --admin).
 $Nas   = "http://192.168.1.10:8765"
 $Token = "PUT-YOUR-TOKEN-HERE"
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from .config import Settings
-from .db import Database, Media, SimilarGroup, SimilarMember, log_event, set_location, touch_media, utcnow
+from .db import Database, Media, SimilarGroup, SimilarMember, User, log_event, set_location, touch_media, utcnow
 from .fileops import move_verified, unique_in
 from .hashing import hamming
 from .xmp import sidecar_path
@@ -63,13 +63,18 @@ def refresh(db: Database, settings: Settings) -> int:
     """Create open groups for new similar sets. Media already in a group are left alone."""
     created = 0
     with db.session() as s:
-        items = [(m.id, m.phash) for m in s.execute(
-            select(Media).where(Media.kind == "photo", Media.status == "active", Media.phash.is_not(None))).scalars()]
+        # groups never mix spaces: shared photos with shared, each person's with their own
+        by_owner: dict[int | None, list[tuple[int, str]]] = defaultdict(list)
+        for m in s.execute(select(Media).where(Media.kind == "photo", Media.status == "active",
+                                               Media.phash.is_not(None))).scalars():
+            by_owner[m.owner_id].append((m.id, m.phash))
         grouped = set(s.execute(select(SimilarMember.media_id)).scalars())
-        for g in find_groups(items, settings.similar_threshold):
+        found = [(owner, g) for owner, items in by_owner.items()
+                 for g in find_groups(items, settings.similar_threshold)]
+        for owner, g in found:
             if g & grouped:
                 continue
-            grp = SimilarGroup(status="open")
+            grp = SimilarGroup(status="open", owner_id=owner)
             s.add(grp)
             s.flush()
             for mid in sorted(g):
@@ -80,13 +85,30 @@ def refresh(db: Database, settings: Settings) -> int:
     return created
 
 
-def resolve(db: Database, settings: Settings, group_id: int, keep_ids: set[int], *, apply: bool) -> list[str]:
-    """Keep `keep_ids`; move the others to trash/<date>/... (with their sidecars)."""
+class Forbidden(PermissionError):
+    pass
+
+
+def may_resolve(user: User | None, grp: SimilarGroup) -> bool:
+    """Shared-space groups: admins only. Personal-space groups: that person only."""
+    if user is None:  # CLI on the NAS
+        return True
+    return user.is_admin if grp.owner_id is None else grp.owner_id == user.id
+
+
+def resolve(db: Database, settings: Settings, group_id: int, keep_ids: set[int], *, apply: bool,
+            user: User | None = None) -> list[str]:
+    """Keep `keep_ids`; move the others to trash/<date>/<space>/... (with their sidecars)."""
     actions = []
     with db.session() as s:
         grp = s.get(SimilarGroup, group_id)
         if grp is None or grp.status != "open":
             raise ValueError("group not open")
+        if not may_resolve(user, grp):
+            raise Forbidden("not allowed to organise this group")
+        owner = s.get(User, grp.owner_id) if grp.owner_id is not None else None
+        space_root = Path(owner.personal_root) if owner and owner.personal_root else settings.library
+        space_name = owner.name if owner else "shared"
         members = list(s.execute(select(SimilarMember).where(SimilarMember.group_id == group_id)).scalars())
         if not keep_ids or not keep_ids <= {m.media_id for m in members}:
             raise ValueError("keep at least one photo of this group")
@@ -98,10 +120,10 @@ def resolve(db: Database, settings: Settings, group_id: int, keep_ids: set[int],
             m = s.get(Media, mem.media_id)
             src = Path(m.nas_path)
             try:
-                rel = src.relative_to(settings.library)
+                rel = src.relative_to(space_root)
             except ValueError:
                 rel = Path(src.name)
-            dst = unique_in((settings.trash / day / rel).parent, src.name)
+            dst = unique_in((settings.trash / day / space_name / rel).parent, src.name)
             actions.append(f"move {src} -> {dst}")
             if apply and src.exists():
                 move_verified(src, dst, m.file_hash)

@@ -22,9 +22,10 @@ from pathlib import Path
 from sqlalchemy import select
 
 from .config import Settings
-from .db import Database, ImportItem, ImportJob, kv_set, log_event, utcnow
+from .db import Database, ImportItem, ImportJob, User, kv_get, kv_set, log_event, utcnow
 from .fileops import copy_verified, move_verified, unique_in
 from .ingest import analyse, collect_media, ingest_takeout_candidate
+from .users import all_users
 
 PART_RE = re.compile(r"^(?P<prefix>.+?)-(?P<part>\d{3})\.zip$", re.I)
 SKIP_SPECIAL = {"trash": "google-trash", "locked folder": "google-locked"}
@@ -34,10 +35,12 @@ SKIP_SPECIAL = {"trash": "google-trash", "locked folder": "google-locked"}
 class ArchiveGroup:
     prefix: str
     parts: list[Path]
+    user: str | None = None  # whose Takeout (inbox/takeout/<user>/)
 
     @property
     def key(self) -> str:
         h = hashlib.sha256()
+        h.update(f"user:{self.user}\n".encode())
         for p in sorted(self.parts):
             h.update(f"{p.name}:{p.stat().st_size}\n".encode())
         return h.hexdigest()[:32]
@@ -62,13 +65,13 @@ class ImportReport:
                 f"merged={self.merged} error={self.error} set-aside: {aside}")
 
 
-def find_groups(inbox: Path) -> list[ArchiveGroup]:
+def find_groups(inbox: Path, user: str | None = None) -> list[ArchiveGroup]:
     groups: dict[str, list[Path]] = {}
     for z in sorted(inbox.glob("*.zip")):
         m = PART_RE.match(z.name)
         prefix = m.group("prefix") if m else z.stem
         groups.setdefault(prefix, []).append(z)
-    return [ArchiveGroup(k, v) for k, v in groups.items()]
+    return [ArchiveGroup(k, v, user) for k, v in groups.items()]
 
 
 def is_stable(group: ArchiveGroup, seconds: int) -> bool:
@@ -142,8 +145,9 @@ def album_map(out: Path) -> dict[str, set[str]]:
     return res
 
 
-def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply: bool) -> ImportReport:
-    rep = ImportReport(archive=group.prefix, dry_run=not apply)
+def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply: bool,
+                 user: User | None = None) -> ImportReport:
+    rep = ImportReport(archive=(f"{user.name}: " if user else "") + group.prefix, dry_run=not apply)
     key = group.key
     with db.session() as s:
         done = s.execute(select(ImportJob).where(ImportJob.archive_key == key,
@@ -185,7 +189,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
                                                 ImportJob.state.in_(["running", "failed"]))).scalar_one_or_none()
         if job is None:
             job = ImportJob(source="takeout", archive_name=", ".join(p.name for p in group.parts),
-                            archive_key=key)
+                            archive_key=key, user_id=user.id if user else None)
             s.add(job)
             s.flush()
         job.state = "running"
@@ -196,7 +200,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
             rel = c.path.relative_to(out).as_posix()
             try:
                 with s.begin_nested():  # savepoint: a failing file leaves no half-written rows
-                    item = ingest_takeout_candidate(s, settings, job, c, rel, apply, settings.root)
+                    item = ingest_takeout_candidate(s, settings, job, c, rel, apply, settings.root, user)
             except Exception as e:  # one bad file must not stop the archive
                 item = s.execute(select(ImportItem).where(ImportItem.job_id == job.id,
                                                           ImportItem.original_path == rel)).scalar_one_or_none()
@@ -213,7 +217,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
         for p, rel, dest_name in aside_files:
             rep.set_aside[dest_name] = rep.set_aside.get(dest_name, 0) + 1
             if apply:
-                dst = settings.root / dest_name / key / rel
+                dst = settings.root / dest_name / (user.name if user else "_") / key / rel
                 if not dst.exists():
                     copy_verified(p, dst)
         job.new_count, job.dup_count, job.error_count = rep.new, rep.duplicate + rep.merged, rep.error
@@ -221,7 +225,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
         if not apply:
             s.rollback()
             s.add(ImportJob(source="takeout", archive_name=job.archive_name, archive_key=key,
-                            state="dry_run", new_count=rep.new, dup_count=rep.duplicate + rep.merged,
+                            user_id=user.id if user else None, state="dry_run", new_count=rep.new, dup_count=rep.duplicate + rep.merged,
                             error_count=rep.error, finished_at=utcnow(), message=rep.summary()))
             log_event(s, "info", "import_dry_run", rep.summary())
         else:
@@ -230,6 +234,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
             log_event(s, "info" if rep.error == 0 else "error",
                       "import_done" if rep.error == 0 else "import_failed", rep.summary())
             kv_set(s, "last_import_at", utcnow().isoformat())
+            kv_set(s, f"last_import_at:{user.id if user else 0}", utcnow().isoformat())
         s.commit()
     except BaseException:
         s.rollback()
@@ -253,22 +258,39 @@ def _recently_tried(db: Database, key: str, apply: bool) -> bool:
 
 
 def _archive_parts(settings: Settings, group: ArchiveGroup) -> None:
-    """All good -> move the ZIPs to processed/ (copy-verify-move; never delete)."""
+    """All good -> move the ZIPs to processed/<user>/ (copy-verify-move; never delete)."""
+    dest = settings.processed / group.user if group.user else settings.processed
+    dest.mkdir(parents=True, exist_ok=True)
     for p in group.parts:
         if p.exists():
-            move_verified(p, unique_in(settings.processed, p.name))
+            move_verified(p, unique_in(dest, p.name))
 
 
 def import_inbox(db: Database, settings: Settings, *, apply: bool, wait_stable: bool = True) -> list[ImportReport]:
     settings.ensure_dirs()
     reports = []
-    for g in find_groups(settings.inbox):
+    users = all_users(db)
+    work: list[tuple[ArchiveGroup, User | None]] = []
+    for u in users:
+        (settings.inbox / u.name).mkdir(parents=True, exist_ok=True)
+        work += [(g, u) for g in find_groups(settings.inbox / u.name, u.name)]
+    loose = find_groups(settings.inbox)
+    if loose and users:
+        # with family members configured, every Takeout must say whose it is
+        with db.session() as s:
+            if not kv_get(s, "warned:loose_zip"):
+                kv_set(s, "warned:loose_zip", "1")
+                log_event(s, "warn", "import_failed",
+                          "ZIP directly in inbox/takeout/ is ignored: put it in inbox/takeout/<user>/")
+    elif loose:
+        work += [(g, None) for g in loose]  # single-person setup without users: shared space
+    for g, u in work:
         if wait_stable and not is_stable(g, settings.stable_seconds):
             continue
         if wait_stable and _recently_tried(db, g.key, apply):
             continue  # scheduled runs: don't redo the same dry run / failing archive every 10 min
         try:
-            reports.append(import_group(db, settings, g, apply=apply))
+            reports.append(import_group(db, settings, g, apply=apply, user=u))
         except Exception as e:
             with db.session() as s:
                 log_event(s, "error", "import_failed", f"{g.prefix}: {e}")

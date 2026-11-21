@@ -8,6 +8,16 @@ Additions to the spec, decided in docs/research.md:
   location.match       exact / similar (D4: storage-saver copies on Google)
   google_cleanup       batches of Google deletion candidates and their confirmation
   kv                   small key/value store (rev counter, heartbeats)
+
+Family use (several people share one NAS):
+  app_user             family members; each has their own API token, Google account and
+                       Synology personal space. is_admin may organise shared photos.
+  media.owner_id       NULL = the file is in the shared space (visible to everyone);
+                       a user id = the file is in that person's personal space.
+  media_access         who may see a personal-space item: its owner, plus anyone whose own
+                       Google Takeout contained the same photo (they already have it).
+  location.user_id     whose Google account an item is in (0 for nas/amazon/...).
+  album.owner_id       Google albums belong to the person whose Takeout they came from.
 """
 from __future__ import annotations
 
@@ -32,6 +42,18 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "app_user"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)  # same as the DSM user name
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    personal_root: Mapped[str | None] = mapped_column(Text)  # container path of their Synology Photos personal space
+    takeout_target: Mapped[str] = mapped_column(String(16), default="personal")  # personal / shared
+    takeout_schedule_start: Mapped[str | None] = mapped_column(String(10))  # YYYY-MM-DD
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Media(Base):
     __tablename__ = "media"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -54,17 +76,25 @@ class Media(Base):
     pair_key: Mapped[str | None] = mapped_column(String(255), index=True)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / trashed
+    owner_id: Mapped[int | None] = mapped_column(Integer, index=True)  # NULL = shared space
     rev: Mapped[int] = mapped_column(Integer, index=True, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class MediaAccess(Base):
+    __tablename__ = "media_access"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+
 class Location(Base):
     __tablename__ = "location"
-    __table_args__ = (UniqueConstraint("media_id", "store"),)
+    __table_args__ = (UniqueConstraint("media_id", "store", "user_id"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), index=True)
     store: Mapped[str] = mapped_column(String(16))  # nas/google/amazon/offsite/phone
+    user_id: Mapped[int] = mapped_column(Integer, default=0, index=True)  # google: whose account
     state: Mapped[str] = mapped_column(String(16))  # present/assumed/removed (+ queued for amazon)
     match: Mapped[str] = mapped_column(String(16), default="exact")  # exact/similar
     source_ref: Mapped[str | None] = mapped_column(Text)
@@ -75,10 +105,11 @@ class Location(Base):
 
 class Album(Base):
     __tablename__ = "album"
-    __table_args__ = (UniqueConstraint("name", "origin"),)
+    __table_args__ = (UniqueConstraint("name", "origin", "owner_id"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(16))  # google/synology/manual
+    owner_id: Mapped[int | None] = mapped_column(Integer, index=True)  # NULL = shared
     synology_album_id: Mapped[int | None] = mapped_column(Integer)
     rev: Mapped[int] = mapped_column(Integer, default=0, index=True)
 
@@ -94,6 +125,7 @@ class SimilarGroup(Base):
     __tablename__ = "similar_group"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     status: Mapped[str] = mapped_column(String(16), default="open")  # open/resolved
+    owner_id: Mapped[int | None] = mapped_column(Integer, index=True)  # groups never mix spaces
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -108,6 +140,7 @@ class ImportJob(Base):
     __tablename__ = "import_job"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(16))  # takeout/phone_scan
+    user_id: Mapped[int | None] = mapped_column(Integer, index=True)  # whose Takeout
     archive_name: Mapped[str] = mapped_column(Text, index=True)
     archive_key: Mapped[str | None] = mapped_column(String(64), index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -143,12 +176,13 @@ class Event(Base):
 class GoogleCleanup(Base):
     __tablename__ = "google_cleanup"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, default=0, index=True)
     month: Mapped[str] = mapped_column(String(7), index=True)  # YYYY-MM
     match: Mapped[str] = mapped_column(String(16))  # exact/similar
     photo_count: Mapped[int] = mapped_column(Integer, default=0)
     video_count: Mapped[int] = mapped_column(Integer, default=0)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime)
-    __table_args__ = (UniqueConstraint("month", "match"),)
+    __table_args__ = (UniqueConstraint("user_id", "month", "match"),)
 
 
 class ScanState(Base):
@@ -263,11 +297,11 @@ def touch_media(s: Session, m: Media) -> None:
 
 
 def set_location(s: Session, media_id: int, store: str, state: str, *,
-                 match: str = "exact", source_ref: str | None = None) -> Location:
-    loc = s.execute(select(Location).where(Location.media_id == media_id,
-                                           Location.store == store)).scalar_one_or_none()
+                 match: str = "exact", source_ref: str | None = None, user_id: int = 0) -> Location:
+    loc = s.execute(select(Location).where(Location.media_id == media_id, Location.store == store,
+                                           Location.user_id == user_id)).scalar_one_or_none()
     if loc is None:
-        loc = Location(media_id=media_id, store=store, state=state, match=match,
+        loc = Location(media_id=media_id, store=store, state=state, match=match, user_id=user_id,
                        source_ref=source_ref, seen_at=utcnow())
         s.add(loc)
     else:
@@ -280,6 +314,31 @@ def set_location(s: Session, media_id: int, store: str, state: str, *,
             loc.source_ref = source_ref
     s.flush()
     return loc
+
+
+def grant_access(s: Session, m: Media, user_id: int | None) -> bool:
+    """Let `user_id` see a personal-space item (no-op for shared items). Returns True if added."""
+    if user_id is None or m.owner_id is None or m.owner_id == user_id:
+        return False
+    if s.get(MediaAccess, (m.id, user_id)) is None:
+        s.add(MediaAccess(media_id=m.id, user_id=user_id))
+        s.flush()
+        return True
+    return False
+
+
+def visible_clause(user: "User | None"):  # noqa: ANN201
+    """SQL condition: media the user may see (shared, own, or granted)."""
+    from sqlalchemy import or_
+    if user is None:
+        return Media.owner_id.is_(None)
+    return or_(Media.owner_id.is_(None), Media.owner_id == user.id,
+               Media.id.in_(select(MediaAccess.media_id).where(MediaAccess.user_id == user.id)))
+
+
+def can_see(s: Session, user: "User", m: Media) -> bool:
+    return (m.owner_id is None or m.owner_id == user.id
+            or s.get(MediaAccess, (m.id, user.id)) is not None)
 
 
 def disk_free_gb(path: Path) -> float:

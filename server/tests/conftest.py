@@ -17,7 +17,7 @@ needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     s = Settings(root=tmp_path / "photohub", library=tmp_path / "photo", gpth_bin=GPTH or "gpth",
-                 stable_seconds=0, workers=2, api_token="test-token")
+                 stable_seconds=0, workers=2, homes_root=tmp_path / "homes")
     s.ensure_dirs()
     return s
 

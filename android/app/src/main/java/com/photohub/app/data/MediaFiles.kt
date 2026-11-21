@@ -59,5 +59,8 @@ class MediaFiles(ctx: Context) {
 
     fun removeFor(hashes: Collection<String>) = hashes.forEach { thumb(it).delete(); preview(it).delete() }
 
+    /** Another person signs in on this phone: drop everything that came from the NAS. */
+    fun clearAll() { thumbs.deleteRecursively(); previews.deleteRecursively(); clearShare() }
+
     fun clearShare() { shareDir.deleteRecursively(); shareDir.mkdirs() }
 }

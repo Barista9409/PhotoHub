@@ -42,7 +42,12 @@ data class SyncAlbum(val id: Long, val name: String, val origin: String)
 data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>, val cursor: Long, @SerialName("has_more") val hasMore: Boolean)
 
 @Serializable
+data class Me(val id: Long, val name: String, val admin: Boolean = false, @SerialName("takeout_target") val takeoutTarget: String = "personal")
+
+@Serializable
 data class Status(
+    val user: String? = null,
+    val admin: Boolean = false,
     val photos: Int = 0,
     val videos: Int = 0,
     val stores: Map<String, Int> = emptyMap(),
@@ -59,6 +64,7 @@ data class Status(
 data class Job(
     val id: Long,
     val source: String,
+    val user: String? = null,
     val archive: String,
     val state: String,
     @SerialName("started_at") val startedAt: String,
@@ -85,7 +91,7 @@ data class SimilarMember(
 )
 
 @Serializable
-data class SimilarGroup(val id: Long, val status: String, val members: List<SimilarMember>)
+data class SimilarGroup(val id: Long, val status: String, val space: String = "shared", val members: List<SimilarMember>)
 
 @Serializable
 data class KeepBody(val keep: List<Long>)
@@ -112,6 +118,7 @@ data class HashesBody(val hashes: List<String>)
 
 interface PhotoHubApi {
     @GET("api/health") suspend fun health(): Map<String, kotlinx.serialization.json.JsonElement>
+    @GET("api/me") suspend fun me(): Me
     @GET("api/status") suspend fun status(): Status
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>

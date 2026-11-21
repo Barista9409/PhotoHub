@@ -190,6 +190,15 @@ interface MediaDao {
 
     @Query("DELETE FROM remote_media")
     suspend fun clearRemote()
+
+    @Query("DELETE FROM album")
+    suspend fun clearAlbumRows()
+
+    @Query("DELETE FROM album_media")
+    suspend fun clearAlbumMedia()
+
+    @Transaction
+    suspend fun clearAlbums() { clearAlbumMedia(); clearAlbumRows() }
 }
 
 @Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class], version = 1, exportSchema = true)

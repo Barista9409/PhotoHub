@@ -21,6 +21,7 @@ from .api import create_app
 from .config import Settings
 from .db import Database, kv_get, kv_set, log_event
 from .takeout import import_inbox
+from .users import all_users, scan_roots
 
 log = logging.getLogger("photohub")
 
@@ -64,7 +65,7 @@ class Service:
             with self.db.session() as s:
                 if kv_get(s, "dry_scan_done"):
                     return
-        rep = scanner.scan(self.db, self.s, self.s.scan_roots, apply=self.s.apply)
+        rep = scanner.scan(self.db, self.s, scan_roots(self.db, self.s), apply=self.s.apply)
         if not self.s.apply:
             with self.db.session() as s:
                 kv_set(s, "dry_scan_done", "1")
@@ -76,7 +77,8 @@ class Service:
     def job_storage(self) -> None:
         storage.verify_nas(self.db, self.s, limit=20000)
         storage.fill_outbox(self.db, self.s, apply=self.s.apply)
-        storage.google_candidates(self.db, self.s)
+        for u in all_users(self.db):  # each person's own Google account
+            storage.google_candidates(self.db, self.s, u.id)
 
     def job_health(self) -> None:
         notify.health_check(self.db, self.s)
@@ -123,8 +125,8 @@ class Service:
 def serve(settings: Settings, db: Database) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings.ensure_dirs()
-    if not settings.api_token:
-        log.warning("PHOTOHUB_API_TOKEN is empty: the API will refuse every request")
+    if not all_users(db):
+        log.warning("no users yet: create one with `photohub user add NAME --admin`")
     log.info("PhotoHub starting (apply=%s, library=%s)", settings.apply, settings.library)
     with db.session() as s:
         log_event(s, "info", "daemon_start", f"apply={settings.apply}")

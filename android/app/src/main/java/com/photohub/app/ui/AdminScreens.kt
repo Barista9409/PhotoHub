@@ -103,6 +103,8 @@ private fun HomeTab(onSettings: () -> Unit) {
             Column(Modifier.padding(16.dp)) {
                 Text("NAS", style = MaterialTheme.typography.titleMedium)
                 if (status != null) {
+                    Text("ログイン中: ${status.user ?: "?"}" + if (status.admin) "（管理者）" else "")
+                    Text("見えているのは、共有スペースと、あなたの個人スペースの写真です。", style = MaterialTheme.typography.bodySmall)
                     Text("写真 ${status.photos} 枚 ・ 動画 ${status.videos} 本")
                     Text("保存先: " + listOf("nas" to "NAS", "google" to "Google", "amazon" to "Amazon")
                         .joinToString(" ・ ") { (k, l) -> "$l ${status.stores[k] ?: 0}" })
@@ -140,7 +142,7 @@ private fun JobsTab() {
     LazyColumn(Modifier.fillMaxSize()) {
         items(jobs, key = { it.id }) { j ->
             Column(Modifier.fillMaxWidth().clickable { if (j.error > 0) open = j }.padding(16.dp, 10.dp)) {
-                Text("#${j.id} ${if (j.source == "takeout") "Takeout" else "NASの走査"} ・ ${stateLabel(j.state)}",
+                Text("#${j.id} ${if (j.source == "takeout") "Takeout" + (j.user?.let { "（$it）" } ?: "") else "NASの走査"} ・ ${stateLabel(j.state)}",
                     style = MaterialTheme.typography.titleSmall)
                 Text("新規 ${j.new} ・ 重複 ${j.duplicate} ・ 失敗 ${j.error}", color = if (j.error > 0) Color(0xFFD84315) else Color.Unspecified)
                 Text("${j.startedAt.take(16).replace('T', ' ')}  ${j.archive}", style = MaterialTheme.typography.bodySmall, maxLines = 2)
@@ -174,12 +176,14 @@ private fun SimilarTab() {
     if (groups == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     if (groups.isEmpty()) { Text("類似の候補はありません", Modifier.padding(16.dp)); return }
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
-        item { Text("残す写真をタップして選び、「決定」を押します。残さない写真はNASのゴミ箱フォルダへ移ります（削除はしません）。",
+        item { Text("残す写真をタップして選び、「決定」を押します。残さない写真はNASのゴミ箱フォルダへ移ります（削除はしません）。" +
+            "共有スペースの写真は管理者だけが、個人スペースの写真は本人だけが整理できます。",
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }
         items(groups, key = { it.id }) { g ->
             var keep by remember(g.id) { mutableStateOf(setOf(g.members.maxByOrNull { (it.w ?: 0) * (it.h ?: 0) }?.mediaId ?: 0L)) }
             Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                 Column(Modifier.padding(8.dp)) {
+                    Text(if (g.space == "shared") "共有スペース" else "あなたの個人スペース", style = MaterialTheme.typography.labelMedium)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(g.members, key = { it.mediaId }) { m ->
                             val selected = m.mediaId in keep
@@ -218,7 +222,7 @@ private fun CandidatesTab() {
     if (rows == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
         item {
-            Text("NASに保存されハッシュが一致した、撮影から一定期間たった写真・動画です。PhotoHubはGoogleから削除しません。" +
+            Text("あなたのGoogleアカウントの分です。NASに保存されハッシュが一致した、撮影から一定期間たった写真・動画です。PhotoHubはGoogleから削除しません。" +
                 "Googleフォトのアプリで該当する月を削除したら「削除した」を押してください。", style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(8.dp))
         }

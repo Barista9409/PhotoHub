@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import select
 
 from .config import Settings
-from .db import Database, Event, ImportJob, kv_get, kv_set, log_event, utcnow
+from .db import Database, Event, ImportJob, User, kv_get, kv_set, log_event, utcnow
 from .storage import amazon_heartbeat
 
 NOTIFY_KINDS = {"import_done", "import_failed", "takeout_schedule_ending", "takeout_overdue",
@@ -79,22 +79,26 @@ def health_check(db: Database, settings: Settings, today: date | None = None) ->
         if bad and _once(s, "raid", timedelta(hours=6)):
             log_event(s, "error", "raid_degraded", f"RAID degraded: {', '.join(bad)}")
             raised.append("raid_degraded")
-        # Takeout schedule (1 year from start) ending soon
-        start = settings.takeout_schedule_start
-        if start:
-            end = start.replace(year=start.year + 1)
-            if end - timedelta(days=31) <= today <= end and _once(s, "schedule_end", timedelta(days=7)):
-                log_event(s, "warn", "takeout_schedule_ending",
-                          f"Takeout scheduled export ends on {end}. Book a new one-year schedule.")
-                raised.append("takeout_schedule_ending")
-        # Takeout overdue
-        last = kv_get(s, "last_import_at")
-        ref = datetime.fromisoformat(last).date() if last else start
-        if ref and (today - ref).days > settings.takeout_interval_days + settings.takeout_grace_days:
-            if _once(s, "takeout_overdue", timedelta(days=3)):
-                log_event(s, "warn", "takeout_overdue",
-                          f"No Takeout has arrived since {ref} (expected every {settings.takeout_interval_days} days).")
-                raised.append("takeout_overdue")
+        # Takeout: each family member books their own schedule (their own Google account)
+        people = [(u.id, u.name, date.fromisoformat(u.takeout_schedule_start) if u.takeout_schedule_start else None)
+                  for u in s.execute(select(User)).scalars()]
+        if not people:
+            people = [(0, "", settings.takeout_schedule_start)]
+        for uid, name, start in people:
+            who = f"{name}: " if name else ""
+            if start:
+                end = start.replace(year=start.year + 1)
+                if end - timedelta(days=31) <= today <= end and _once(s, f"schedule_end:{uid}", timedelta(days=7)):
+                    log_event(s, "warn", "takeout_schedule_ending",
+                              f"{who}Takeout scheduled export ends on {end}. Book a new one-year schedule.")
+                    raised.append("takeout_schedule_ending")
+            last = kv_get(s, f"last_import_at:{uid}") or (kv_get(s, "last_import_at") if uid == 0 else None)
+            ref = datetime.fromisoformat(last).date() if last else start
+            if ref and (today - ref).days > settings.takeout_interval_days + settings.takeout_grace_days:
+                if _once(s, f"takeout_overdue:{uid}", timedelta(days=3)):
+                    log_event(s, "warn", "takeout_overdue",
+                              f"{who}No Takeout has arrived since {ref} (expected every {settings.takeout_interval_days} days).")
+                    raised.append("takeout_overdue")
         # running jobs stuck (e.g. container killed)
         stuck = s.execute(select(ImportJob).where(ImportJob.state == "running",
                                                   ImportJob.started_at < utcnow() - timedelta(days=2))).scalars().all()

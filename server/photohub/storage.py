@@ -22,7 +22,7 @@ from pathlib import Path
 from sqlalchemy import and_, select
 
 from .config import Settings
-from .db import Database, GoogleCleanup, Location, Media, kv_get, kv_set, log_event, set_location, utcnow
+from .db import Database, GoogleCleanup, Location, Media, User, visible_clause, kv_get, kv_set, log_event, set_location, utcnow
 from .fileops import copy_verified
 from .hashing import file_sha256
 
@@ -58,15 +58,20 @@ def fill_outbox(db: Database, settings: Settings, *, apply: bool, limit: int | N
         rows = list(s.execute(q).scalars())
         if limit:
             rows = rows[:limit]
+        # one Amazon account for the family: outbox/shared/... and outbox/<person>/...
+        owners = {u.id: u for u in s.execute(select(User)).scalars()}
         for m in rows:
             src = Path(m.nas_path)
             if not src.exists():
                 continue
+            owner = owners.get(m.owner_id) if m.owner_id is not None else None
+            space = owner.name if owner else "shared"
+            root = Path(owner.personal_root) if owner and owner.personal_root else settings.library
             try:
-                rel = src.relative_to(settings.library)
+                rel = src.relative_to(root)
             except ValueError:
                 rel = Path(f"{_local(m):%Y}") / f"{_local(m):%Y-%m}" / src.name
-            dst = settings.outbox / rel
+            dst = settings.outbox / space / rel
             stats["planned"] += 1
             if apply:
                 try:
@@ -129,12 +134,15 @@ def verify_nas(db: Database, settings: Settings, max_age_days: int = 90, limit: 
     return res
 
 
-def _eligible(s, settings: Settings):  # noqa: ANN001, ANN202
-    """Yield (media, google location, (month, match)) for every item that may leave Google."""
+def _eligible(s, settings: Settings, user_id: int):  # noqa: ANN001, ANN202
+    """Yield (media, google location, (month, match)) for every item that may leave
+    `user_id`'s Google account (each family member has their own)."""
     cutoff = utcnow() - timedelta(days=30 * settings.google_keep_months)
     stale = utcnow() - timedelta(days=90)
     locs: dict[int, dict[str, Location]] = {}
     for loc in s.execute(select(Location)).scalars():
+        if loc.store == "google" and loc.user_id != user_id:
+            continue
         locs.setdefault(loc.media_id, {})[loc.store] = loc
     for m in s.execute(select(Media).where(Media.status == "active", Media.taken_at < cutoff)).scalars():
         l = locs.get(m.id, {})
@@ -150,27 +158,29 @@ def _eligible(s, settings: Settings):  # noqa: ANN001, ANN202
         yield m, g, (f"{_local(m):%Y-%m}", g.match)
 
 
-def google_candidates(db: Database, settings: Settings) -> list[dict]:
-    """Recompute candidate counts per month and match kind (confirmed months are kept)."""
+def google_candidates(db: Database, settings: Settings, user_id: int = 0) -> list[dict]:
+    """Recompute `user_id`'s candidate counts per month and match kind (confirmed ones kept)."""
     with db.session() as s:
         counts: dict[tuple[str, str], list[int]] = {}
-        for m, _g, key in _eligible(s, settings):
+        for m, _g, key in _eligible(s, settings, user_id):
             c = counts.setdefault(key, [0, 0])
             c[0 if m.kind == "photo" else 1] += 1
         for (month, match), (ph, vi) in sorted(counts.items()):
-            row = s.execute(select(GoogleCleanup).where(GoogleCleanup.month == month,
+            row = s.execute(select(GoogleCleanup).where(GoogleCleanup.user_id == user_id, GoogleCleanup.month == month,
                                                         GoogleCleanup.match == match)).scalar_one_or_none()
             if row is None:
-                row = GoogleCleanup(month=month, match=match)
+                row = GoogleCleanup(user_id=user_id, month=month, match=match)
                 s.add(row)
             if row.confirmed_at is None:
                 row.photo_count, row.video_count = ph, vi
-        for row in s.execute(select(GoogleCleanup).where(GoogleCleanup.confirmed_at.is_(None))).scalars():
+        for row in s.execute(select(GoogleCleanup).where(GoogleCleanup.user_id == user_id,
+                                                         GoogleCleanup.confirmed_at.is_(None))).scalars():
             if (row.month, row.match) not in counts:
                 row.photo_count = row.video_count = 0
         s.flush()
         out = []
-        for row in s.execute(select(GoogleCleanup).order_by(GoogleCleanup.month, GoogleCleanup.match)).scalars():
+        for row in s.execute(select(GoogleCleanup).where(GoogleCleanup.user_id == user_id)
+                             .order_by(GoogleCleanup.month, GoogleCleanup.match)).scalars():
             if row.confirmed_at is None and row.photo_count + row.video_count == 0:
                 continue
             out.append({"id": row.id, "month": row.month, "match": row.match, "photos": row.photo_count,
@@ -181,16 +191,17 @@ def google_candidates(db: Database, settings: Settings) -> list[dict]:
     return out
 
 
-def confirm_cleanup(db: Database, settings: Settings, cleanup_id: int) -> int:
-    """A person deleted that month from Google Photos: record it (google -> removed)."""
+def confirm_cleanup(db: Database, settings: Settings, cleanup_id: int, user_id: int | None = None) -> int:
+    """A person deleted that month from their Google Photos: record it (google -> removed).
+    `user_id` given (API): only their own candidates can be confirmed."""
     with db.session() as s:
         row = s.get(GoogleCleanup, cleanup_id)
-        if row is None:
+        if row is None or (user_id is not None and row.user_id != user_id):
             raise ValueError("unknown candidate")
         if row.confirmed_at is not None:
             return 0
         n = 0
-        for _m, g, key in list(_eligible(s, settings)):
+        for _m, g, key in list(_eligible(s, settings, row.user_id)):
             if key == (row.month, row.match):
                 g.state = "removed"
                 n += 1
@@ -199,9 +210,16 @@ def confirm_cleanup(db: Database, settings: Settings, cleanup_id: int) -> int:
     return n
 
 
-def store_counts(db: Database) -> dict:
+def store_counts(db: Database, user: User | None = None) -> dict:
+    """Per-store counts. With `user`: only items they can see, and only their own Google."""
     with db.session() as s:
         out: dict[str, int] = {}
-        for loc in s.execute(select(Location).where(Location.state.in_(["present", "assumed", "queued"]))).scalars():
+        q = (select(Location).join(Media, Media.id == Location.media_id)
+             .where(Location.state.in_(["present", "assumed", "queued"]), Media.status == "active"))
+        if user is not None:
+            q = q.where(visible_clause(user))
+        for loc in s.execute(q).scalars():
+            if loc.store == "google" and user is not None and loc.user_id != user.id:
+                continue
             out[loc.store] = out.get(loc.store, 0) + 1
     return out

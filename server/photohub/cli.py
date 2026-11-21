@@ -81,7 +81,8 @@ def scan_cmd(root, library, apply, limit):  # noqa: ANN001
 
     _banner(apply)
     s, db = _ctx(root, library)
-    rep = scan(db, s, s.scan_roots, apply=apply, limit=limit)
+    from .users import scan_roots
+    rep = scan(db, s, scan_roots(db, s), apply=apply, limit=limit)
     click.echo(rep.summary())
     if rep.duplicates:
         out = write_duplicate_report(rep, s.root / "reports" / "duplicates-latest.tsv")
@@ -163,17 +164,22 @@ def verify_cmd(root, library, limit):  # noqa: ANN001
 @main.command("candidates")
 @root_opt
 @lib_opt
+@click.option("--user", "user_name", required=True, help="whose Google account")
 @click.option("--confirm", "confirm_id", type=int, default=None,
-              help="Mark candidate ID as deleted from Google by you")
-def candidates_cmd(root, library, confirm_id):  # noqa: ANN001
-    """F4: months that may be deleted from Google Photos (PhotoHub never deletes them)."""
+              help="Mark candidate ID as deleted from Google by that person")
+def candidates_cmd(root, library, user_name, confirm_id):  # noqa: ANN001
+    """F4: months that may be deleted from a person's Google Photos (PhotoHub never deletes them)."""
     from .storage import confirm_cleanup, google_candidates
+    from .users import by_name
 
     s, db = _ctx(root, library)
+    u = by_name(db, user_name)
+    if u is None:
+        raise click.UsageError(f"unknown user {user_name}")
     if confirm_id is not None:
-        click.echo(f"marked removed: {confirm_cleanup(db, s, confirm_id)}")
+        click.echo(f"marked removed: {confirm_cleanup(db, s, confirm_id, u.id)}")
         return
-    rows = google_candidates(db, s)
+    rows = google_candidates(db, s, u.id)
     if not rows:
         click.echo("no candidates")
     for r in rows:
@@ -181,6 +187,84 @@ def candidates_cmd(root, library, confirm_id):  # noqa: ANN001
         done = f" confirmed {r['confirmed_at'][:10]}" if r["confirmed_at"] else ""
         click.echo(f"#{r['id']} {r['month']} {label}: photos={r['photos']} videos={r['videos']}{done}"
                    + (f"  NOTE: {r['note']}" if r["note"] else ""))
+
+
+@main.group("user")
+def user_grp() -> None:
+    """Family members (each has a token, a Takeout inbox and a personal space)."""
+
+
+@user_grp.command("add")
+@root_opt
+@lib_opt
+@click.argument("name")
+@click.option("--admin", is_flag=True, help="may organise the shared space and see all jobs")
+@click.option("--personal-root", default=None,
+              help="their Synology Photos personal space inside the container (default <homes>/<name>/Photos)")
+@click.option("--takeout-to", "target", type=click.Choice(["personal", "shared"]), default="personal",
+              show_default=True, help="where their Google Takeout photos are placed")
+def user_add(root, library, name, admin, personal_root, target):  # noqa: ANN001
+    """Add a family member and print their app token (shown only once)."""
+    from .users import add_user
+
+    s, db = _ctx(root, library)
+    u, token = add_user(db, s, name, admin=admin, personal_root=personal_root, takeout_target=target)
+    click.echo(f"user {u.name} (admin={u.is_admin}) personal space: {u.personal_root}")
+    click.echo(f"Takeout inbox: {s.inbox / u.name}")
+    click.echo(f"token (enter it in the app; it is not shown again): {token}")
+
+
+@user_grp.command("list")
+@root_opt
+@lib_opt
+def user_list(root, library):  # noqa: ANN001
+    from .users import all_users
+
+    _, db = _ctx(root, library)
+    for u in all_users(db):
+        click.echo(f"{u.name}\tadmin={u.is_admin}\ttakeout->{u.takeout_target}\t{u.personal_root}"
+                   f"\tschedule={u.takeout_schedule_start or '-'}")
+
+
+@user_grp.command("token")
+@root_opt
+@lib_opt
+@click.argument("name")
+def user_token(root, library, name):  # noqa: ANN001
+    """Issue a new token (the old one stops working)."""
+    from .users import reset_token
+
+    _, db = _ctx(root, library)
+    click.echo(reset_token(db, name))
+
+
+@user_grp.command("set")
+@root_opt
+@lib_opt
+@click.argument("name")
+@click.option("--admin/--no-admin", default=None)
+@click.option("--personal-root", default=None)
+@click.option("--takeout-to", "target", type=click.Choice(["personal", "shared"]), default=None)
+@click.option("--takeout-schedule-start", "start", default=None, help="YYYY-MM-DD the 1-year Takeout schedule was booked")
+def user_set(root, library, name, admin, personal_root, target, start):  # noqa: ANN001
+    from datetime import date
+
+    from sqlalchemy import select
+
+    from .db import User
+
+    _, db = _ctx(root, library)
+    with db.session() as ses:
+        u = ses.execute(select(User).where(User.name == name)).scalar_one()
+        if admin is not None:
+            u.is_admin = admin
+        if personal_root:
+            u.personal_root = personal_root
+        if target:
+            u.takeout_target = target
+        if start:
+            u.takeout_schedule_start = date.fromisoformat(start).isoformat()
+    click.echo("ok")
 
 
 @main.command("health")

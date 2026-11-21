@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from .config import Settings
-from .db import Database, ImportItem, ImportJob, Media, ScanState, kv_set, log_event, set_location, touch_media, utcnow
+from .db import Database, ImportItem, ImportJob, Media, ScanState, grant_access, kv_set, log_event, set_location, touch_media, utcnow
 from .hashing import kind_of
 from . import xmp
 from .ingest import _add_albums, analyse, merge_into, new_media
@@ -50,19 +50,24 @@ def walk(root: Path):  # noqa: ANN201
                 yield p
 
 
-def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
+def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
          batch: int = 200, limit: int | None = None) -> ScanReport:
+    """roots: folders, or (folder, owner user id | None) pairs. A personal space's owner is the
+    only one who sees its photos (plus anyone who has the same photo, see media_access)."""
+    roots = [r if isinstance(r, tuple) else (Path(r), None) for r in roots]
     rep = ScanReport(dry_run=not apply)
     s = db.new_session()
     try:
-        job = ImportJob(source="phone_scan", archive_name=", ".join(map(str, roots)))
+        job = ImportJob(source="phone_scan", archive_name=", ".join(str(r) for r, _ in roots))
         s.add(job)
         s.flush()
         pending: list[Path] = []
+        owner_of: dict[Path, int | None] = {}
 
         def flush_batch() -> None:
             cands = analyse(pending, settings)
             for c in cands:
+                owner = owner_of.get(c.path)
                 rep.scanned += 1
                 key = str(c.path)
                 st = c.path.stat()
@@ -72,7 +77,7 @@ def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
                     continue
                 m = s.execute(select(Media).where(Media.content_hash == c.content_hash)).scalar_one_or_none()
                 if m is None:
-                    m = new_media(c, c.path, file_mtime_utc(c.path))
+                    m = new_media(c, c.path, file_mtime_utc(c.path), owner)
                     s.add(m)
                     s.flush()
                     _restore_from_xmp(s, m, c.path)
@@ -82,7 +87,9 @@ def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
                     result = "new"
                 elif m.nas_path != key and Path(m.nas_path).exists():
                     rep.duplicates.append((key, m.nas_path))
-                    if merge_into(s, m, c):
+                    changed = merge_into(s, m, c)
+                    changed |= grant_access(s, m, owner)  # they hold a copy, so they may see it
+                    if changed:
                         touch_media(s, m)
                     result = "duplicate"
                 else:
@@ -102,7 +109,7 @@ def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
                 s.commit()
 
         seen = 0
-        for root in roots:
+        for root, owner in roots:
             for p in walk(root):
                 if limit is not None and seen >= limit:
                     break
@@ -113,6 +120,7 @@ def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
                     rep.skipped_unchanged += 1
                     continue
                 pending.append(p)
+                owner_of[p] = owner
                 if len(pending) >= batch:
                     flush_batch()
         if pending:
@@ -120,7 +128,7 @@ def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
 
         # library files that disappeared (moved away by a person, for example)
         for m in s.execute(select(Media).where(Media.status == "active")).scalars():
-            if any(str(m.nas_path).startswith(str(r)) for r in roots) and not Path(m.nas_path).exists():
+            if any(str(m.nas_path).startswith(str(r)) for r, _ in roots) and not Path(m.nas_path).exists():
                 rep.missing += 1
                 set_location(s, m.id, "nas", "removed")
                 touch_media(s, m)
@@ -135,7 +143,7 @@ def scan(db: Database, settings: Settings, roots: list[Path], *, apply: bool,
             s.commit()
         else:
             s.rollback()
-            s.add(ImportJob(source="phone_scan", archive_name=", ".join(map(str, roots)), state="dry_run",
+            s.add(ImportJob(source="phone_scan", archive_name=", ".join(str(r) for r, _ in roots), state="dry_run",
                             new_count=rep.new, dup_count=len(rep.duplicates), error_count=len(rep.errors),
                             finished_at=utcnow(), message=rep.summary()))
             s.commit()
@@ -157,7 +165,7 @@ def _restore_from_xmp(s, m: Media, path: Path) -> None:  # noqa: ANN001
         return
     if data.get("description") and not m.description:
         m.description = data["description"]
-    _add_albums(s, m, set(data.get("albums") or []), "google")
+    _add_albums(s, m, set(data.get("albums") or []), "google", m.owner_id)
 
 
 def write_duplicate_report(rep: ScanReport, dest: Path) -> Path:

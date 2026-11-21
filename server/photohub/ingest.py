@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from . import xmp
 from .config import Settings
-from .db import (Album, AlbumItem, ImportItem, ImportJob, Media, set_location, touch_media)
+from .db import (Album, AlbumItem, ImportItem, ImportJob, Media, User, grant_access, set_location,
+                 touch_media)
 from .fileops import copy_verified, library_dir, plan_destination
 from .hashing import HASH_VERSION, content_hash, file_sha256, hamming, kind_of, phash
 from .metadata import Meta, file_mtime_utc, read_many
@@ -101,19 +102,21 @@ def _find_similar(s: Session, c: Candidate, threshold: int) -> Media | None:
     return None
 
 
-def _album(s: Session, name: str, origin: str) -> Album:
-    a = s.execute(select(Album).where(Album.name == name, Album.origin == origin)).scalar_one_or_none()
+def _album(s: Session, name: str, origin: str, owner_id: int | None) -> Album:
+    owner_cond = Album.owner_id.is_(None) if owner_id is None else Album.owner_id == owner_id
+    a = s.execute(select(Album).where(Album.name == name, Album.origin == origin, owner_cond)).scalar_one_or_none()
     if a is None:
-        a = Album(name=name, origin=origin)
+        a = Album(name=name, origin=origin, owner_id=owner_id)
         s.add(a)
         s.flush()
     return a
 
 
-def _add_albums(s: Session, m: Media, names: set[str], origin: str) -> bool:
+def _add_albums(s: Session, m: Media, names: set[str], origin: str, owner_id: int | None = None) -> bool:
+    """Google albums belong to the person whose Takeout listed them (owner_id)."""
     changed = False
     for n in sorted(names):
-        a = _album(s, n, origin)
+        a = _album(s, n, origin, owner_id)
         if s.get(AlbumItem, (a.id, m.id)) is None:
             s.add(AlbumItem(album_id=a.id, media_id=m.id))
             changed = True
@@ -121,21 +124,25 @@ def _add_albums(s: Session, m: Media, names: set[str], origin: str) -> bool:
     return changed
 
 
-def album_names(s: Session, media_id: int) -> list[str]:
+def album_names(s: Session, media_id: int, owner_id: int | None = None) -> list[str]:
+    """Album names that may be written next to the file: shared albums and the file owner's own
+    (another family member's Google album names stay out of someone else's personal space)."""
+    from sqlalchemy import or_
+    cond = Album.owner_id.is_(None) if owner_id is None else or_(Album.owner_id.is_(None), Album.owner_id == owner_id)
     return list(s.execute(select(Album.name).join(AlbumItem, AlbumItem.album_id == Album.id)
-                          .where(AlbumItem.media_id == media_id)).scalars())
+                          .where(AlbumItem.media_id == media_id, cond)).scalars())
 
 
 def write_sidecar(s: Session, m: Media) -> None:
     p = Path(m.nas_path)
     if p.exists():
-        xmp.write(p, content_hash=m.content_hash, albums=album_names(s, m.id),
+        xmp.write(p, content_hash=m.content_hash, albums=album_names(s, m.id, m.owner_id),
                   description=m.description, taken_at=m.taken_at, tz_offset=m.tz_offset)
 
 
-def new_media(c: Candidate, nas_path: Path, fallback_time) -> Media:  # noqa: ANN001
+def new_media(c: Candidate, nas_path: Path, fallback_time, owner_id: int | None = None) -> Media:  # noqa: ANN001
     md = c.meta
-    return Media(content_hash=c.content_hash, hash_version=HASH_VERSION, file_hash=c.file_hash,
+    return Media(owner_id=owner_id, content_hash=c.content_hash, hash_version=HASH_VERSION, file_hash=c.file_hash,
                  phash=c.phash, kind=c.kind, mime=md.mime,
                  taken_at=md.taken_at or fallback_time, tz_offset=md.tz_offset,
                  lat=md.lat, lon=md.lon, width=md.width, height=md.height, duration=md.duration,
@@ -158,9 +165,17 @@ def merge_into(s: Session, m: Media, c: Candidate) -> bool:
     return changed
 
 
+def takeout_destination(settings: Settings, user: User | None) -> tuple[Path, int | None]:
+    """Where a person's Takeout photos go: their personal space (default) or the shared space."""
+    if user is not None and user.takeout_target == "personal" and user.personal_root:
+        return Path(user.personal_root) / "PhotoHub", user.id
+    return settings.library, None
+
+
 def ingest_takeout_candidate(s: Session, settings: Settings, job: ImportJob, c: Candidate,
-                             rel: str, apply: bool, aside_dir: Path) -> ImportItem:
-    """One Takeout file. Returns the ImportItem (already added to the session)."""
+                             rel: str, apply: bool, aside_dir: Path, user: User | None = None) -> ImportItem:
+    """One Takeout file of `user`. Returns the ImportItem (already added to the session)."""
+    uid = user.id if user is not None else 0
     prev = s.execute(select(ImportItem).where(ImportItem.job_id == job.id,
                                               ImportItem.original_path == rel)).scalar_one_or_none()
     if prev is not None and prev.result != "error":
@@ -176,8 +191,10 @@ def ingest_takeout_candidate(s: Session, settings: Settings, job: ImportJob, c: 
     existing = s.execute(select(Media).where(Media.content_hash == c.content_hash)).scalar_one_or_none()
     if existing is not None:
         changed = merge_into(s, existing, c)
-        changed |= _add_albums(s, existing, c.albums, "google")
-        set_location(s, existing.id, "google", "present", match="exact", source_ref=rel)
+        changed |= _add_albums(s, existing, c.albums, "google", user.id if user else None)
+        # the same photo is in this person's Google too -> they may see the NAS copy
+        changed |= grant_access(s, existing, user.id if user else None)
+        set_location(s, existing.id, "google", "present", match="exact", source_ref=rel, user_id=uid)
         if changed:
             touch_media(s, existing)
             if apply:
@@ -190,11 +207,12 @@ def ingest_takeout_candidate(s: Session, settings: Settings, job: ImportJob, c: 
     if similar is not None:
         # Google's compressed copy of something we already have in full quality.
         if apply:
-            dst = aside_dir / "google-similar" / rel
+            dst = aside_dir / "google-similar" / (user.name if user else "_") / rel
             if not dst.exists():
                 copy_verified(c.path, dst, c.file_hash)
-        _add_albums(s, similar, c.albums, "google")
-        set_location(s, similar.id, "google", "present", match="similar", source_ref=rel)
+        _add_albums(s, similar, c.albums, "google", user.id if user else None)
+        grant_access(s, similar, user.id if user else None)
+        set_location(s, similar.id, "google", "present", match="similar", source_ref=rel, user_id=uid)
         touch_media(s, similar)
         if apply:
             write_sidecar(s, similar)
@@ -204,17 +222,18 @@ def ingest_takeout_candidate(s: Session, settings: Settings, job: ImportJob, c: 
         return item
 
     fallback = file_mtime_utc(c.path)
-    dest_dir = library_dir(settings.library, c.meta.taken_at, c.meta.tz_offset, fallback)
+    root, owner = takeout_destination(settings, user)
+    dest_dir = library_dir(root, c.meta.taken_at, c.meta.tz_offset, fallback)
     plan = plan_destination(dest_dir, c.path.name, c.file_hash)
     if apply and not plan.already_present:
         copy_verified(c.path, plan.path, c.file_hash)
-    m = new_media(c, plan.path, fallback)
+    m = new_media(c, plan.path, fallback, owner)
     s.add(m)
     s.flush()
     touch_media(s, m)
     set_location(s, m.id, "nas", "present", source_ref=str(plan.path))
-    set_location(s, m.id, "google", "present", source_ref=rel)
-    _add_albums(s, m, c.albums, "google")
+    set_location(s, m.id, "google", "present", source_ref=rel, user_id=uid)
+    _add_albums(s, m, c.albums, "google", user.id if user else None)
     if apply:
         write_sidecar(s, m)
     item.media_id = m.id

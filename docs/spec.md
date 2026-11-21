@@ -269,4 +269,9 @@ P0調査（[research.md](research.md)）の提案D1〜D5をすべて採用し、
 | Amazonの送信 | 写真を `amazon-outbox/` にハードリンク（容量は増えない）。PCのスクリプトが送る「Amazonアプリが動いた時刻」より後なら送信済みの見込み（queued→assumed） |
 | 削除候補の条件 | 12か月以上前、NASのファイルを90日以内にハッシュで再確認済み、Googleにある、写真はAmazon送信済みの見込み |
 | 本実行の切り替え | CLIは `--apply` がない限り確認のみ。常駐サービスは `PHOTOHUB_APPLY=true` のときだけファイルを動かす |
+| 家族での利用 | 一人ずつユーザー（`photohub user add`）とトークン。共有スペースの写真は全員、個人スペース（`/volume1/homes/<user>/Photos`）の写真は本人だけが見る。同じ写真を自分のGoogleにも持つ人には、相手の個人スペースの写真も見せる（`media_access`） |
+| Googleは一人ずつ | Takeoutは `inbox/takeout/<user>/` に届く。取り込み先は既定で本人の個人スペース（`<個人スペース>/PhotoHub/YYYY/YYYY-MM/`）。Googleの保存先・アルバム・削除候補・通知（予約終了、遅れ）は人ごと |
+| 整理の権限 | 共有スペースの類似写真の整理、全員の取り込み履歴、イベント、Amazonの確認は管理者だけ。個人スペースの類似写真は本人だけが整理できる（管理者も他人の個人スペースは見えない） |
+| Amazon | 家族で1アカウント。`amazon-outbox/shared/` と `amazon-outbox/<user>/` に分けて置く |
+| 端末の利用者の交代 | アプリでトークンを変えると、前の人の索引・サムネイル・プレビューを端末から消す |
 | Dockerの土台 | Ubuntu 24.04（Python 3.12）＋ExifTool＋ffmpeg＋7-Zip＋GPTH Neo v6.4.1（チェックサム固定） |

@@ -87,8 +87,8 @@ def test_google_candidates_require_verified_nas_copy_and_amazon(settings, db):
 
     assert storage.google_candidates(db, settings) == []  # not verified, not on Amazon
     storage.fill_outbox(db, settings, apply=True)
-    assert (settings.outbox / "old" / "photo1.jpg").exists()
-    assert os.stat(settings.outbox / "old" / "photo1.jpg").st_ino == os.stat(p1).st_ino  # hard link
+    assert (settings.outbox / "shared" / "old" / "photo1.jpg").exists()
+    assert os.stat(settings.outbox / "shared" / "old" / "photo1.jpg").st_ino == os.stat(p1).st_ino  # hard link
     storage.verify_nas(db, settings)
     assert storage.google_candidates(db, settings) == []  # Amazon app has not run yet
 
@@ -116,10 +116,13 @@ def test_api_auth_sync_and_thumb_pack(settings, db):
     for i in range(7):
         _put(settings, f"x/{i}.jpg", seed=i)
     scan(db, settings, [settings.library], apply=True)
+    from photohub.users import add_user
+    _, token = add_user(db, settings, "reo", admin=True)
     c = TestClient(create_app(settings, db))
     assert c.get("/api/health").status_code == 200
     assert c.get("/api/status").status_code == 401
-    h = {"Authorization": "Bearer test-token"}
+    assert c.get("/api/status", headers={"Authorization": "Bearer nope"}).status_code == 401
+    h = {"Authorization": f"Bearer {token}"}
     st = c.get("/api/status", headers=h).json()
     assert st["photos"] == 7
 

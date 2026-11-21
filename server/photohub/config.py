@@ -35,7 +35,6 @@ class Settings:
     exiftool_bin: str = "exiftool"
     ffmpeg_bin: str = "ffmpeg"
     ffprobe_bin: str = "ffprobe"
-    api_token: str = ""
     workers: int = 2
     # Hours (local) in which heavy work may run, e.g. "1-7". Empty = always.
     work_hours: str = ""
@@ -58,15 +57,13 @@ class Settings:
     default_tz_minutes: int = 540  # +09:00
     # extra folders to index (e.g. Synology Photos mobile backup in a personal space)
     scan_extra: list = field(default_factory=list)
+    # where the DSM "homes" share is mounted (personal spaces: <homes_root>/<user>/Photos)
+    homes_root: Path = Path("/volume1/homes")
     api_host: str = "0.0.0.0"
     api_port: int = 8765
     extra: dict = field(default_factory=dict)
 
     # ---- derived paths ----
-    @property
-    def scan_roots(self) -> list[Path]:
-        return [self.library, *self.scan_extra]
-
     def within_work_hours(self, hour: int) -> bool:
         if not self.work_hours:
             return True
@@ -125,7 +122,6 @@ class Settings:
             exiftool_bin=os.environ.get("EXIFTOOL_BIN", "exiftool"),
             ffmpeg_bin=os.environ.get("FFMPEG_BIN", "ffmpeg"),
             ffprobe_bin=os.environ.get("FFPROBE_BIN", "ffprobe"),
-            api_token=os.environ.get("PHOTOHUB_API_TOKEN", ""),
             workers=_int("PHOTOHUB_WORKERS", 2),
             work_hours=os.environ.get("PHOTOHUB_WORK_HOURS", ""),
             stable_seconds=_int("PHOTOHUB_STABLE_SECONDS", 300),
@@ -146,6 +142,7 @@ class Settings:
             dsm_verify_tls=_bool("DSM_VERIFY_TLS", True),
             default_tz_minutes=_int("PHOTOHUB_DEFAULT_TZ_MINUTES", 540),
             scan_extra=[Path(p) for p in os.environ.get("PHOTOHUB_SCAN_EXTRA", "").split(":") if p],
+            homes_root=Path(os.environ.get("PHOTOHUB_HOMES_ROOT", "/volume1/homes")),
             api_host=os.environ.get("PHOTOHUB_API_HOST", "0.0.0.0"),
             api_port=_int("PHOTOHUB_API_PORT", 8765),
         )
