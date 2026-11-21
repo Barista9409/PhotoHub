@@ -175,11 +175,16 @@ data class BackupStep(val phase: String, val label: String, val done: Int, val t
 }
 
 class BackupEngine(private val app: PhotoHubApp) {
+    companion object {
+        /** Set by the "止める" button and by turning a backup off; checked before every file. */
+        val stopRequested = java.util.concurrent.atomic.AtomicBoolean(false)
+    }
     data class Result(val toNas: Int, val toDrive: Int, val removedFromDrive: Int, val message: String,
                       val checked: Int = 0, val alreadyOnNas: Int = 0, val failed: Int = 0)
 
     suspend fun run(progress: suspend (BackupStep) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
         withContext(Dispatchers.IO) {
+            stopRequested.set(false)
             val s = app.prefs.current()
             val metered = app.net.isMetered()
             if (metered && !s.backupOnMobile) return@withContext Result(0, 0, 0, "モバイル回線のため待機中")
@@ -187,7 +192,7 @@ class BackupEngine(private val app: PhotoHubApp) {
             // first time: every photo is checked once (fingerprint + place); later only new ones
             val unhashed = app.db.media().countUnhashed()
             if (unhashed > 0) progress(BackupStep(BackupStep.PREPARE, "写真を確認中", 0, unhashed))
-            app.indexer.hashPending(limit = 1_000_000, isStopped = isStopped) { d, t ->
+            app.indexer.hashPending(limit = 1_000_000, isStopped = { isStopped() || stopRequested.get() }) { d, t ->
                 progress(BackupStep(BackupStep.PREPARE, "写真を確認中", d, t))
             }
             val local = app.db.media().localHashed()
@@ -204,14 +209,16 @@ class BackupEngine(private val app: PhotoHubApp) {
                 for (chunk in unknown.chunked(500)) {
                     val have = try { api.have(HashesBody(chunk.map { it.fileHash!! })) } catch (e: Exception) { emptyMap() }
                     have.filterValues { it == "nas" }.keys.forEach { onNas += it }
+                    // "queued" = the NAS already received it and is filing it away
+                    if (have.isNotEmpty()) app.db.media().markOnNas(have.keys.toList())
                     toSend += chunk.filter { have[it.fileHash] == null }
                 }
                 already = local.size - toSend.size
                 if (s.backupNas) {
                     for ((i, m) in toSend.withIndex()) {
-                        if (isStopped()) break
+                        if (isStopped() || stopRequested.get() || !app.prefs.current().backupNas) break
                         progress(BackupStep(BackupStep.NAS, "NASへ送信中", i, toSend.size))
-                        if (uploadToNas(m)) toNas++ else failed++
+                        if (uploadToNas(m)) { toNas++; app.db.media().markOnNas(listOf(m.fileHash!!)) } else failed++
                     }
                     if (toSend.isNotEmpty()) progress(BackupStep(BackupStep.NAS, "NASへ送信中", toSend.size, toSend.size))
                 }
@@ -219,8 +226,9 @@ class BackupEngine(private val app: PhotoHubApp) {
             // --- 2. Google Drive window ---
             var toDrive = 0
             var removed = 0
-            if (s.backupDrive) {
+            if (s.backupDrive && !stopRequested.get() && app.prefs.current().backupDrive) {
                 val drive = app.drive
+                progress(BackupStep(BackupStep.DRIVE, "Googleドライブの中身を確認中", 0, 0))
                 val token = drive.token() ?: return@withContext Result(toNas, 0, 0, "Googleドライブに再接続してください")
                 val inDrive = drive.list(token).also { app.db.media().clearDrive(); app.db.media().upsertDrive(it) }
                     .associateBy { it.fileHash }.toMutableMap()
@@ -229,7 +237,7 @@ class BackupEngine(private val app: PhotoHubApp) {
                 val keep = Window.keep(candidates, s)
                 val toUpload = local.filter { it.fileHash!! in keep && it.fileHash !in inDrive }
                 for ((i, m) in toUpload.withIndex()) {
-                    if (isStopped()) break
+                    if (isStopped() || stopRequested.get() || !app.prefs.current().backupDrive) break
                     progress(BackupStep(BackupStep.DRIVE, "Googleドライブへ送信中", i, toUpload.size))
                     try {
                         val f = drive.upload(token, m)
@@ -240,7 +248,7 @@ class BackupEngine(private val app: PhotoHubApp) {
                 }
                 // tidy: outside the window AND safely on the NAS
                 val outside = inDrive.values.filter { it.fileHash !in keep }
-                if (outside.isNotEmpty() && api != null) {
+                if (outside.isNotEmpty() && api != null && !stopRequested.get() && app.prefs.current().backupDrive) {
                     progress(BackupStep(BackupStep.TIDY, "Googleドライブを整理中", 0, outside.size))
                     for (chunk in outside.chunked(500)) {
                         val have = try { api.have(HashesBody(chunk.map { it.fileHash })) } catch (e: Exception) { emptyMap() }
@@ -252,6 +260,7 @@ class BackupEngine(private val app: PhotoHubApp) {
                     }
                 }
             }
+            if (stopRequested.getAndSet(false)) return@withContext Result(toNas, toDrive, removed, "途中で止めました", local.size, already, failed)
             Result(toNas, toDrive, removed, if (failed > 0) "一部送れませんでした" else "バックアップ完了", local.size, already, failed)
         }
 

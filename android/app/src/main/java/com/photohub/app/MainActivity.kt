@@ -38,6 +38,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -129,7 +134,24 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
-                title = { Text(titleFor(route, entry?.arguments?.getString("name"))) },
+                title = {
+                    if (route == "timeline" || route == "albums") {
+                        // Photos <-> Albums, always one tap away (like Google Photos)
+                        val goTab: (String) -> Unit = { r ->
+                            nav.navigate(r) { popUpTo("timeline") { saveState = true }; launchSingleTop = true; restoreState = true }
+                        }
+                        Row(Modifier.clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(3.dp)) {
+                            listOf("timeline" to "フォト", "albums" to "アルバム").forEach { (r, label) ->
+                                val on = route == r
+                                Text(label, Modifier.clip(RoundedCornerShape(50))
+                                    .background(if (on) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
+                                    .clickable { if (!on) goTab(r) }.padding(horizontal = 18.dp, vertical = 7.dp),
+                                    color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    } else Text(titleFor(route, entry?.arguments?.getString("name")))
+                },
                 navigationIcon = {
                     if (tabs.none { it.route == route }) IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る") }
                 },
@@ -177,6 +199,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.IMPORT_LOG.route) { com.photohub.app.ui.ImportLogScreen() }
                 composable(Dest.DEVICE.route) { com.photohub.app.ui.DeviceScreen() }
                 composable(Dest.APP.route) { com.photohub.app.ui.AppScreen() }
+                composable(Dest.LIBRARY.route) { com.photohub.app.ui.LibraryScreen() }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {
                         nav.navigate("timeline") { popUpTo("timeline") { inclusive = true } }

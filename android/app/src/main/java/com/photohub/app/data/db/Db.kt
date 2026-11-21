@@ -61,7 +61,12 @@ data class LocalMedia(
     val fileHash: String?,
     val bucket: String? = null,      // phone folder ("LINE", "Screenshots", "Camera", ...)
     val relPath: String? = null,     // e.g. "Pictures/LINE/"
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val onNas: Boolean = false,      // the NAS said it has this file (before the NAS list catches up)
 )
+
+/** One line of the library breakdown: where, photo/video, how many, how big. */
+data class KindCount(val kind: String, val n: Int, val bytes: Long)
 
 data class FolderCount(val bucket: String, val count: Int, val coverUri: String?)
 
@@ -100,14 +105,19 @@ private const val TIMELINE_SELECT = """
     SELECT r.hash AS itemKey, r.hash AS hash,
            (SELECT l.uri FROM local_media l WHERE l.fileHash = r.fileHash LIMIT 1) AS localUri,
            r.kind AS kind, r.takenAt AS takenAt, r.tz AS tz, r.name AS name,
-           CASE WHEN EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = r.fileHash)
-                THEN r.stores || ',phone' ELSE r.stores END AS stores,
+           r.stores
+             || CASE WHEN EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = r.fileHash) THEN ',phone' ELSE '' END
+             || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE d.fileHash = r.fileHash) AND r.stores NOT LIKE '%drive%' THEN ',drive' ELSE '' END
+             AS stores,
            r.lat AS lat, r.lon AS lon, r.bytes AS bytes, r.w AS w, r.h AS h, r.duration AS duration, r.mime AS mime,
            (SELECT d.driveId FROM drive_file d WHERE d.fileHash = r.fileHash) AS driveId
     FROM remote_media r
     UNION ALL
     SELECT 'local:' || l.mediaStoreId AS itemKey, NULL AS hash, l.uri AS localUri, l.kind AS kind,
-           l.takenAt AS takenAt, NULL AS tz, l.name AS name, 'phone' AS stores, l.lat AS lat, l.lon AS lon,
+           l.takenAt AS takenAt, NULL AS tz, l.name AS name,
+           'phone' || CASE WHEN l.onNas THEN ',nas' ELSE '' END
+                   || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE d.fileHash = l.fileHash) THEN ',drive' ELSE '' END AS stores,
+           l.lat AS lat, l.lon AS lon,
            l.size AS bytes, l.w AS w, l.h AS h, NULL AS duration, l.mime AS mime,
            (SELECT d.driveId FROM drive_file d WHERE d.fileHash = l.fileHash) AS driveId
     FROM local_media l
@@ -239,6 +249,36 @@ interface MediaDao {
     @Query("SELECT COUNT(*) FROM local_media WHERE fileHash IS NULL")
     suspend fun countUnhashed(): Int
 
+    @Query("UPDATE local_media SET onNas = 1 WHERE fileHash IN (:hashes)")
+    suspend fun markOnNas(hashes: List<String>)
+
+    // --- library breakdown ---
+    @Query("SELECT kind, COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM local_media GROUP BY kind")
+    fun phoneCounts(): Flow<List<KindCount>>
+
+    @Query("""SELECT kind, COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM (
+                SELECT fileHash, kind, bytes FROM remote_media
+                UNION SELECT fileHash, kind, size AS bytes FROM local_media
+                      WHERE onNas AND fileHash NOT IN (SELECT fileHash FROM remote_media)) GROUP BY kind""")
+    fun nasCounts(): Flow<List<KindCount>>
+
+    @Query("""SELECT CASE WHEN mime LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind, COUNT(*) AS n,
+              COALESCE(SUM(size), 0) AS bytes FROM drive_file GROUP BY 1""")
+    fun driveCounts(): Flow<List<KindCount>>
+
+    @Query("""SELECT kind, COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM remote_media
+              WHERE ',' || stores || ',' LIKE '%,google,%' GROUP BY kind""")
+    fun googleCounts(): Flow<List<KindCount>>
+
+    /** On the phone and nowhere else yet. */
+    @Query("""SELECT kind, COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM local_media l
+              WHERE NOT l.onNas AND (l.fileHash IS NULL OR (l.fileHash NOT IN (SELECT fileHash FROM remote_media)
+                    AND l.fileHash NOT IN (SELECT fileHash FROM drive_file))) GROUP BY kind""")
+    fun phoneOnlyCounts(): Flow<List<KindCount>>
+
+    @Query("SELECT COUNT(*) FROM local_media WHERE fileHash IS NULL")
+    fun uncheckedCount(): Flow<Int>
+
     @Query("DELETE FROM remote_media")
     suspend fun clearRemote()
 
@@ -277,12 +317,20 @@ interface MediaDao {
 }
 
 @Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
-    version = 4, exportSchema = true)
+    version = 5, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 
     companion object {
         fun build(ctx: Context): AppDb =
-            Room.databaseBuilder(ctx, AppDb::class.java, "photohub.db").fallbackToDestructiveMigration(true).build()
+            Room.databaseBuilder(ctx, AppDb::class.java, "photohub.db")
+                .addMigrations(MIGRATION_4_5)   // keep the phone's checked photos (hashing takes a while)
+                .fallbackToDestructiveMigration(true).build()
+
+        private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_media ADD COLUMN onNas INTEGER NOT NULL DEFAULT 0")
+            }
+        }
     }
 }

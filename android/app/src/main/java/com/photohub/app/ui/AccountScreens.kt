@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SignalCellularAlt
@@ -95,6 +96,7 @@ enum class Dest(val route: String, val title: String) {
     IMPORT_LOG("import_log", "NASへの取り込み記録"),
     DEVICE("device", "このスマホ"),
     APP("app", "アプリ"),
+    LIBRARY("library", "ライブラリの内訳"),
 }
 
 @Composable
@@ -152,6 +154,9 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         SectionTitle("バックアップ")
         Group {
             if (live.running) { BackupProgress(live); GroupDivider() }
+            SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(),
+                onClick = { open(Dest.LIBRARY) }) { Chevron() }
+            GroupDivider()
             SettingRow(Icons.Default.Dns, "NASへのバックアップ",
                 if (cur.backupNas) "オン・" + (if (last.first > 0) "最後 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}" else "まだ実行していません") else "オフ",
                 onClick = { open(Dest.NAS_BACKUP) }) { Chevron() }
@@ -393,6 +398,7 @@ fun BackupProgress(live: BackupLive, only: String? = null) {
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (live.total > 0) Text("${(live.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary)
+            TextButton({ com.photohub.app.data.BackupEngine.stopRequested.set(true) }) { Text("止める") }
         }
         if (live.total > 0) {
             androidx.compose.material3.LinearProgressIndicator(progress = { live.fraction }, modifier = Modifier.fillMaxWidth().height(6.dp))
