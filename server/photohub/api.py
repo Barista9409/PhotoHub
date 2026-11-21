@@ -115,7 +115,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             raise HTTPException(429, "too many attempts")
         status_, res = login(db, settings, body.username, body.password, body.otp, body.device)
         if status_ != "ok":
-            if status_ not in ("otp_required", "unreachable"):
+            if status_ not in ("otp_required", "unreachable", "need_username"):
                 fails[ip] = recent + [time.time()]
             raise HTTPException(503 if status_ == "unreachable" else 401, status_)
         return {**res, "lan": netinfo.lan_url(settings), "remote": netinfo.remote_url(settings)}
@@ -241,7 +241,9 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
 
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:
-        return {"id": user.id, "name": user.name, "admin": user.is_admin, "takeout_target": user.takeout_target}
+        return {"id": user.id, "name": user.name, "admin": user.is_admin, "takeout_target": user.takeout_target,
+                # False = their Synology Photos folder (/homes/<name>/Photos) is not there: log in again
+                "photo_folder": bool(user.personal_root and Path(user.personal_root).is_dir())}
 
     @app.get("/api/status")
     def status(user: User = Depends(auth)) -> dict:

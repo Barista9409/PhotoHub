@@ -161,3 +161,33 @@ def scan_roots(db: Database, settings: Settings) -> list[tuple[Path, int | None]
             roots.append((Path(u.personal_root), u.id))
     roots += [(p, None) for p in settings.scan_extra]
     return roots
+
+
+def rename_user(db: Database, settings: Settings, user_id: int, new: str) -> User:
+    """Give a person their real DSM user name (they were created under the e-mail address they
+    logged in with). Their folders move along; the personal space follows the new name."""
+    import os
+    from .db import Upload
+    with db.session() as s:
+        u = s.get(User, user_id)
+        old = u.name
+        if u.personal_root in (None, str(personal_root_default(settings, old))):
+            u.personal_root = str(personal_root_default(settings, new))
+        u.name = new
+        moves = [(settings.inbox / old, settings.inbox / new),
+                 (settings.inbox.parent / "drive" / old, settings.inbox.parent / "drive" / new),
+                 (settings.root / "incoming" / old, settings.root / "incoming" / new)]
+        for a, b in moves:
+            if a.exists() and not b.exists():
+                try:
+                    os.replace(a, b)
+                except OSError:
+                    continue
+                for up in s.execute(select(Upload).where(Upload.user_id == user_id)).scalars():
+                    if up.path.startswith(str(a) + "/"):
+                        up.path = str(b) + up.path[len(str(a)):]
+        log_event(s, "info", "user_renamed", f"{old} -> {new}")
+        s.flush()
+        s.expunge(u)
+    ensure_user_dirs(settings, new)
+    return u

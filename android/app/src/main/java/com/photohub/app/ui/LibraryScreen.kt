@@ -63,7 +63,7 @@ fun LibraryScreen() {
             Card(NOT_BACKED_UP, "このスマホにしかない", phoneOnly,
                 note = buildString {
                     append("Synologyにもドライブにもまだない写真です。スマホをなくすと消えてしまいます。")
-                    if (unchecked > 0) append("\n（うち ${num(unchecked)} 枚はまだ確認していません。バックアップを実行すると確認します）")
+                    if (unchecked > 0) append("\n（うち ${num(unchecked)} 枚はまだ確認していません。同期すると確認します）")
                 }, highlight = true)
         }
         Card(PLACES.first { it.key == "phone" }, "このスマホ", phone)
@@ -75,7 +75,7 @@ fun LibraryScreen() {
                 ?: "Synologyにつながると、Synology側の集計も表示します")
         Card(PLACES.first { it.key == "drive" }, "Googleドライブ", drive,
             note = if (!app.prefs.settings.collectAsState(initial = null).value.let { it?.backupDrive ?: false })
-                "ドライブへのバックアップはオフです" else null)
+                "ドライブへの保存はオフです" else null)
         if (google.isNotEmpty()) Card(PLACES.first { it.key == "google" }, "Googleフォト（Takeoutで確認できた分）", google)
 
         OutlinedButton({ SyncWorker.runNow(ctx) }, Modifier.fillMaxWidth()) { Text("Synologyの一覧を読み込み直す") }
@@ -120,5 +120,5 @@ fun librarySummary(): String {
     val only by dao.phoneOnlyCounts().collectAsState(initial = emptyList())
     val o = only.photos() + only.videos()
     return "スマホ ${num(phone.photos() + phone.videos())}・Synology ${num(nas.photos() + nas.videos())}・ドライブ ${num(drive.photos() + drive.videos())}" +
-        if (o > 0) "\nまだバックアップされていない ${num(o)}" else ""
+        if (o > 0) "\nまだスマホにしかない ${num(o)}" else ""
 }

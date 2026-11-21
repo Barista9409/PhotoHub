@@ -84,7 +84,7 @@ fun MapScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
     Box(Modifier.fillMaxSize()) {
         AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
         if (located.isEmpty()) {
-            Text("位置情報のある写真がまだありません。\nスマホの写真は、バックアップの「写真を確認中」が終わると表示されます。",
+            Text("位置情報のある写真がまだありません。\nスマホの写真は、同期の「スマホの写真を確認中」が終わると表示されます。",
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.align(Alignment.Center)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(16.dp))
         } else {

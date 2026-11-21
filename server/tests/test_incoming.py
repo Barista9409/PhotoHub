@@ -103,6 +103,7 @@ def test_drive_folder_inside_existing_whole_drive_sync(settings, db):
     """Cloud Sync already mirrors the whole Drive into the person's home; read PhotoHub/ there."""
     from photohub.db import User
     u, _ = add_user(db, settings, "chie")
+    Path(u.personal_root).mkdir(parents=True)
     whole = settings.homes_root / "chie" / "Google_Drive_chie" / "PhotoHub"
     whole.mkdir(parents=True)
     (whole / "PXL_7.jpg").write_bytes(make_image(7))

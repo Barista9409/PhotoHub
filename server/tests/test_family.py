@@ -112,7 +112,7 @@ def test_admin_only_for_shared_and_events(settings, db, family):
     assert c.get("/api/events", headers=h_chie).status_code == 403
     assert c.get("/api/events", headers=h_reo).status_code == 200
     assert c.post("/api/amazon/heartbeat", headers=h_chie).status_code == 403
-    assert c.get("/api/me", headers=h_chie).json() == {"id": chie.id, "name": "chie", "admin": False,
+    assert {k: v for k, v in c.get("/api/me", headers=h_chie).json().items() if k != "photo_folder"} == {"id": chie.id, "name": "chie", "admin": False,
                                                        "takeout_target": "personal"}
 
 
@@ -211,7 +211,7 @@ def test_dsm_login(settings, db, monkeypatch):
     from photohub import dsm_login
     users = {"reo": ("pw-reo", None), "chie": ("pw-chie", "123456")}  # chie uses 2-step verification
 
-    def fake_check(_settings, username, password, otp=None):
+    def fake_check(_settings, username, password, otp=None, who=None):
         if username not in users or users[username][0] != password:
             return "bad_password"
         need = users[username][1]
@@ -305,3 +305,57 @@ def test_device_folder_albums(settings, db, family):
     assert sum(1 for x in reo_albums if x == "LINE") == 1  # his own LINE album only
     items = c.get("/api/sync", headers=h_chie).json()["items"]
     assert all(chie_albums[0]["id"] in i["albums"] for i in items)
+
+
+def test_login_with_email_finds_the_dsm_user_name(settings, db, monkeypatch):
+    """DSM accepts an e-mail address as login; folders are named after the user name. A person
+    created under the e-mail (older versions) is renamed and their Photos folder is found."""
+    from fastapi.testclient import TestClient
+    from photohub import dsm_login
+    from photohub.api import create_app
+    from photohub.users import add_user
+
+    def fake_check(settings, username, password, otp=None, who=None):
+        if who is not None and username in ("reo@example.com", "reo"):
+            who.update({"name": "reo", "email": "reo@example.com"})
+        return "ok"
+
+    monkeypatch.setattr(dsm_login, "check_password", fake_check)
+    old, _ = add_user(db, settings, "reo@example.com")
+    (settings.inbox / "reo@example.com" / "x.zip").write_bytes(b"z")
+    photos = settings.homes_root / "reo" / "Photos"
+    photos.mkdir(parents=True)
+    c = TestClient(create_app(settings, db))
+    r = c.post("/api/login", json={"username": "reo@example.com", "password": "pw"}).json()
+    assert r["user"] == "reo"
+    me = c.get("/api/me", headers={"Authorization": f"Bearer {r['token']}"}).json()
+    assert me["id"] == old.id and me["name"] == "reo" and me["photo_folder"] is True
+    assert (settings.inbox / "reo" / "x.zip").exists()
+    # logging in with the user name afterwards is the same person
+    assert c.post("/api/login", json={"username": "reo", "password": "pw"}).json()["user"] == "reo"
+
+    def no_name(settings, username, password, otp=None, who=None):
+        return "ok"
+    monkeypatch.setattr(dsm_login, "check_password", no_name)
+    assert c.post("/api/login", json={"username": "mio@example.com", "password": "pw"}).json()["detail"] == "need_username"
+
+
+def test_dsm_identity_from_fake_dsm(settings, monkeypatch):
+    import httpx
+    from photohub import dsm_login
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        form = dict(x.split("=", 1) for x in req.content.decode().split("&"))
+        if form["api"] == "SYNO.API.Auth":
+            return httpx.Response(200, json={"success": True, "data": {"sid": "S"}})
+        if form["api"] == "SYNO.Core.NormalUser":
+            return httpx.Response(200, json={"success": False, "error": {"code": 105}})
+        return httpx.Response(200, json={"success": True, "data": {"shares": [
+            {"name": "photo", "additional": {"real_path": "/volume1/photo"}},
+            {"name": "home", "additional": {"real_path": "/volume1/homes/reo"}}]}})
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    who: dict = {}
+    assert dsm_login.check_password(settings, "reo@example.com", "pw", who=who) == "ok"
+    assert who["name"] == "reo"

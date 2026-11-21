@@ -154,6 +154,11 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
         pending = [u for u in pending if Path(u.path).exists()]
         if not pending:
             continue
+        if not (user.personal_root and Path(user.personal_root).is_dir()):
+            # their Synology Photos folder is not known yet (e.g. logged in with an e-mail address):
+            # keep the files waiting rather than put them in the wrong place
+            rep.errors.append(f"{user.name}: Synology Photos folder not found ({user.personal_root}); waiting")
+            continue
         if apply:
             # Photos Synology Photos (or anything else) already put in the person's space must be
             # known before deciding what is new, or the same photo would be stored twice.

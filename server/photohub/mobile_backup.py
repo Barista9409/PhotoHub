@@ -28,8 +28,8 @@ def _norm(s: str) -> str:
 
 
 def backup_root(user: User) -> Path | None:
-    if not user.personal_root:
-        return None
+    if not user.personal_root or not Path(user.personal_root).is_dir():
+        return None  # never create a home folder that DSM does not have
     return Path(user.personal_root) / MOBILE_BACKUP
 
 

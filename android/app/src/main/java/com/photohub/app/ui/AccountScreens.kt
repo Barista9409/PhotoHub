@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,8 +89,8 @@ val APP_DOWNLOAD_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/l
 
 /** Where the account hub's rows lead. */
 enum class Dest(val route: String, val title: String) {
-    NAS_BACKUP("backup_nas", "Synologyへのバックアップ"),
-    DRIVE_BACKUP("backup_drive", "Googleドライブへのバックアップ"),
+    NAS_BACKUP("backup_nas", "Synologyと同期"),
+    DRIVE_BACKUP("backup_drive", "最近の写真と動画をGoogleドライブに保存"),
     SIMILAR("similar", "似ている写真"),
     CLEANUP("cleanup", "Googleフォトから消してよい写真"),
     MIGRATION("migration", "Googleフォトからの移行"),
@@ -151,17 +152,29 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             }
         }
 
-        SectionTitle("バックアップ")
+        if (me?.photoFolder == false) {
+            // created under an e-mail address by an older version: a new login finds the real user name
+            Column(Modifier.padding(16.dp, 8.dp).fillMaxWidth()
+                .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(16.dp)).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Synology Photosの写真フォルダが見つかりません", style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                Text("このため、Synology Photosに保存済みの写真が表示されていません。いったんログアウトして、もう一度ログインしてください（メールアドレスでもユーザー名でもかまいません）。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                androidx.compose.material3.Button({ confirmLogout = true }) { Text("ログアウトしてログインし直す") }
+            }
+        }
+        SectionTitle("同期と保存")
         Group {
             if (live.running) { BackupProgress(live); GroupDivider() }
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(),
                 onClick = { open(Dest.LIBRARY) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.Dns, "Synologyへのバックアップ",
+            SettingRow(Icons.Default.Dns, "Synologyと同期",
                 if (cur.backupNas) "オン・" + (if (last.first > 0) "最後 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}" else "まだ実行していません") else "オフ",
                 onClick = { open(Dest.NAS_BACKUP) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.Cloud, "Googleドライブへのバックアップ",
+            SettingRow(Icons.Default.Cloud, "最近の写真と動画をGoogleドライブに保存",
                 if (cur.backupDrive) "オン・" + when (cur.driveMode) { "gb" -> "最大 ${cur.driveGb} GB"; "both" -> "直近 ${cur.driveMonths} か月・最大 ${cur.driveGb} GB"; else -> "直近 ${cur.driveMonths} か月" } else "オフ",
                 onClick = { open(Dest.DRIVE_BACKUP) }) { Chevron() }
         }
@@ -230,17 +243,19 @@ fun NasBackupScreen() {
     val cur = s ?: return
     fun save(n: Settings, run: Boolean = false) = scope.launch { app.prefs.save(n); if (run) BackupWorker.runNow(ctx) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text("撮った写真と動画を、自宅のSynologyに保存します。Synology Photosのバックアップと同じフォルダに入るので、両方オンでも重複しません。",
+        Text("このスマホとSynologyの写真をそろえます。スマホで撮った写真はSynologyへ送り（Synology Photosと同じフォルダなので重複しません）、Synologyにある写真は一覧と縮小画像を受け取って、このアプリで見られるようにします。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
-        SectionTitle("設定")
+        SectionTitle("送る（スマホ → Synology）")
         Group {
-            SwitchRow(Icons.Default.Dns, "Synologyへのバックアップ", if (cur.backupNas) "オン" else "オフ", cur.backupNas) { save(cur.copy(backupNas = it), it) }
+            SwitchRow(Icons.Default.Dns, "撮った写真と動画をSynologyへ送る", if (cur.backupNas) "オン" else "オフ", cur.backupNas) { save(cur.copy(backupNas = it), it) }
             GroupDivider()
             SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも送る", "オフならWi-Fiのときだけ（外出先はTailscale経由）",
                 cur.backupOnMobile, enabled = cur.backupNas) { save(cur.copy(backupOnMobile = it)) }
         }
+        SectionTitle("受け取る（Synology → スマホ）")
+        Group { ReceiveRow() }
         SectionTitle("状況")
-        Group { BackupNowRow(only = "nas") }
+        Group { BackupNowRow(only = "nas", title = "今すぐ同期") }
     }
 }
 
@@ -265,7 +280,7 @@ fun DriveBackupScreen() {
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
         SectionTitle("設定")
         Group {
-            SwitchRow(Icons.Default.Cloud, "Googleドライブへのバックアップ", note ?: if (cur.backupDrive) "オン" else "オフ", cur.backupDrive) { on ->
+            SwitchRow(Icons.Default.Cloud, "Googleドライブに保存", note ?: if (cur.backupDrive) "オン" else "オフ", cur.backupDrive) { on ->
                 if (!on) save(cur.copy(backupDrive = false))
                 else scope.launch {
                     try {
@@ -298,7 +313,7 @@ fun DriveBackupScreen() {
             }
         }
         SectionTitle("状況")
-        Group { BackupNowRow(only = "drive") }
+        Group { BackupNowRow(only = "drive", title = "今すぐ保存") }
     }
 }
 
@@ -317,12 +332,7 @@ fun DeviceScreen() {
         Text("Synologyの写真を外出先でもすぐ見られるよう、一覧と縮小画像をこのスマホに持っています。自宅のWi-Fiで充電中に自動で更新します。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
         SectionTitle("Synologyの写真の一覧")
-        Group {
-            SettingRow(Icons.Default.Refresh, "今すぐ一覧を更新",
-                if (running) "更新中… ${work.firstOrNull()?.progress?.getString("msg") ?: ""}"
-                else if (cur.lastSyncAt > 0) "最後の更新 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(cur.lastSyncAt))}"
-                else "まだ更新していません", enabled = !running, onClick = { SyncWorker.runNow(ctx) })
-        }
+        Group { ReceiveRow() }
         SectionTitle("使う容量")
         Group {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -393,11 +403,11 @@ fun BackupProgress(live: BackupLive, only: String? = null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Spacer(Modifier.size(10.dp))
-            Text("バックアップ中", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("同期・保存中", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             TextButton({ com.photohub.app.data.BackupEngine.stopRequested.set(true) }) { Text("止める") }
         }
         if (shown.isEmpty()) {
-            Text(if (only == null) "準備しています" else "このバックアップは待機中です（ほかの手順を実行中）",
+            Text(if (only == null) "準備しています" else "待機中です（ほかの手順を実行中）",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         shown.forEach { st ->
@@ -418,8 +428,27 @@ fun BackupProgress(live: BackupLive, only: String? = null) {
     }
 }
 
+/** Receiving from the Synology: the photo list and thumbnails (opened from "Synologyと同期" and "このスマホ"). */
 @Composable
-fun BackupNowRow(only: String? = null) {
+fun ReceiveRow() {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val s by app.prefs.settings.collectAsState(initial = null)
+    val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(SyncWorker.ONCE).collectAsState(initial = emptyList())
+    val w = work.firstOrNull()
+    val running = w?.state == WorkInfo.State.RUNNING || w?.state == WorkInfo.State.ENQUEUED
+    val last = s?.lastSyncAt ?: 0L
+    SettingRow(Icons.Default.Refresh, "Synologyの写真の一覧と縮小画像を受け取る",
+        when {
+            w?.state == WorkInfo.State.RUNNING -> "受け取り中… ${w.progress.getString("msg") ?: ""}"
+            w?.state == WorkInfo.State.ENQUEUED -> "Synologyにつながるのを待っています"
+            last > 0 -> "最後に受け取った日時 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last))}・アプリを開くたびに自動で受け取ります"
+            else -> "まだ受け取っていません"
+        }, enabled = !running, onClick = { SyncWorker.runNow(ctx) })
+}
+
+@Composable
+fun BackupNowRow(only: String? = null, title: String = "今すぐ実行") {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
@@ -427,7 +456,7 @@ fun BackupNowRow(only: String? = null) {
     if (live.running) { BackupProgress(live, only); return }
     val sub = if (last.first > 0) "前回 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}　${last.second}"
         else "まだ実行していません"
-    SettingRow(Icons.Default.CloudUpload, "今すぐバックアップ", sub, onClick = { BackupWorker.runNow(ctx) })
+    SettingRow(Icons.Default.CloudUpload, title, sub, onClick = { BackupWorker.runNow(ctx); if (only == "nas") SyncWorker.runNow(ctx) })
 }
 
 @Composable

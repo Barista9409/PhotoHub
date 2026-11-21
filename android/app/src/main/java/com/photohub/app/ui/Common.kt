@@ -54,7 +54,7 @@ val PLACES = listOf(
     Place("google", androidx.compose.material.icons.Icons.Default.PhotoLibrary, Color(0xFF1565C0), "Googleフォト"),
     Place("amazon", androidx.compose.material.icons.Icons.Default.Inventory2, Color(0xFFEF6C00), "Amazonフォト"),
 )
-val NOT_BACKED_UP = Place("none", androidx.compose.material.icons.Icons.Default.CloudOff, Color(0xFFE65100), "まだバックアップされていません")
+val NOT_BACKED_UP = Place("none", androidx.compose.material.icons.Icons.Default.CloudOff, Color(0xFFE65100), "まだスマホにしかありません")
 
 fun placesOf(stores: String): List<Place> {
     val set = stores.split(',').filter { it.isNotBlank() }.toSet()
@@ -93,7 +93,7 @@ fun PlaceChip(p: Place) {
 
 /** Short names for the legend strip. */
 private fun shortLabel(p: Place) = when (p.key) {
-    "phone" -> "スマホ"; "nas" -> "Synology"; "drive" -> "ドライブ"; "google" -> "Gフォト"; "none" -> "スマホだけ（未バックアップ）"; else -> p.label
+    "phone" -> "スマホ"; "nas" -> "Synology"; "drive" -> "ドライブ"; "google" -> "Gフォト"; "none" -> "スマホだけ（まだ送っていない）"; else -> p.label
 }
 
 /** The strip at the top of the photo list: what the marks on the thumbnails mean. */

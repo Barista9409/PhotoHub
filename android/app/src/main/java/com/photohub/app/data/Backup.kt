@@ -213,7 +213,7 @@ class BackupEngine(private val app: PhotoHubApp) {
                 stopped -> "途中で止めました"
                 d.error != null -> d.error
                 n.failed > 0 -> "一部送れませんでした"
-                else -> "バックアップ完了"
+                else -> "完了"
             }
             Result(n.sent, d.sent, d.removed, message, local.size, n.already, n.failed)
         }
@@ -361,7 +361,7 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
         fun foregroundInfo(ctx: Context, active: List<BackupStep>): androidx.work.ForegroundInfo {
             val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
-            nm.createNotificationChannel(android.app.NotificationChannel("backup", "バックアップ", android.app.NotificationManager.IMPORTANCE_LOW))
+            nm.createNotificationChannel(android.app.NotificationChannel("backup", "同期と保存", android.app.NotificationManager.IMPORTANCE_LOW))
             val main = active.first()
             val pct = (main.fraction * 100).toInt()
             val text = active.joinToString("　") { st ->
@@ -369,7 +369,7 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 if (st.total > 0) "$name ${st.done}/${st.total}" else "$name 準備中"
             }
             val n = androidx.core.app.NotificationCompat.Builder(ctx, "backup").setSmallIcon(com.photohub.app.R.drawable.ic_stat_update)
-                .setContentTitle(if (active.size > 1) "バックアップ中" else main.label).setContentText(text)
+                .setContentTitle(if (active.size > 1) "同期・保存中" else main.label).setContentText(text)
                 .setOngoing(true).setOnlyAlertOnce(true)
                 .setProgress(100, pct, main.total == 0).build()
             return if (android.os.Build.VERSION.SDK_INT >= 29)

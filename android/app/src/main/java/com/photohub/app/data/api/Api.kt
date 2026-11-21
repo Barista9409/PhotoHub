@@ -42,7 +42,8 @@ data class SyncAlbum(val id: Long, val name: String, val origin: String)
 data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>, val cursor: Long, @SerialName("has_more") val hasMore: Boolean)
 
 @Serializable
-data class Me(val id: Long, val name: String, val admin: Boolean = false, @SerialName("takeout_target") val takeoutTarget: String = "personal")
+data class Me(val id: Long, val name: String, val admin: Boolean = false, @SerialName("takeout_target") val takeoutTarget: String = "personal",
+              @SerialName("photo_folder") val photoFolder: Boolean = true)
 
 @Serializable
 data class MySettings(@SerialName("takeout_target") val takeoutTarget: String)
