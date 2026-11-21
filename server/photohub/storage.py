@@ -153,7 +153,7 @@ def _eligible(s, settings: Settings, user_id: int):  # noqa: ANN001, ANN202
             continue
         if not (g and g.state == "present"):
             continue
-        if m.kind == "photo" and not (amz and amz.state == "assumed"):
+        if settings.amazon_backup and m.kind == "photo" and not (amz and amz.state == "assumed"):
             continue
         yield m, g, (f"{_local(m):%Y-%m}", g.match)
 

@@ -1,28 +1,34 @@
-# PhotoHub on Synology Container Manager (Project -> Create -> this file).
-# Paths are the DSM defaults from spec §6; adjust if your volumes differ.
+# PhotoHub for Synology Container Manager.
+# Container Manager > Project > Create > "Create docker-compose.yml" and paste this whole file.
+# Only the lines marked  <-- CHANGE  need editing.
 services:
   photohub:
-    build: ./server
-    image: photohub:0.1.0
+    image: ghcr.io/barista9409/photohub:latest   # built by GitHub Actions from this repository
     container_name: photohub
     restart: unless-stopped
-    env_file: .env
-    # run as the DSM user "photohub" (id -u photohub / id -g photohub over SSH)
-    user: "${PUID:-1026}:${PGID:-100}"
+    # DSM user "photohub": uid and gid (DSM > Control Panel > Terminal & SNMP is not needed;
+    # see docs/setup.md step 1-4 for how to look them up)
+    user: "1026:100"                              # <-- CHANGE (uid:gid of DSM user photohub)
+    # Host network: phones find the NAS on the home Wi-Fi by themselves, and PhotoHub checks
+    # Synology passwords on this NAS. Port 8765. Never forward it on the router.
+    network_mode: host
     environment:
       PHOTOHUB_ROOT: /data/photohub
       PHOTO_LIBRARY_ROOT: /data/photo
       PHOTOHUB_HOMES_ROOT: /data/homes
+      # false = only check and report (nothing is moved). Set true after the first check.
+      PHOTOHUB_APPLY: "false"                     # <-- CHANGE later (step 5)
+      # DSM user names that may organise the family's shared photos
+      PHOTOHUB_ADMINS: "reo"                      # <-- CHANGE
+      # Amazon Photos backup needs a PC running the Amazon Photos app. No PC: "false"
+      PHOTOHUB_AMAZON_BACKUP: "false"             # <-- CHANGE if you have a PC for Amazon
+      # Notifications to the ntfy app (pick a hard-to-guess topic name), or leave empty
+      NTFY_URL: "https://ntfy.sh"
+      NTFY_TOPIC: ""                              # <-- CHANGE (optional)
+      PHOTOHUB_GOOGLE_KEEP_MONTHS: "12"
+      PHOTOHUB_MIN_FREE_GB: "200"
+      TZ: UTC
     volumes:
-      - /volume1/photohub:/data/photohub          # inbox, work, processed, trash, db, cache, outbox
-      - /volume1/photo:/data/photo                # Synology Photos shared space (everyone sees it)
-      - /volume1/homes:/data/homes                # personal spaces: /data/homes/<user>/Photos (owner only)
-    # Host network: the app finds the NAS on the home Wi-Fi (mDNS), PhotoHub learns the NAS's
-    # LAN and Tailscale addresses by itself, and checks DSM passwords on this NAS (localhost:5001).
-    # Port 8765. Do NOT forward it on the router; from outside use Tailscale.
-    network_mode: host
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 3g
+      - /volume1/photohub:/data/photohub   # PhotoHub's own data (inbox, db, thumbnails, trash ...)
+      - /volume1/photo:/data/photo         # Synology Photos shared space (everyone)
+      - /volume1/homes:/data/homes         # personal spaces: /volume1/homes/<user>/Photos (owner only)

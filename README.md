@@ -4,14 +4,14 @@ Synology NAS上で動く写真の取り込み・整理サービスと、外出�
 
 - 仕様書：[docs/spec.md](docs/spec.md)（v0.2：実装時の決定は第10章）
 - 調査結果：[docs/research.md](docs/research.md)
-- **導入手順：[docs/setup.md](docs/setup.md)**
+- **導入ガイド：[docs/setup.md](docs/setup.md)**（パソコンなしで導入できます）
 
 ## 構成
 
 | パス | 内容 |
 |---|---|
 | `server/` | NAS側サービス（Python 3.12、FastAPI、SQLite）。Takeout取り込み、重複検出、正本への配置、走査、保存先管理、通知、差分配信API |
-| `docker-compose.yml` | Container Manager 用 |
+| `docker-compose.yml` | Container Manager に貼り付ける設定（イメージは GitHub Actions が `ghcr.io/barista9409/photohub` に作る） |
 | `android/` | Androidアプリ（Kotlin、Jetpack Compose、Room、WorkManager、Coil、Media3、osmdroid） |
 | `tools/amazon-heartbeat.ps1` | PCのAmazon Photosアプリが動いていることをNASへ知らせるスクリプト |
 

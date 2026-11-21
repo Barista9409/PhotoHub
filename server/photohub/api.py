@@ -42,6 +42,10 @@ class Login(BaseModel):
     device: str | None = None
 
 
+class MySettings(BaseModel):
+    takeout_target: str  # personal / shared
+
+
 class Keep(BaseModel):
     keep: list[int]
 
@@ -110,6 +114,18 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 fails[ip] = recent + [time.time()]
             raise HTTPException(503 if status_ == "unreachable" else 401, status_)
         return {**res, "lan": netinfo.lan_url(settings), "remote": netinfo.remote_url(settings)}
+
+    @app.put("/api/me/settings")
+    def my_settings(body: MySettings, user: User = Depends(auth)) -> dict:
+        """Each person chooses where photos from *their* Google Takeout go (from the next import on)."""
+        if body.takeout_target not in ("personal", "shared"):
+            raise HTTPException(400, "takeout_target must be personal or shared")
+        with db.session() as s:
+            u = s.get(User, user.id)
+            u.takeout_target = body.takeout_target
+            from .db import log_event
+            log_event(s, "info", "user_setting", f"{u.name}: takeout_target={u.takeout_target}")
+        return {"takeout_target": body.takeout_target}
 
     @app.get("/api/me")
     def me(user: User = Depends(auth)) -> dict:

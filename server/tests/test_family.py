@@ -266,3 +266,19 @@ def test_dsm_check_password_against_fake_dsm(settings, monkeypatch):
     assert seen == ["login", "logout"]  # never keeps a DSM session
     assert dsm_login.check_password(settings, "reo", "otp") == "otp_required"
     assert dsm_login.check_password(settings, "reo", "bad") == "bad_password"
+
+
+def test_each_person_chooses_takeout_destination(settings, db, family):
+    reo, h_reo = family["reo"]
+    chie, h_chie = family["chie"]
+    c = family["client"]
+    assert c.get("/api/me", headers=h_chie).json()["takeout_target"] == "personal"
+    assert c.put("/api/me/settings", json={"takeout_target": "shared"}, headers=h_chie).status_code == 200
+    assert c.get("/api/me", headers=h_chie).json()["takeout_target"] == "shared"
+    assert c.get("/api/me", headers=h_reo).json()["takeout_target"] == "personal"  # only her own
+    assert c.put("/api/me/settings", json={"takeout_target": "x"}, headers=h_chie).status_code == 400
+    from photohub.ingest import takeout_destination
+    from photohub.users import by_name
+    assert takeout_destination(settings, by_name(db, "chie")) == (settings.library, None)
+    root, owner = takeout_destination(settings, by_name(db, "reo"))
+    assert owner == reo.id and str(root).endswith("Photos/PhotoHub")

@@ -1,0 +1,57 @@
+# Builds the NAS service image and publishes it to GitHub Container Registry, so the NAS only
+# needs docker-compose.yml (no files to copy): image ghcr.io/barista9409/photohub:latest
+name: Server image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - server/**
+      - .github/workflows/server-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: server-image
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test
+        working-directory: server
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libimage-exiftool-perl ffmpeg p7zip-full
+          pip install -q -e ".[test]"
+          python -m pytest -q
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image name (lower case)
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: server
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.img.outputs.name }}:latest
+            ${{ steps.img.outputs.name }}:${{ github.sha }}

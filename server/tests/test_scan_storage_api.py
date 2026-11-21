@@ -174,3 +174,20 @@ def test_health_takeout_overdue_and_schedule_end(settings, db):
     assert "takeout_schedule_ending" in raised and "takeout_overdue" in raised
     assert health_check(db, settings, today=date(2026, 12, 15)) == []  # rate-limited
 
+
+
+@needs_exiftool
+def test_candidates_without_amazon(settings, db):
+    import subprocess
+    settings.amazon_backup = False
+    old = datetime.now() - timedelta(days=500)
+    p = _put(settings, "old/a.jpg", seed=8)
+    subprocess.run(["exiftool", "-q", "-overwrite_original", f"-DateTimeOriginal={old:%Y:%m:%d %H:%M:%S}", str(p)], check=True)
+    scan(db, settings, [settings.library], apply=True)
+    with db.session() as s:
+        m = s.execute(select(Media)).scalar_one()
+        storage.set_location(s, m.id, "google", "present")
+    assert storage.google_candidates(db, settings) == []  # still needs a verified NAS copy
+    storage.verify_nas(db, settings)
+    rows = storage.google_candidates(db, settings)
+    assert len(rows) == 1 and rows[0]["photos"] == 1

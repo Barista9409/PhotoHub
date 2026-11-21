@@ -44,6 +44,9 @@ class Settings:
     trash_days: int = 30
     min_free_gb: int = 200
     amazon_stale_days: int = 7
+    # Amazon Photos backup through a PC app. Without a PC set false: photos are then not
+    # required to be on Amazon before they may leave Google (NAS + its own backup only).
+    amazon_backup: bool = True
     takeout_interval_days: int = 61
     takeout_grace_days: int = 10
     takeout_schedule_start: date | None = None
@@ -137,6 +140,7 @@ class Settings:
             trash_days=_int("PHOTOHUB_TRASH_DAYS", 30),
             min_free_gb=_int("PHOTOHUB_MIN_FREE_GB", 200),
             amazon_stale_days=_int("PHOTOHUB_AMAZON_STALE_DAYS", 7),
+            amazon_backup=_bool("PHOTOHUB_AMAZON_BACKUP", True),
             takeout_interval_days=_int("PHOTOHUB_TAKEOUT_INTERVAL_DAYS", 61),
             takeout_grace_days=_int("PHOTOHUB_TAKEOUT_GRACE_DAYS", 10),
             takeout_schedule_start=_date("PHOTOHUB_TAKEOUT_SCHEDULE_START"),

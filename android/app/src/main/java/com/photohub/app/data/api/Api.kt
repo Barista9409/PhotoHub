@@ -45,6 +45,9 @@ data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>, val 
 data class Me(val id: Long, val name: String, val admin: Boolean = false, @SerialName("takeout_target") val takeoutTarget: String = "personal")
 
 @Serializable
+data class MySettings(@SerialName("takeout_target") val takeoutTarget: String)
+
+@Serializable
 data class Status(
     val user: String? = null,
     val admin: Boolean = false,
@@ -138,6 +141,7 @@ data class HashesBody(val hashes: List<String>)
 interface PhotoHubApi {
     @GET("api/health") suspend fun health(): Map<String, kotlinx.serialization.json.JsonElement>
     @GET("api/me") suspend fun me(): Me
+    @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>

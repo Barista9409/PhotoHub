@@ -1,159 +1,155 @@
-# PhotoHub 導入手順
+# 写真ハブ（PhotoHub）導入ガイド
 
-この順に進めれば、本物の写真に触れる前に、必ず確認（dry-run）を通るようになっています。
+**パソコンなしで、スマホのブラウザ（DSMの画面）とアプリだけで導入できます。**
+順番どおりに進めれば、本物の写真に触れる前に、必ず「確認だけ（何も動かさない）」の実行を通ります。
 
-**家族で使う前提**です。共有スペース（`/volume1/photo`）の写真は家族全員が、各自の個人スペース（`/volume1/homes/<名前>/Photos`）の写真は本人だけが、アプリで見られます。Googleフォトは一人ずつ別のアカウント、Amazonフォトは家族で1アカウントです。
-**手順4の確認が終わるまで `PHOTOHUB_APPLY=false` のまま**にしてください。
+| 手順 | 誰が | だいたいの時間 |
+|---|---|---|
+| 1. NASの準備 | 管理者 | 20分 |
+| 2. PhotoHubを起動 | 管理者 | 10分 |
+| 3. アプリを入れてログイン | 家族それぞれ | 5分 |
+| 4. Googleフォトの取り込みの準備 | 家族それぞれ | 10分 |
+| 5. 確認してから本番にする | 管理者 | 確認しだい |
+| 6. 外出先から見る（Tailscale） | 家族それぞれ | 5分 |
+
+DSMの画面は、スマホのブラウザで `http://NASのIP:5000` か QuickConnect のアドレスで開けます（DSMの操作はQuickConnectで大丈夫です）。
 
 ---
 
-## 1. NASの準備（DSMの画面で行う）
+## 写真がどこに保存されるか
 
-1. **タイムゾーン**：コントロールパネル →「地域のオプション」→ タイムゾーンを Tokyo に変更（推奨。PhotoHubの記録はUTCなので動作には影響しません）
-2. **共有フォルダ**：コントロールパネル →「共有フォルダ」で `photohub` を作成（`photo` はSynology Photosの共有スペースとして既にある想定）
-3. **ユーザー**：「ユーザーとグループ」で `photohub` を作成（管理者にしない）
-   - `photo` と `photohub` に読み書き
-   - `homes` に読み書き（家族の個人スペースの写真を索引し、本人のTakeoutを本人の個人スペースへ置くため）
-   - アプリケーションの権限で Synology Photos を許可
-   - 家族それぞれのDSMユーザー名（例：reo、chie）を控えておく。PhotoHubのユーザー名を同じにすると、個人スペースが自動で決まります
-4. **Container Manager**：パッケージセンターでインストール
-5. **SSH**（ID確認用、一時的でよい）：コントロールパネル →「端末とSNMP」→ SSHを有効化し、`id photohub` で uid / gid を控える
+| もの | 場所 | 見える人 |
+|---|---|---|
+| Googleから取り込んだ写真 | 各自が設定で選ぶ：**自分だけ** → `/volume1/homes/<名前>/Photos/PhotoHub/年/年-月/`、**家族で共有** → `/volume1/photo/年/年-月/` | 自分だけ／家族全員 |
+| 家族の共有の写真 | `/volume1/photo/`（Synology Photosの共有スペース） | 家族全員 |
+| 各自の写真 | `/volume1/homes/<名前>/Photos/`（Synology Photosの個人スペース。スマホの自動バックアップもここ） | 本人だけ |
+| 写真ハブ自身のデータ | `/volume1/photohub/`（届いたZIP、処理済みZIP、ゴミ箱、サムネイル、データベース） | 写真ハブだけ |
 
-## 2. OneDrive と Cloud Sync（一人ずつ）
+写真ハブは写真を**自動で削除しません**。整理で「残さない」と決めた写真も `/volume1/photohub/trash/` へ移すだけです。
 
-Googleのアカウントが人ごとに別なので、Cloud Syncのタスクも**一人に1つ**作ります。
+---
 
-1. パッケージセンターで **Cloud Sync** を入れる
-2. 「作成」→ その人の OneDrive → ログイン
-3. ローカルのパス：`/photohub/inbox/takeout/<その人の名前>`（例：`/photohub/inbox/takeout/chie`）
-4. リモートのパス：Takeoutの書き出し先フォルダ（初回の書き出しが届いた後に、OneDrive上の名前を確認して設定し直す）
-5. 同期方向：**双方向**（D3。PhotoHubが処理済みのZIPを `processed/` へ移すと、OneDrive側からも消えて容量が空く。NASの `processed/` には残る）
-6. 初回は、まずサンプル程度の小さなZIPで、移動がOneDrive側で削除として扱われるかを確かめる
+## 1. NASの準備（管理者・DSMの画面で）
 
-## 3. PhotoHub をNASで動かす
+1. **タイムゾーン**：コントロールパネル →「地域のオプション」→ Tokyo（今は Seoul になっています）
+2. **ユーザーホーム**：コントロールパネル →「ユーザーとグループ」→「詳細設定」→「ユーザーホームサービスを有効にする」にチェック（家族それぞれの個人スペースに必要）
+3. **共有フォルダ**：コントロールパネル →「共有フォルダ」→「作成」→ 名前 `photohub`（`photo` はSynology Photosがすでに作っています）
+4. **写真ハブ用のユーザー**：「ユーザーとグループ」→「作成」→ 名前 `photohub`、パスワードは長い適当なもの（ログインには使いません）、管理者グループには入れない
+   - 権限：`photo`・`photohub`・`homes` を **読み取り/書き込み**、ほかは「アクセスなし」
+   - **uidとgidを調べる**（次の手順で使います）：コントロールパネル →「タスクスケジューラ」→「作成」→「予定タスク」→「ユーザー指定のスクリプト」
+     - 全般：タスク名 `id`、ユーザー `root`
+     - タスク設定のスクリプト：`id photohub > /volume1/photohub/id.txt`
+     - 作成したタスクを選んで「実行」→ File Station で `photohub/id.txt` を開く。`uid=1027(photohub) gid=100(users)` のように書いてあります。終わったらタスクは削除してかまいません
+5. **Container Manager**：パッケージセンターで「Container Manager」をインストール
+6. **Cloud Sync**：パッケージセンターで「Cloud Sync」をインストール（手順4で使います）
+7. **Tailscale**：パッケージセンターで「Tailscale」をインストールしてログイン（手順6で使います。外出先で使わないなら後回しでよい）
+8. **ファイアウォール**を使っている場合：コントロールパネル →「セキュリティ」→「ファイアウォール」で、自宅のネットワーク（例 192.168.1.0/24）とTailscale（100.64.0.0/10）からの **TCP 8765** を許可。ルーターのポート開放は**しない**
 
-1. このリポジトリをNASの `/volume1/docker/photohub` に置く（File Stationでアップロード、または `git clone`）
-2. `.env.example` を `.env` にコピーし、次を入れる
-   - `PUID` / `PGID`：手順1-5で控えた値
-   - `NTFY_TOPIC`：通知を受けるトピック名（ntfyアプリで同じ名前を購読）
-   - `PHOTOHUB_APPLY=false` のまま
-3. Container Manager →「プロジェクト」→「作成」→ パス `/volume1/docker/photohub`、`docker-compose.yml` を選んで作成・起動
-4. ブラウザで `http://NASのIP:8765/api/health` を開き、`{"ok":true,...,"apply":false}` が出ればよい
-5. `.env` の `PHOTOHUB_ADMINS` に管理者のDSMユーザー名を入れる（例：`reo`）。家族の登録は不要で、**アプリで初めてログインしたときに自動で登録**されます
-   - 自動で登録させたくない場合は `PHOTOHUB_AUTO_USERS=false` にし、`photohub user add chie` で一人ずつ登録する
-   - 個人スペースは `/volume1/homes/<名前>/Photos` が使われます
-   - その人のTakeoutを共有スペースに入れたい場合は `photohub user set chie --takeout-to shared`
-   - NASの自宅のアドレスとTailscaleのアドレスは自動で調べます（コンテナのログに「home address … Tailscale address …」と出る）
+## 2. PhotoHubを起動（管理者）
 
-## 4. 初回の確認（dry-run）— 本物の写真で必ず行う
+1. File Station で `docker` 共有フォルダの中に `photohub` フォルダを作る（`/volume1/docker/photohub`）
+2. Container Manager →「プロジェクト」→「作成」
+   - プロジェクト名：`photohub`
+   - パス：`/docker/photohub`
+   - ソース：「docker-compose.yml を作成」
+3. 出てきた入力欄に、リポジトリの [`docker-compose.yml`](../docker-compose.yml) の中身を**全部貼り付け**、`<-- CHANGE` の行だけ直す
+   - `user: "1026:100"` → 手順1-4で調べた `uid:gid`（例 `"1027:100"`）
+   - `PHOTOHUB_ADMINS` → 管理者のDSMユーザー名（例 `"reo"`。複数なら `"reo,chie"`）
+   - `PHOTOHUB_AMAZON_BACKUP` → Amazonフォトの控えを作れるPCがなければ `"false"`（そのまま）
+   - `NTFY_TOPIC` → 通知を受けたい場合、他人に推測されにくい名前（スマホの ntfy アプリで同じ名前を購読）
+4. 「次へ」→「完了」。イメージのダウンロードが終わると起動します
+5. 動作確認：スマホのブラウザで `http://NASのIP:8765/api/health` を開き、`"ok":true` と `"apply":false` が出ればよい
 
-Container Manager → コンテナ `photohub` →「端末」（または `docker exec -it photohub sh`）で：
+> 写真ハブの新しい版は、GitHubに入ると自動で作られます（`ghcr.io/barista9409/photohub:latest`）。NASに入れるには、Container Manager →「プロジェクト」→ photohub →「操作」→「ビルド」（または「イメージ」で最新を取得してから再起動）。
 
-```sh
-# 4-1 サンプルで一通り試す（本物の写真には触れない）
-photohub make-sample /tmp/sample/takeout-sample-001.zip -n 100
-PHOTOHUB_ROOT=/tmp/try PHOTO_LIBRARY_ROOT=/tmp/try-photo photohub init
-cp /tmp/sample/*.zip /tmp/try/inbox/takeout/
-PHOTOHUB_ROOT=/tmp/try PHOTO_LIBRARY_ROOT=/tmp/try-photo photohub import-takeout --no-wait --apply
-PHOTOHUB_ROOT=/tmp/try PHOTO_LIBRARY_ROOT=/tmp/try-photo photohub status
+## 3. アプリを入れてログイン（家族それぞれ）
 
-# 4-2 既存の正本を索引する（読むだけ。確認のみ）
-photohub scan
-# 4-3 届いているTakeoutを確認のみで処理
-photohub import-takeout --no-wait
-```
-
-- 出力の `new / duplicate / merged / error` の件数と、`reports/duplicates-latest.tsv`（重複の一覧）を見て、想定どおりか確認する
-- Takeoutは `inbox/takeout/<名前>/` に置かれたものだけを取り込みます。`inbox/takeout/` の直下に置いたZIPは、誰のものか分からないので取り込みません
-- **結果を確認してもらってから**、次に進む
-
-## 5. 本実行に切り替える
-
-1. 索引だけ先に本実行：`photohub scan --apply`（写真は動かさない。DBに登録するだけ）
-2. Takeoutの取り込み：`photohub import-takeout --no-wait --apply`
-3. 問題がなければ `.env` の `PHOTOHUB_APPLY=true` にしてプロジェクトを再起動。以後は自動で：
-   - 10分ごと（とZIPの到着時）に取り込み
-   - 毎晩 2:30 に正本の走査、5:10 に保存先の確認・Amazon用フォルダ・削除候補の更新、4:00 にDBのバックアップ
-   - 1時間ごとに空き容量・RAID・Takeoutの遅れ・Amazonの同期を確認して通知
-
-## 6. Takeout の定期書き出し（一人ずつ、それぞれのGoogleアカウントで）
-
-1. 本人のGoogleアカウントで https://takeout.google.com →「選択をすべて解除」→「Googleフォト」だけ選ぶ
-2. 配信方法：OneDrive、頻度：「2か月ごとに1年間」（表示名は画面に従う）、形式 ZIP、サイズ 50GB
-3. 「差分（前回以降の分だけ）」の表示が出るか確認（出なければ未提供の可能性）
-4. 予約した日を登録する：`photohub user set chie --takeout-schedule-start 2026-12-01`（1年で終わる1か月前に、その人の分の通知が来る）
-5. 初回の全件がOneDriveの空きより大きい場合は、期間を区切って何回かに分ける
-
-## 7. Amazonフォト（写真の控え）
-
-1. 常時起動できるPCに Amazon Photos デスクトップアプリを入れ、ログイン
-2. NASの `photohub` 共有フォルダをネットワークドライブとして割り当て、`amazon-outbox` をバックアップ対象に追加
-   - ネットワークドライブを選べない場合は、PCのローカルフォルダに同期する手段（Synology Drive Client など）で `amazon-outbox` をPCへ写し、そのフォルダを対象にする
-3. `tools/amazon-heartbeat.ps1` をPCに置き、NASのアドレスと**管理者のトークン**を書き換えて、タスクスケジューラで1時間ごとに実行
-   - `amazon-outbox/shared/`（共有スペース）と `amazon-outbox/<名前>/`（各自の個人スペース）の両方が、家族の1つのAmazonアカウントへ送られます
-   - これで「Amazonアプリが動いた時刻」がNASに届き、写真が「送信済みの見込み」になる
-4. `amazon-outbox` はハードリンクなので、NASの容量は増えません
-
-## 8. Androidアプリ
-
-1. `android/` をビルド（`./gradlew assembleRelease`。署名鍵は `~/.gradle/gradle.properties` か環境変数で渡す）するか、配布されたAPKを入れる
-2. **家族それぞれのスマホで、自宅のWi-Fiにつないで**アプリを開く。NASが自動で見つかるので、**ふだんSynology Photosで使っているユーザー名とパスワード**を入れて「ログイン」。これだけです
+1. スマホのブラウザで https://github.com/Barista9409/PhotoHub/releases/latest を開き、`photohub-<版>.apk` をダウンロードして開く
+   - 「この提供元のアプリを許可」を聞かれたら許可（アプリの自動更新にも必要です）
+   - 以前に 0.2.0 以前を入れていた場合は、先にアンインストール
+2. **自宅のWi-Fiにつないだまま**アプリを開く → NASが自動で見つかる
+3. **ふだんSynology Photosで使っているユーザー名とパスワード**を入れて「ログイン」
    - 2段階認証を使っている人は、6桁のコード欄が出ます
-   - パスワードは写真ハブに保存されません。NASがDSMで確かめ、そのスマホ専用の鍵だけを渡します
-   - 自宅のWi-Fiと、外出先用のTailscaleのアドレスも自動で入ります
-   - 見つからないときは「もう一度探す」。それでもだめなら「アドレスを手で入力する」か、管理者が `photohub user invite chie` で出したQRコードを「管理者のQRコードで設定する」で読む
-   - 1台のスマホを別の人が使うときは、設定の「QRコードで設定し直す」かログインし直すと、前の人の写真の索引とサムネイルは端末から消えます
-3. 「管理」→「今すぐ同期」で初回同期（自宅のWi-Fiで）。以後は自宅のWi-Fiで充電中に自動
-4. 既定のギャラリーにする：Androidの設定 → アプリ → 既定のアプリ → 写真を開くアプリ で「写真ハブ」
+   - パスワードは写真ハブには保存されません
+   - 初めてログインした人は、写真ハブに自動で登録されます
+4. 写真へのアクセスを許可（スマホの写真も一緒に表示するため）、通知を許可
+5. 設定 →「**Googleから取り込んだ写真の置き場所**」で「自分だけ」か「家族で共有」を選ぶ（あとで変えられます。変えると次の取り込みから反映）
+6. 初回の同期は「管理」→「今すぐ同期」。以後は**自宅のWi-Fiで充電中に自動**
+7. 既定のギャラリーにする場合：Androidの設定 → アプリ → 既定のアプリ → 写真を開くアプリで「写真ハブ」
 
-## 8b. アプリの自動更新（GitHubのリリースから）
+**うまくいかないとき**：「NASが見つかりません」→ 自宅のWi-Fiか、手順2-5が動いているか確認して「もう一度探す」。それでもだめなら「アドレスを手で入力する」（`http://NASのIP:8765`）。
 
-新しい版は、このリポジトリ（公開）の **GitHub Releases** から各スマホが自分で取り込みます。NASの設定は不要です。
+## 4. Googleフォトの取り込みの準備（家族それぞれ）
 
-**初回だけ**
-1. 各スマホに最新のAPK（`photohub-0.4.0.apk` 以降）を入れる。0.2.0以前（テスト用の鍵で署名）を入れていた場合は、**一度アンインストールしてから**入れる
-2. アプリの「管理」→「アプリの更新」で「許可の設定を開く」→「この提供元のアプリを許可」をオン
-3. 通知の許可を求められたら許可する
-4. GitHubのリポジトリに、署名用の鍵を **Secrets** として登録する（Settings → Secrets and variables → Actions → New repository secret）
-   - `PHOTOHUB_KEYSTORE_BASE64`：`base64 -w0 photohub-release.jks` の出力（Macは `base64 -i photohub-release.jks`）
-   - `PHOTOHUB_KEYSTORE_PASSWORD`：`photohub-release-key.txt` のパスワード
-   - `PHOTOHUB_KEY_PASSWORD`：同じパスワード
+Googleフォトの写真は、Google Takeout → OneDrive → NAS の順に届きます。**一人ずつ**行います。
 
-**新しい版を配るとき**
-1. `android/app/build.gradle.kts` の `versionCode` を1つ上げ、`versionName` を変え、`android/app/release-notes.txt` に変更点を書いてコミット
-2. main ブランチにプッシュ（ほかのアプリと同じ流れ。Claudeに「ビルドに出して」と頼めばここまで行います）
-3. GitHub Actions（`.github/workflows/android-release.yml`）が、その版のReleaseがまだなければ署名付きAPKをビルドし、タグ `v<versionName>` とReleaseを作る（APKと `.json` が付く）
+**4-1. Cloud Sync（管理者が、その人のOneDriveで）**
+1. Cloud Sync →「＋」→ OneDrive → その人のMicrosoftアカウントでログイン
+2. ローカルのパス：`photohub/inbox/takeout/<その人のDSMユーザー名>`（フォルダがなければ作る）
+3. リモートのパス：OneDriveの、Takeoutの書き出し先フォルダ（初回の書き出しが届いてから名前を確認して設定し直す）
+4. 同期方向：**双方向**（写真ハブが取り込み終わったZIPを片付けると、OneDriveの容量も空きます。NASには残ります）
 
-**スマホ側の動き**
-- 12時間ごと（Wi-Fiのとき）とアプリを開いたときに、最新のReleaseを確認し、新しければダウンロードしてインストール
-- Android 12以降は2回目から確認なしで更新。それ以外は通知をタップして「更新」
-- 上のバーに更新のアイコンが出ます。「管理」→「アプリの更新」から手動でも更新できます
-- 設定の自動更新をオフにすると、通知だけになります
-- 入れる前に、ハッシュ（`.json` の値）・アプリ名・新しい版であること・**署名の鍵がインストール済みのアプリと同じこと**を確かめます。公開リポジトリから取るので、誰かが別のAPKを用意しても、鍵が違えば入りません
-- GitHubへはNASのトークンを送りません
+**4-2. Takeoutの予約（本人のGoogleアカウントで）**
+1. https://takeout.google.com →「選択をすべて解除」→「Googleフォト」だけ選ぶ
+2. 配信方法：OneDrive、頻度：「2か月ごとに1年間」、形式 ZIP、サイズ 50GB
+3. 「差分（前回以降の分だけ）」の表示が出るか確認（出なければ知らせてください）
+4. 予約した日を管理者に伝える → 管理者がコンテナの端末で `photohub user set <名前> --takeout-schedule-start YYYY-MM-DD`（1年で終わる1か月前に通知されます）
+5. OneDriveの空きが少ない場合は、期間を区切って何回かに分ける
 
-**リリース用の鍵（とても大事）**
-- `photohub-release.jks` と `photohub-release-key.txt` は、**なくすと二度と更新を配れません**。リポジトリには入れず、2か所に保管する
-- GitHubのSecretsに入れた値は、Actionsの中でだけ使われ、外からは読めません
+## 5. 確認してから本番にする（管理者）
 
-## 9. Tailscale（外出先からの接続）
+最初は `PHOTOHUB_APPLY: "false"` なので、写真ハブは**何も動かさず**、何をするかの記録だけを残します。
 
-1. NASのパッケージセンターで Tailscale を入れてログイン
-2. 家族それぞれのスマホにも Tailscale を入れ、NASと同じTailnetに参加させる（Tailscaleの管理画面から家族を招待するか、共有アカウントでログイン）
-3. Tailscale管理画面でNASのアドレス（100.x.y.z）を確認し、アプリの「外出先のアドレス」に入れる
-4. ルーターのポート開放はしない（APIをインターネットに出さない）
+1. Takeoutが届いて1〜2時間たったら、アプリの「管理」→「取り込み履歴」を見る
+   - 「確認のみ（dry-run）」の行に、新規・重複・失敗の件数が出ます
+   - 夜中に、NASにある写真の索引（確認のみ）も1回行われます
+2. コンテナの端末でも確認できます（Container Manager →「コンテナ」→ photohub →「詳細」→「端末」→「作成」→「bash」）：
+   ```sh
+   photohub status
+   photohub import-takeout --no-wait     # 届いているTakeoutを、確認だけで処理
+   photohub scan                          # NASの写真の索引を、確認だけで
+   ```
+3. 件数が想定どおりなら、Container Manager →「プロジェクト」→ photohub →「YAML設定」で `PHOTOHUB_APPLY: "true"` に変えて保存・再起動
+4. 以後は自動で動きます
+   - 10分ごと（とZIPの到着時）にTakeoutを取り込み
+   - 毎晩 2:30 にNASの写真を索引、4:00 にデータベースをバックアップ、5:10 にGoogle削除候補を更新
+   - 1時間ごとに空き容量・RAID・Takeoutの遅れを確認して通知
 
-## 10. Synology Photos のアルバム登録（任意・D1）
+**Google削除の候補**（アプリの「管理」→「Google削除候補」）：撮影から12か月以上たち、NASに保存されてハッシュが一致した写真・動画が、月ごとに出ます。**Googleからの削除は、本人がGoogleフォトのアプリで**行い、終わったら「削除した」を押します。
+- `PHOTOHUB_AMAZON_BACKUP: "false"` の場合、削除した写真の控えはNASだけになります。**Hyper Backup でUSBディスクなどへの定期バックアップ**を設定しておくことを強くすすめます（パッケージセンター →「Hyper Backup」→ 対象に `photo`・`homes`・`photohub`）
 
-1. `.env` に `DSM_URL` `DSM_USER` `DSM_PASSWORD` を入れる（`SYNOLOGY_API_ENABLED=false` のまま）
-2. `photohub synology probe` を実行し、APIの一覧とフォルダが出るか確認
-3. 出力を共有してもらえれば、引数を実機に合わせて調整します。確認後に `SYNOLOGY_API_ENABLED=true`
-4. 使えない場合も、アルバムはPhotoHubのDBと各写真のXMPに残ります
-5. Synology Photosのアルバムは人ごとの持ち物で、PhotoHubは `photohub` ユーザーとしてしか作れません。そのため登録するのは**共有スペースの写真のアルバムだけ**です。各自のGoogleアルバムは、アプリの「アルバム」で本人にだけ表示されます
+## 6. 外出先から見る（Tailscale・家族それぞれ）
+
+1. スマホに「Tailscale」アプリを入れ、NASと同じTailnetに参加（管理者がTailscaleの管理画面から家族を招待するか、家族用の共有アカウントでログイン）
+2. アプリは、自宅のWi-Fiでないときに自動でTailscale経由になります（アドレスはログイン時にNASから受け取っています）
+3. 外出先では、一覧・検索・地図は通信せずに表示します。写真を開いたときだけ、必要ならNASから取り寄せます
+
+---
+
+## アプリの更新
+
+- 新しい版は GitHub のリリースから、Wi-Fiのとき12時間ごと（とアプリを開いたとき）に自動で入ります
+- 新しい版を作るとき：Claudeに「ビルドに出して」と頼む（版の番号を上げて main にプッシュ → GitHub Actions が署名付きでリリース）
+- **リリース用の鍵**（`photohub-release.jks` と `photohub-release-key.txt`）は、なくすと二度と更新を配れません。2か所に保管してください。GitHubのSecretsにも登録済みです
 
 ## 困ったとき
 
-- `photohub status`：件数と直近の処理
-- アプリの「管理」→「取り込み履歴」：失敗したファイルと理由
-- `trash/` の写真は30日たったら人が削除（PhotoHubは消しません）
-- DBが壊れた場合：`db/backup/` から戻すか、`photohub scan --apply` で写真とXMPから作り直せます
+| こんなとき | すること |
+|---|---|
+| アプリでNASが見つからない | 自宅のWi-Fiか確認 → `http://NASのIP:8765/api/health` が開けるか → ファイアウォールで8765を許可 |
+| ログインできない | Synology Photosに同じユーザー名・パスワードでログインできるか確認。10回失敗すると10分待ちます |
+| Takeoutが取り込まれない | ZIPが `photohub/inbox/takeout/<名前>/` に入っているか（直下は取り込みません）。「取り込み履歴」のエラーを見る |
+| 写真がSynology Photosに出てこない | Synology Photos の設定 →「索引の再作成」 |
+| 古い写真を消したい | `photohub/trash/` の中を30日たったら手で削除（写真ハブは消しません） |
+| データベースが壊れた | `photohub/db/backup/` から戻すか、端末で `photohub scan --apply`（写真とXMPから作り直し） |
+
+## そのほかの設定（docker-compose.yml の environment に追加）
+
+| 名前 | 既定 | 意味 |
+|---|---|---|
+| `PHOTOHUB_AUTO_USERS` | `true` | DSMでログインした人を自動で登録。`false` なら `photohub user add <名前>` で登録した人だけ |
+| `PHOTOHUB_LAN_URL` / `PHOTOHUB_REMOTE_URL` | 自動 | NASの自宅／Tailscaleのアドレス。自動で取れないときだけ |
+| `PHOTOHUB_WORK_HOURS` | なし | 重い処理をする時間帯（例 `1-7`） |
+| `PHOTOHUB_WORKERS` | `2` | 同時に処理する数 |
+| `PHOTOHUB_SCAN_EXTRA` | なし | ほかに索引するフォルダ（コンテナ内のパス、`:` 区切り） |
+| `SYNOLOGY_API_ENABLED` | `false` | Synology Photosにアルバムを作る（`photohub synology probe` で確認してから） |

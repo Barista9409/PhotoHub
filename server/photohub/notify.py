@@ -107,7 +107,7 @@ def health_check(db: Database, settings: Settings, today: date | None = None) ->
             j.message = (j.message or "") + " (marked failed: no progress for 2 days; re-run continues)"
     hb = amazon_heartbeat(db, settings)
     with db.session() as s:
-        if hb is not None and utcnow() - hb > timedelta(days=settings.amazon_stale_days):
+        if settings.amazon_backup and hb is not None and utcnow() - hb > timedelta(days=settings.amazon_stale_days):
             if _once(s, "amazon_stale", timedelta(days=1)):
                 log_event(s, "warn", "amazon_stale", f"Amazon Photos app on the PC has not run since {hb:%Y-%m-%d}.")
                 raised.append("amazon_stale")

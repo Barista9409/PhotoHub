@@ -76,7 +76,8 @@ class Service:
 
     def job_storage(self) -> None:
         storage.verify_nas(self.db, self.s, limit=20000)
-        storage.fill_outbox(self.db, self.s, apply=self.s.apply)
+        if self.s.amazon_backup:
+            storage.fill_outbox(self.db, self.s, apply=self.s.apply)
         for u in all_users(self.db):  # each person's own Google account
             storage.google_candidates(self.db, self.s, u.id)
 
