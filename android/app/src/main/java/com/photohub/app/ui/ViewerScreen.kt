@@ -2,6 +2,11 @@ package com.photohub.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
@@ -59,6 +64,7 @@ import kotlinx.coroutines.launch
 /** Pending action that needs a "you are on mobile data" confirmation (spec F6). */
 private data class Confirm(val title: String, val text: String, val run: () -> Unit)
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ViewerScreen(start: Int, onBack: () -> Unit) {
     val items = remember { UiState.viewerItems }
@@ -72,6 +78,9 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     var confirm by remember { mutableStateOf<Confirm?>(null) }
     var playing by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var barsVisible by remember { mutableStateOf(true) }
+    var showInfo by remember { mutableStateOf(false) }
+    var dragY by remember { mutableFloatStateOf(0f) }
 
     fun guarded(item: TimelineItem, what: String, action: () -> Unit) {
         val remote = item.localUri == null
@@ -80,13 +89,23 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
         } else action()
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), key = { items[it].itemKey }) { page ->
+    val alpha = (1f - kotlin.math.abs(dragY) / 1200f).coerceIn(0.3f, 1f)
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = alpha))
+        .pointerInput(Unit) {
+            // swipe down (or up) to close, like Google Photos
+            detectVerticalDragGestures(
+                onDragEnd = { if (kotlin.math.abs(dragY) > 250f) onBack() else dragY = 0f },
+                onDragCancel = { dragY = 0f },
+            ) { change, dy -> dragY += dy; change.consume() }
+        }) {
+        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize().graphicsLayer(translationY = dragY,
+            scaleX = 1f - kotlin.math.abs(dragY) / 4000f, scaleY = 1f - kotlin.math.abs(dragY) / 4000f),
+            key = { items[it].itemKey }) { page ->
             val item = items[page]
             if (item.kind == "video" && playing == item.itemKey) {
                 VideoPlayer(app, item, base)
             } else {
-                ZoomableImage(previewModel(app, item, base), item.name)
+                ZoomableImage(previewModel(app, item, base), item.name, onTap = { barsVisible = !barsVisible })
                 if (item.kind == "video") {
                     Button(onClick = { guarded(item, "動画の再生") { playing = item.itemKey } },
                         modifier = Modifier.align(Alignment.Center)) {
@@ -96,7 +115,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
             }
         }
         val cur = items[pager.currentPage]
-        Column(Modifier.fillMaxWidth().statusBarsPadding().background(Color(0x66000000)).padding(4.dp)) {
+        if (barsVisible && dragY == 0f) Column(Modifier.fillMaxWidth().statusBarsPadding().background(Color(0x66000000)).padding(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る", tint = Color.White) }
                 Column(Modifier.weight(1f)) {
@@ -118,8 +137,31 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                         }
                     }
                 }) { Icon(Icons.Default.Share, "共有", tint = Color.White) }
+                IconButton(onClick = { showInfo = true }) { Icon(Icons.Default.Info, "情報", tint = Color.White) }
             }
             message?.let { Text(it, color = Color.White, modifier = Modifier.padding(8.dp)) }
+        }
+    }
+    if (showInfo) {
+        val cur = items[pager.currentPage]
+        androidx.compose.material3.ModalBottomSheet(onDismissRequest = { showInfo = false }) {
+            Column(Modifier.padding(20.dp, 0.dp, 20.dp, 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(formatDate(cur, "yyyy年M月d日(E) H:mm"), style = MaterialTheme.typography.titleMedium)
+                Text(cur.name)
+                Text(listOfNotNull(cur.w?.let { w -> cur.h?.let { "${w}×${it}" } }, humanBytes(cur.bytes),
+                    cur.duration?.let { "%d:%02d".format((it / 60).toInt(), (it % 60).toInt()) }).joinToString("・"))
+                Row(verticalAlignment = Alignment.CenterVertically) { Text("保存先："); StoreBadges(cur.stores) }
+                Text(cur.stores.split(',').filter { it.isNotBlank() }.joinToString("、") {
+                    when (it) { "phone" -> "このスマホ"; "nas" -> "NAS"; "drive" -> "Googleドライブ"; "google" -> "Googleフォト"; "amazon" -> "Amazonフォト"; else -> it }
+                }, style = MaterialTheme.typography.bodySmall)
+                if (cur.lat != null && cur.lon != null) {
+                    Text("撮影場所：%.5f, %.5f".format(cur.lat, cur.lon))
+                    TextButton(onClick = {
+                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("geo:${cur.lat},${cur.lon}?q=${cur.lat},${cur.lon}")))
+                    }) { Text("地図アプリで開く") }
+                }
+            }
         }
     }
     confirm?.let { c ->
@@ -130,13 +172,22 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
 }
 
 @Composable
-fun ZoomableImage(model: Any?, desc: String) {
+fun ZoomableImage(model: Any?, desc: String, onTap: () -> Unit = {}) {
     var scale by remember { mutableFloatStateOf(1f) }
     var ox by remember { mutableFloatStateOf(0f) }
     var oy by remember { mutableFloatStateOf(0f) }
     AsyncImage(
         model = model, contentDescription = desc, contentScale = ContentScale.Fit,
         modifier = Modifier.fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onDoubleTap = { p ->  // double-tap: zoom in around the finger, again to reset
+                        if (scale > 1f) { scale = 1f; ox = 0f; oy = 0f }
+                        else { scale = 2.5f; ox = (size.width / 2f - p.x) * 1.5f; oy = (size.height / 2f - p.y) * 1.5f }
+                    },
+                )
+            }
             .pointerInput(Unit) {
                 // pinch (2 fingers) or pan while zoomed; single-finger swipes go to the pager
                 awaitEachGesture {

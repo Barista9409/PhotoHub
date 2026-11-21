@@ -46,58 +46,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 @Composable
-fun MediaGrid(items: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null) {
-    val app = LocalContext.current.applicationContext as PhotoHubApp
-    val base by UiState.base.collectAsState()
-    if (items.isEmpty() && header == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("写真がありません。設定でNASを登録し、同期してください。", modifier = Modifier.padding(24.dp))
-        }
-        return
-    }
-    // month headers
-    val rows = remember(items) {
-        val out = mutableListOf<Any>()
-        var last = ""
-        items.forEachIndexed { i, it ->
-            val m = monthKey(it)
-            if (m != last) { out += m; last = m }
-            out += i
-        }
-        out
-    }
-    LazyVerticalGrid(columns = GridCells.Adaptive(96.dp), modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        if (header != null) item(span = { GridItemSpan(maxLineSpan) }) { header() }
-        items(rows, key = { r -> if (r is String) "h:$r" else items[r as Int].itemKey },
-            span = { r -> if (r is String) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { r ->
-            if (r is String) {
-                Text(r, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(8.dp, 12.dp, 8.dp, 4.dp))
-            } else {
-                val idx = r as Int
-                val it = items[idx]
-                Box(Modifier.aspectRatio(1f).background(Color(0x22888888)).clickable { onOpen(items, idx) }) {
-                    AsyncImage(model = thumbModel(app, it, base), contentDescription = it.name,
-                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    if (it.kind == "video") {
-                        Icon(Icons.Default.PlayCircle, null, tint = Color.White,
-                            modifier = Modifier.align(Alignment.Center).padding(4.dp))
-                    }
-                    StoreBadges(it.stores, Modifier.align(Alignment.BottomStart).padding(2.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
-    val app = LocalContext.current.applicationContext as PhotoHubApp
-    val items by app.db.media().timeline().collectAsState(initial = emptyList())
-    MediaGrid(items, onOpen)
-}
-
-@Composable
 fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {}) {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
