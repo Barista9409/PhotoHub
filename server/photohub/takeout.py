@@ -269,6 +269,48 @@ def _archive_parts(settings: Settings, group: ArchiveGroup) -> None:
             move_verified(p, unique_in(dest, p.name))
 
 
+def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_age: int = 120) -> int:
+    """Takeout delivered to Google Drive: Cloud Sync brings it to the NAS by itself, either a whole-Drive
+    task (/homes/<name>/<folder>/Takeout) or a task for just that folder (/homes/<name>/Takeout).
+    Finished ZIPs are copied into the person's Takeout inbox (the originals are left alone), so
+    nothing has to go through the phone. Returns how many were copied."""
+    import shutil
+    home = settings.homes_root / user.name
+    try:
+        found = sorted(set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip")))
+    except OSError:
+        return 0
+    found = [z for z in found if z.parent.parent.name != "Photos"]
+    inbox = settings.inbox / user.name
+    copied = 0
+    for z in found:
+        try:
+            st = z.stat()
+        except OSError:
+            continue
+        if time.time() - st.st_mtime < max(min_age, settings.stable_seconds):
+            continue  # Cloud Sync may still be writing it
+        key = f"takeout_copied:{z}"
+        sig = f"{st.st_size}:{int(st.st_mtime)}"
+        with db.session() as s:
+            if kv_get(s, key) == sig:
+                continue
+        inbox.mkdir(parents=True, exist_ok=True)
+        dest = inbox / z.name
+        if not (dest.exists() and dest.stat().st_size == st.st_size):
+            tmp = inbox / (z.name + ".copying")
+            shutil.copyfile(z, tmp)
+            if tmp.stat().st_size != st.st_size:
+                tmp.unlink(missing_ok=True)
+                continue
+            os.replace(tmp, dest)
+            copied += 1
+        with db.session() as s:
+            kv_set(s, key, sig)
+            log_event(s, "info", "takeout_found", f"{user.name}: {z.name} from Google Drive")
+    return copied
+
+
 def import_inbox(db: Database, settings: Settings, *, apply: bool, wait_stable: bool = True) -> list[ImportReport]:
     settings.ensure_dirs()
     reports = []
@@ -277,6 +319,11 @@ def import_inbox(db: Database, settings: Settings, *, apply: bool, wait_stable: 
     from .users import ensure_user_dirs
     for u in users:
         ensure_user_dirs(settings, u.name)
+        try:
+            collect_from_drive_sync(db, settings, u)
+        except OSError as e:
+            with db.session() as s:
+                log_event(s, "warn", "import_failed", f"{u.name}: Takeout in Google Drive folder: {e}")
         work += [(g, u) for g in find_groups(settings.inbox / u.name, u.name)]
     loose = find_groups(settings.inbox)
     if loose and users:

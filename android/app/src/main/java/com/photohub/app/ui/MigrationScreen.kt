@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.TaskAlt
@@ -41,7 +42,15 @@ fun MigrationScreen() {
         if (uris.isNotEmpty()) TakeoutUploadWorker.start(ctx, uris)
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        SectionTitle("手順")
+        SectionTitle("おすすめ：Googleドライブ経由（スマホ不要・いちばん速い）")
+        Group {
+            SettingRow(Icons.Default.Cloud, "TakeoutをGoogleドライブに作る",
+                "takeout.google.com で「Googleフォト」だけを選び、配信方法「ドライブに追加」、形式 ZIP、サイズ 50GB。すでにドライブにある場合はそのままでOK")
+            GroupDivider()
+            SettingRow(Icons.Default.Inventory2, "Synologyが自分で取りに行きます",
+                "Cloud Syncがドライブの「Takeout」フォルダをSynologyに持ってきて、PhotoHubが自動で取り込みます。このスマホで送る必要はありません。設定は導入ガイド 4-5 を見てください")
+        }
+        SectionTitle("スマホから送る場合")
         Group {
             SettingRow(Icons.Default.Download, "1. Googleフォトを書き出す",
                 "takeout.google.com で「Googleフォト」だけを選び、配信方法「ダウンロードリンクをメールで送信」、形式 ZIP。届いたメールから、このスマホにZIPをダウンロードします")
@@ -53,7 +62,7 @@ fun MigrationScreen() {
                 "日時と場所を整え、すでにSynologyにある写真（スマホのバックアップなど）とは重複しないよう1枚にまとめます。結果は「Synologyへの取り込み記録」で見られます")
             GroupDivider()
             SettingRow(Icons.Default.TaskAlt, "4. 確認できたらGoogleフォトを片付ける",
-                "「Googleフォトから消してよい写真」に、Synologyに入った月が出ます。Googleフォトのアプリで消してください")
+                "「Googleフォトから消してよい写真」に、Synologyに入った月が出ます。Googleフォトのアプリで消してください。ドライブのTakeoutも消してかまいません（ドライブの容量が空きます）")
         }
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(enabled = !running, modifier = Modifier.fillMaxWidth().height(52.dp),

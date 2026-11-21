@@ -237,3 +237,25 @@ def test_synology_photos_space_is_indexed_in_check_mode(settings, db, chie):
     assert (d / "PXL_2 copy.jpg").exists()  # nothing moved
     r = c.get("/api/sync", headers=h).json()
     assert len(r["items"]) == 2
+
+
+def test_takeout_in_google_drive_is_picked_up_from_cloud_sync(settings, db):
+    """Takeout delivered to Drive: whole-Drive Cloud Sync puts it in /homes/<name>/<folder>/Takeout.
+    Finished ZIPs are copied into the person's inbox once; unfinished ones wait."""
+    import os
+    import time
+    from photohub.takeout import collect_from_drive_sync
+    u, _ = add_user(db, settings, "chie")
+    t = settings.homes_root / "chie" / "Google_Drive_chie" / "Takeout"
+    t.mkdir(parents=True)
+    done = t / "takeout-20261121T000000Z-001.zip"
+    done.write_bytes(b"zip-1")
+    old = time.time() - 3600
+    os.utime(done, (old, old))
+    (t / "takeout-20261121T000000Z-002.zip").write_bytes(b"still downloading")
+    assert collect_from_drive_sync(db, settings, u) == 1
+    assert (settings.inbox / "chie" / done.name).read_bytes() == b"zip-1"
+    assert not (settings.inbox / "chie" / "takeout-20261121T000000Z-002.zip").exists()
+    assert done.exists()  # the Drive copy is left alone
+    (settings.inbox / "chie" / done.name).unlink()  # imported and moved to processed/
+    assert collect_from_drive_sync(db, settings, u) == 0  # not copied again
