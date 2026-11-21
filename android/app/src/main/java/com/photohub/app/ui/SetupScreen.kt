@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
  * A QR code from the admin and typing an address remain as spare ways.
  */
 @Composable
-fun SetupScreen(pendingLink: String?, onDone: () -> Unit, onManual: () -> Unit) {
+fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val scope = rememberCoroutineScope()
@@ -61,6 +61,8 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit, onManual: () -> Unit) 
     var needOtp by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var manual by remember { mutableStateOf(false) }
+    var address by remember { mutableStateOf("http://") }
 
     fun finished(name: String) {
         scope.launch {
@@ -136,6 +138,18 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit, onManual: () -> Unit) 
                 .addOnSuccessListener { code -> code.rawValue?.let { fromQr(it) } }
                 .addOnFailureListener { message = "カメラを起動できませんでした: ${it.message}" }
         }) { Text("管理者のQRコードで設定する") }
-        TextButton(onClick = onManual) { Text("アドレスを手で入力する") }
+        if (!manual) TextButton(onClick = { manual = true }) { Text("NASのアドレスを入力する") }
+        else {
+            OutlinedTextField(address, { address = it }, label = { Text("NASのアドレス（例 http://192.168.1.10:8765）") },
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
+            OutlinedButton(onClick = {
+                scope.launch {
+                    val a = address.trim().trimEnd('/')
+                    val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Discovery.isPhotoHub(a) }
+                    if (ok) { base = a; searching = false; manual = false; message = null }
+                    else message = "そのアドレスではPhotoHubが見つかりません"
+                }
+            }) { Text("このアドレスを使う") }
+        }
     }
 }

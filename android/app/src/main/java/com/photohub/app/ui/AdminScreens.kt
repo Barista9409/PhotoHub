@@ -131,8 +131,7 @@ private fun HomeTab(onSettings: () -> Unit) {
                 Text("通常は自宅のWi-Fiで充電中に自動で同期します。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        BackupCard()
-        UpdateCard()
+
     }
 }
 

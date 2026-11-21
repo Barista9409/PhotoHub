@@ -184,6 +184,54 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             if Path(tmp).exists():
                 Path(tmp).unlink()
 
+    # ---- Takeout ZIP upload from the phone (resumable; ZIPs can be 50 GB) ------------------
+    def _takeout_target(user: User, name: str) -> Path:
+        from urllib.parse import unquote
+        n = Path(unquote(name)).name
+        if not n.lower().endswith(".zip") or n.startswith("."):
+            raise HTTPException(400, "only .zip files")
+        d = settings.inbox / user.name
+        d.mkdir(parents=True, exist_ok=True)
+        return d / n
+
+    @app.get("/api/takeout-upload")
+    def takeout_status(name: str, user: User = Depends(auth)) -> dict:
+        """How much of this ZIP has arrived (to resume after a broken connection)."""
+        dst = _takeout_target(user, name)
+        part = dst.with_name("." + dst.name + ".part")
+        if dst.exists():
+            return {"received": dst.stat().st_size, "done": True}
+        return {"received": part.stat().st_size if part.exists() else 0, "done": False}
+
+    @app.post("/api/takeout-upload")
+    async def takeout_upload(request: Request, user: User = Depends(auth)) -> dict:
+        """Append to <inbox>/<user>/.<name>.part from X-Offset; when X-Total is reached the file is
+        renamed to <name>.zip and the import picks it up (as a dry run until PHOTOHUB_APPLY)."""
+        name = request.headers.get("x-file-name", "")
+        try:
+            offset, total = int(request.headers.get("x-offset", "0")), int(request.headers.get("x-total", "0"))
+        except ValueError:
+            raise HTTPException(400, "bad X-Offset / X-Total")
+        dst = _takeout_target(user, name)
+        if dst.exists():
+            return {"received": dst.stat().st_size, "done": True}
+        part = dst.with_name("." + dst.name + ".part")
+        have = part.stat().st_size if part.exists() else 0
+        if offset != have:
+            raise HTTPException(409, f"expected offset {have}")
+        with open(part, "ab") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        size = part.stat().st_size
+        done = total > 0 and size >= total
+        if done:
+            import os
+            os.replace(part, dst)
+            from .db import log_event
+            with db.session() as s:
+                log_event(s, "info", "takeout_uploaded", f"{user.name}: {dst.name} ({size} bytes) from the app")
+        return {"received": size, "done": done}
+
     @app.post("/api/have")
     def have_files(body: Hashes, user: User = Depends(auth)) -> dict:
         """Which of these file hashes are safely on the NAS ('nas') or received ('queued')."""

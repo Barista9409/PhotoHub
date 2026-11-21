@@ -152,6 +152,14 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
         pending = [u for u in pending if Path(u.path).exists()]
         if not pending:
             continue
+        if apply:
+            # Photos Synology Photos (or anything else) already put in the person's space must be
+            # known before deciding what is new, or the same photo would be stored twice.
+            # Incremental: unchanged files are skipped via scan_state.
+            from .scanner import scan
+            roots = [(Path(user.personal_root), user.id)] if user.personal_root and Path(user.personal_root).exists() else []
+            roots.append((settings.library, None))
+            scan(db, settings, roots, apply=True)
         cands = {c.path: c for c in analyse([Path(u.path) for u in pending], settings)}
         s = db.new_session()
         try:

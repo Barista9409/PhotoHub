@@ -161,11 +161,14 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable("map") { MapScreen(open) }
                 composable("search") { SearchScreen(open) }
                 composable("admin") { AdminScreen { nav.navigate("settings") } }
-                composable("settings") { SettingsScreen(onScan = { nav.navigate("setup") }) { nav.popBackStack() } }
+                composable("settings") {
+                    SettingsScreen(onLoggedOut = { nav.navigate("setup") { popUpTo(0) } }, onMigration = { nav.navigate("migration") })
+                }
+                composable("migration") { com.photohub.app.ui.MigrationScreen() }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {
                         nav.navigate("timeline") { popUpTo("timeline") { inclusive = true } }
-                    }, onManual = { nav.navigate("settings") })
+                    })
                 }
                 composable("viewer/{i}", arguments = listOf(navArgument("i") { type = NavType.IntType })) {
                     ViewerScreen(it.arguments!!.getInt("i")) { nav.popBackStack() }
@@ -178,5 +181,6 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
 private fun titleFor(route: String, name: String?) = when {
     route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
     route == "settings" -> "設定"
+    route == "migration" -> "Googleフォトからの移行"
     else -> tabs.firstOrNull { it.route == route }?.label ?: "PhotoHub"
 }
