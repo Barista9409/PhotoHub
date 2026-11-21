@@ -44,7 +44,7 @@ def test_upload_dry_run_then_apply(settings, db, chie):
     assert list((settings.root / "incoming" / "chie").glob("*.jpg"))
     rep = process_incoming(db, settings, apply=True)
     assert rep.new == 1 and _count(db) == 1
-    placed = list(Path(u.personal_root, "PhotoHub").rglob("PXL_1.jpg"))
+    placed = list(Path(u.personal_root, "MobileBackup").rglob("PXL_1.jpg"))  # same place as Synology's backup
     assert len(placed) == 1 and placed[0].read_bytes() == img
     assert not list((settings.root / "incoming" / "chie").glob("*.jpg"))  # temp copy removed after verify
     assert c.post("/api/have", json={"hashes": [fh]}, headers=h).json() == {fh: "nas"}
@@ -78,12 +78,19 @@ def test_same_photo_from_phone_drive_and_takeout_is_one_item(settings, db, chie)
     assert process_incoming(db, settings, apply=True).new == 0
 
 
-def test_shared_choice_places_in_shared_space(settings, db, chie):
+def test_shared_choice_applies_to_drive_but_phone_backup_stays_with_synology(settings, db, chie):
+    """Phone backups always mirror Synology Photos' own backup folder (personal space);
+    the "where photos go" choice applies to photos arriving via Google (Drive / Takeout)."""
     u, h, c = chie
     c.put("/api/me/settings", json={"takeout_target": "shared"}, headers=h)
     _up(c, h, make_image(9), "PXL_9.jpg")
+    d = drive_dir(settings, u) / "PXL_10.jpg"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    d.write_bytes(make_image(10))
+    settings.stable_seconds = 0
     process_incoming(db, settings, apply=True)
-    assert list(settings.library.rglob("PXL_9.jpg"))
+    assert list(Path(u.personal_root, "MobileBackup").rglob("PXL_9.jpg"))
+    assert list(settings.library.rglob("PXL_10.jpg"))
 
 
 def test_user_folders_are_created(settings, db):
@@ -158,3 +165,54 @@ def test_photo_already_backed_up_by_synology_photos_is_not_stored_twice(settings
     assert rep.new == 0 and rep.duplicate == 1
     copies = [p for p in Path(u.personal_root).rglob("*.jpg")]
     assert copies == [mb]
+
+
+def _put_dated(p: Path, seed: int, when: str):
+    import subprocess
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(make_image(seed))
+    subprocess.run(["exiftool", "-q", "-overwrite_original", f"-DateTimeOriginal={when}", str(p)], check=True)
+
+
+def _up_dev(c, h, data: bytes, name: str, device="motorola edge 60 pro", rel="DCIM/Camera/"):
+    return c.post("/api/upload", content=data, headers={**h, "X-File-Hash": hashlib.sha256(data).hexdigest(),
+                                                         "X-File-Name": name, "X-Device": device, "X-Rel-Path": rel})
+
+
+def test_phone_backup_goes_where_synology_photos_puts_it(settings, db, chie):
+    """Synology Photos already backs this phone up into MobileBackup/<device>/<Y>/<M>/: follow it."""
+    u, h, c = chie
+    dev = Path(u.personal_root) / "MobileBackup" / "motorola edge 60 pro"
+    for i, d in enumerate(["2026:10:03 10:00:00", "2026:11:05 10:00:00", "2026:11:06 10:00:00"]):
+        y, m = d[:4], str(int(d[5:7]))
+        _put_dated(dev / y / m / f"IMG_{i}.jpg", 100 + i, d)
+    import subprocess
+    new = Path(settings.root) / "x.jpg"
+    _put_dated(new, 555, "2026:11:20 09:00:00")
+    _up_dev(c, h, new.read_bytes(), "PXL_20261120.jpg")
+    assert process_incoming(db, settings, apply=True).new == 1
+    assert (dev / "2026" / "11" / "PXL_20261120.jpg").exists()
+    assert not (Path(u.personal_root) / "PhotoHub").exists()
+
+
+def test_both_backups_running_converge_to_one_copy(settings, db, chie):
+    """PhotoHub placed a photo first; later Synology Photos' backup adds the same photo under
+    another name. The nightly scan keeps Synology's file and moves PhotoHub's copy to trash."""
+    from photohub.scanner import scan
+    from photohub.users import scan_roots
+    u, h, c = chie
+    img = make_image(77)
+    _up_dev(c, h, img, "PXL_77.jpg")
+    process_incoming(db, settings, apply=True)
+    ours = [p for p in Path(u.personal_root).rglob("*.jpg")]
+    assert len(ours) == 1
+    theirs = ours[0].with_name("PXL_77(1).jpg")
+    theirs.write_bytes(img)
+    rep = scan(db, settings, scan_roots(db, settings), apply=True)
+    assert len(rep.resolved) == 1 and rep.duplicates == []
+    left = [p for p in Path(u.personal_root).rglob("*.jpg")]
+    assert left == [theirs]
+    assert list((settings.trash).rglob("PXL_77.jpg"))  # moved, not deleted
+    with db.session() as s:
+        m = s.execute(select(Media)).scalar_one()
+        assert m.nas_path == str(theirs) and not m.placed

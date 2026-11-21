@@ -177,7 +177,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     f.write(chunk)
             from .incoming import UploadRejected, store_upload
             try:
-                return store_upload(db, settings, user, Path(tmp), fh, name)
+                return store_upload(db, settings, user, Path(tmp), fh, name,
+                                    unquote(request.headers.get("x-device", "")), unquote(request.headers.get("x-rel-path", "")))
             except UploadRejected as e:
                 raise HTTPException(400, str(e))
         finally:

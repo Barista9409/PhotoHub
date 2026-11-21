@@ -30,13 +30,15 @@ class ScanReport:
     skipped_unchanged: int = 0
     new: int = 0
     duplicates: list[tuple[str, str]] = field(default_factory=list)  # (dup path, kept path)
+    resolved: list[tuple[str, str]] = field(default_factory=list)    # (PhotoHub copy trashed, kept)
     errors: list[str] = field(default_factory=list)
     missing: int = 0
 
     def summary(self) -> str:
         mode = "DRY-RUN" if self.dry_run else "APPLIED"
         return (f"[{mode}] scanned={self.scanned} unchanged={self.skipped_unchanged} new={self.new} "
-                f"duplicates={len(self.duplicates)} missing={self.missing} errors={len(self.errors)}")
+                f"duplicates={len(self.duplicates)} resolved={len(self.resolved)} missing={self.missing} "
+                f"errors={len(self.errors)}")
 
 
 def walk(root: Path):  # noqa: ANN201
@@ -67,6 +69,8 @@ def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
         def flush_batch() -> None:
             cands = analyse(pending, settings)
             for c in cands:
+                if not c.path.exists():
+                    continue  # moved away earlier in this batch (e.g. PhotoHub's own duplicate)
                 owner = owner_of.get(c.path)
                 rep.scanned += 1
                 key = str(c.path)
@@ -86,9 +90,17 @@ def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
                     rep.new += 1
                     result = "new"
                 elif m.nas_path != key and Path(m.nas_path).exists():
-                    rep.duplicates.append((key, m.nas_path))
                     changed = merge_into(s, m, c)
                     changed |= grant_access(s, m, owner)  # they hold a copy, so they may see it
+                    if m.placed and owner == m.owner_id:
+                        # The same photo now exists where someone else (e.g. Synology Photos' backup)
+                        # put it: keep theirs, move PhotoHub's own copy to trash (never deleted).
+                        rep.resolved.append((m.nas_path, key))
+                        if apply:
+                            _trash_own_copy(s, settings, m, Path(key))
+                        changed = True
+                    else:
+                        rep.duplicates.append((key, m.nas_path))
                     if changed:
                         touch_media(s, m)
                     result = "duplicate"
@@ -150,6 +162,21 @@ def scan(db: Database, settings: Settings, roots: list, *, apply: bool,
     finally:
         s.close()
     return rep
+
+
+def _trash_own_copy(s, settings: Settings, m: Media, keep: Path) -> None:  # noqa: ANN001
+    from .db import log_event
+    from .fileops import move_verified, unique_in
+    from .xmp import sidecar_path as sc
+    src = Path(m.nas_path)
+    day = f"{utcnow():%Y-%m-%d}"
+    dst = unique_in(settings.trash / day / "duplicates", src.name)
+    move_verified(src, dst, m.file_hash)
+    if sc(src).exists():
+        move_verified(sc(src), dst.with_name(dst.name + ".xmp"))
+    m.nas_path, m.placed = str(keep), False
+    set_location(s, m.id, "nas", "present", source_ref=str(keep))
+    log_event(s, "info", "trash_move", f"duplicate of {keep}: PhotoHub's copy {src} -> {dst}")
 
 
 def _restore_from_xmp(s, m: Media, path: Path) -> None:  # noqa: ANN001

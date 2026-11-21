@@ -175,6 +175,9 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
         else:
             main_files.append(p)
 
+    if apply:
+        from .prescan import refresh_index
+        refresh_index(db, settings, user)
     cands = analyse(main_files, settings)
     for c in cands:
         c.albums = set(albums.get(c.path.relative_to(out).as_posix(), set()))

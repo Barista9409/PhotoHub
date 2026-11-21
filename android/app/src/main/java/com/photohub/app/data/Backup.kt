@@ -234,10 +234,17 @@ class BackupEngine(private val app: PhotoHubApp) {
             Result(toNas, toDrive, removed, "バックアップ完了")
         }
 
+    private fun deviceName(): String =
+        android.provider.Settings.Global.getString(app.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
+            ?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL
+
     private fun uploadToNas(m: LocalMedia): Boolean {
         val base = kotlinx.coroutines.runBlocking { app.net.baseUrl() } ?: return false
         val req = Request.Builder().url("$base/api/upload")
             .header("X-File-Hash", m.fileHash!!).header("X-File-Name", URLEncoder.encode(m.name, "UTF-8"))
+            // the NAS puts it in Synology Photos' own backup folder for this phone, same layout
+            .header("X-Device", URLEncoder.encode(deviceName(), "UTF-8"))
+            .header("X-Rel-Path", URLEncoder.encode(m.relPath ?: "", "UTF-8"))
             .post(streamBody(app, Uri.parse(m.uri), m.mime ?: "application/octet-stream", m.size)).build()
         return try {
             app.net.client(app.token).newBuilder().readTimeout(10, TimeUnit.MINUTES).writeTimeout(10, TimeUnit.MINUTES)

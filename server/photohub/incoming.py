@@ -55,7 +55,8 @@ class UploadRejected(ValueError):
     pass
 
 
-def store_upload(db: Database, settings: Settings, user: User, src: Path, file_hash: str, name: str) -> dict:
+def store_upload(db: Database, settings: Settings, user: User, src: Path, file_hash: str, name: str,
+                 device: str | None = None, rel_path: str | None = None) -> dict:
     """Keep a received file (already written to `src`) if its hash matches; queue it."""
     file_hash = file_hash.lower()
     if file_sha256(src) != file_hash:
@@ -78,7 +79,8 @@ def store_upload(db: Database, settings: Settings, user: User, src: Path, file_h
         os.replace(src, dest)
     with db.session() as s:
         s.add(Upload(user_id=user.id, source="phone", file_hash=file_hash, path=str(dest),
-                     size=dest.stat().st_size, mtime=dest.stat().st_mtime, name=Path(name).name[:255]))
+                     size=dest.stat().st_size, mtime=dest.stat().st_mtime, name=Path(name).name[:255],
+                     device=(device or "")[:128] or None, rel_path=(rel_path or "")[:500] or None))
     return {"status": "stored"}
 
 
@@ -155,11 +157,8 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
         if apply:
             # Photos Synology Photos (or anything else) already put in the person's space must be
             # known before deciding what is new, or the same photo would be stored twice.
-            # Incremental: unchanged files are skipped via scan_state.
-            from .scanner import scan
-            roots = [(Path(user.personal_root), user.id)] if user.personal_root and Path(user.personal_root).exists() else []
-            roots.append((settings.library, None))
-            scan(db, settings, roots, apply=True)
+            from .prescan import refresh_index
+            refresh_index(db, settings, user)
         cands = {c.path: c for c in analyse([Path(u.path) for u in pending], settings)}
         s = db.new_session()
         try:
@@ -167,6 +166,7 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
             s.add(job)
             s.flush()
             root, owner = takeout_destination(settings, user)
+            layouts: dict = {}
             for up in pending:
                 up = s.get(Upload, up.id)
                 c = cands[Path(up.path)]
@@ -183,11 +183,24 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
                     rep.duplicate += 1
                 else:
                     when = file_mtime_utc(c.path)
-                    dest_dir = library_dir(root, c.meta.taken_at, c.meta.tz_offset, when)
-                    plan = plan_destination(dest_dir, up.name or c.path.name, c.file_hash)
+                    from . import mobile_backup as mb
+                    dev = mb.device_dir(user, up.device) if up.source == "phone" else None
+                    if dev is not None:
+                        # same folder and layout as Synology Photos' own backup of this phone
+                        if dev not in layouts:
+                            layouts[dev] = mb.infer_layout(dev, mb.samples_for(dev, settings))
+                        target = mb.target_path(dev, layouts[dev], up.name or c.path.name,
+                                                mb.local_time(c.meta.taken_at, c.meta.tz_offset, when), up.rel_path)
+                        plan = plan_destination(target.parent, target.name, c.file_hash)
+                        own = user.id
+                    else:
+                        dest_dir = library_dir(root, c.meta.taken_at, c.meta.tz_offset, when)
+                        plan = plan_destination(dest_dir, up.name or c.path.name, c.file_hash)
+                        own = owner
                     if apply and not plan.already_present:
                         copy_verified(c.path, plan.path, c.file_hash)
-                    m = new_media(c, plan.path, when, owner)
+                    m = new_media(c, plan.path, when, own)
+                    m.placed = not plan.already_present
                     s.add(m)
                     s.flush()
                     touch_media(s, m)

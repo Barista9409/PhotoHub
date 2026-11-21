@@ -131,7 +131,7 @@ fun SettingsScreen(onLoggedOut: () -> Unit, onMigration: () -> Unit) {
         // ---- backup ----------------------------------------------------------------------
         SectionTitle("バックアップ")
         Group {
-            SwitchRow(Icons.Default.Dns, "NASへ送る", "撮った写真を自宅のNASへ。外出先ではTailscale経由",
+            SwitchRow(Icons.Default.Dns, "NASへ送る", "Synology Photosのバックアップと同じフォルダへ。両方オンでも重複しません",
                 cur.backupNas) { save(cur.copy(backupNas = it), it) }
             GroupDivider()
             SwitchRow(Icons.Default.Cloud, "Googleドライブにも置く",
@@ -173,7 +173,7 @@ fun SettingsScreen(onLoggedOut: () -> Unit, onMigration: () -> Unit) {
         }
 
         // ---- where photos go -------------------------------------------------------------------
-        SectionTitle("写真の置き場所")
+        SectionTitle("Googleから移した写真の置き場所")
         Group { PlaceSetting() }
 
         // ---- Google Photos migration ---------------------------------------------------------
@@ -260,13 +260,13 @@ private fun PlaceSetting() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.Icon(if (current == "shared") Icons.Default.FamilyRestroom else Icons.Default.Lock, null)
             Spacer(Modifier.size(12.dp))
-            Text("スマホやGoogleフォトから取り込んだ写真を、NASのどこに置くか", style = MaterialTheme.typography.bodyMedium)
+            Text("GoogleフォトやGoogleドライブから取り込んだ写真を、NASのどこに置くか", style = MaterialTheme.typography.bodyMedium)
         }
         if (current == null) Text("NASにつながると選べます", style = MaterialTheme.typography.bodySmall)
         else Segmented(listOf("personal" to "自分だけ", "shared" to "家族で共有"), current!!, { key ->
             scope.launch { try { app.net.api()!!.setMySettings(MySettings(key)); current = key } catch (_: Exception) {} }
         })
-        Text("変更は次に取り込む写真から。取り込み済みの写真はそのままです。", style = MaterialTheme.typography.bodySmall,
+        Text("スマホから直接送った写真は、Synology Photosのバックアップと同じ場所（自分の個人スペース）に入ります。変更は次に取り込む写真から。", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

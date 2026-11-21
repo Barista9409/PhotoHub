@@ -100,6 +100,9 @@ class Media(Base):
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / trashed
     owner_id: Mapped[int | None] = mapped_column(Integer, index=True)  # NULL = shared space
+    # True = PhotoHub wrote this file (Takeout / phone upload). If the same photo later turns up
+    # elsewhere (e.g. Synology Photos' own backup), PhotoHub's copy is the one moved to trash.
+    placed: Mapped[bool] = mapped_column(Boolean, default=False)
     rev: Mapped[int] = mapped_column(Integer, index=True, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -223,6 +226,8 @@ class Upload(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     media_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     held: Mapped[bool] = mapped_column(Boolean, default=False)  # dry-run: waiting for apply
+    device: Mapped[str | None] = mapped_column(String(128))     # phone name (Synology's backup folder)
+    rel_path: Mapped[str | None] = mapped_column(Text)          # folder on the phone, e.g. DCIM/Camera/
 
 
 class ScanState(Base):

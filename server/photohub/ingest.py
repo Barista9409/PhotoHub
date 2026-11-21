@@ -228,6 +228,7 @@ def ingest_takeout_candidate(s: Session, settings: Settings, job: ImportJob, c: 
     if apply and not plan.already_present:
         copy_verified(c.path, plan.path, c.file_hash)
     m = new_media(c, plan.path, fallback, owner)
+    m.placed = True
     s.add(m)
     s.flush()
     touch_media(s, m)
