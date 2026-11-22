@@ -36,7 +36,11 @@ data class RemoteMedia(
     val description: String?,
     val rev: Long,
     val space: String = "mine",   // mine / shared (family) / granted
+    val folder: String = "",      // folder inside its space, e.g. "2024年 沖縄旅行"
 )
+
+/** A photo's folder in the family's shared space (for browsing 共有 by folder). */
+data class FolderOf(val hash: String, val folder: String, val takenAt: Long)
 
 @Entity(tableName = "album")
 data class AlbumRow(@PrimaryKey val id: Long, val name: String, val origin: String, val shared: Boolean = false)
@@ -102,7 +106,7 @@ data class DriveFile(
     val mime: String?,
 )
 
-private const val TIMELINE_SELECT = """
+private const val REMOTE_PART = """
     SELECT r.hash AS itemKey, r.hash AS hash,
            (SELECT l.uri FROM local_media l WHERE l.fileHash = r.fileHash LIMIT 1) AS localUri,
            r.kind AS kind, r.takenAt AS takenAt, r.tz AS tz, r.name AS name,
@@ -113,6 +117,9 @@ private const val TIMELINE_SELECT = """
            r.lat AS lat, r.lon AS lon, r.bytes AS bytes, r.w AS w, r.h AS h, r.duration AS duration, r.mime AS mime,
            (SELECT d.driveId FROM drive_file d WHERE d.fileHash = r.fileHash) AS driveId
     FROM remote_media r
+"""
+
+private const val TIMELINE_SELECT = REMOTE_PART + """
     UNION ALL
     SELECT 'local:' || l.mediaStoreId AS itemKey, NULL AS hash, l.uri AS localUri, l.kind AS kind,
            l.takenAt AS takenAt, NULL AS tz, l.name AS name,
@@ -152,8 +159,12 @@ interface MediaDao {
     @Query("SELECT itemKey, hash, localUri, lat, lon, takenAt FROM ($TIMELINE_SELECT) WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY takenAt DESC")
     fun geo(): Flow<List<GeoPoint>>
 
-    @Query("SELECT * FROM ($TIMELINE_SELECT) WHERE hash IN (SELECT hash FROM remote_media WHERE space = 'shared') ORDER BY takenAt DESC")
+    /** Only the shared space: straight from remote_media (no union over the whole library). */
+    @Query("$REMOTE_PART WHERE r.space = 'shared' ORDER BY r.takenAt DESC")
     fun sharedSpace(): Flow<List<TimelineItem>>
+
+    @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space = 'shared'")
+    fun sharedFolders(): Flow<List<FolderOf>>
 
     @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(am.hash) AS count, a.shared AS shared,
               (SELECT am2.hash FROM album_media am2 JOIN remote_media r ON r.hash = am2.hash
@@ -322,14 +333,14 @@ interface MediaDao {
 }
 
 @Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
-    version = 6, exportSchema = true)
+    version = 7, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 
     companion object {
         fun build(ctx: Context): AppDb =
             Room.databaseBuilder(ctx, AppDb::class.java, "photohub.db")
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6)   // keep the phone's checked photos (hashing takes a while)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)   // keep the phone's checked photos (hashing takes a while)
                 .fallbackToDestructiveMigration(true).build()
 
         /** Photos and albums now say whether they are in the family's shared space: fetch them again
@@ -345,6 +356,17 @@ abstract class AppDb : RoomDatabase() {
                 db.execSQL("DELETE FROM album_media")
             }
         }
+        /** Photos now carry their folder: fetch the Synology list again (same way as 5 -> 6). */
+        private val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS remote_media")
+                db.execSQL(REMOTE_SQL_7)
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_remote_media_takenAt ON remote_media (takenAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_remote_media_fileHash ON remote_media (fileHash)")
+                db.execSQL("DELETE FROM album_media")
+            }
+        }
+        private const val REMOTE_SQL_7 = "CREATE TABLE IF NOT EXISTS `remote_media` (`hash` TEXT NOT NULL, `fileHash` TEXT NOT NULL, `kind` TEXT NOT NULL, `mime` TEXT, `takenAt` INTEGER NOT NULL, `tz` INTEGER, `lat` REAL, `lon` REAL, `w` INTEGER, `h` INTEGER, `duration` REAL, `bytes` INTEGER NOT NULL, `name` TEXT NOT NULL, `stores` TEXT NOT NULL, `pair` TEXT, `description` TEXT, `rev` INTEGER NOT NULL, `space` TEXT NOT NULL, `folder` TEXT NOT NULL, PRIMARY KEY(`hash`))"
         private const val REMOTE_SQL = "CREATE TABLE IF NOT EXISTS `remote_media` (`hash` TEXT NOT NULL, `fileHash` TEXT NOT NULL, `kind` TEXT NOT NULL, `mime` TEXT, `takenAt` INTEGER NOT NULL, `tz` INTEGER, `lat` REAL, `lon` REAL, `w` INTEGER, `h` INTEGER, `duration` REAL, `bytes` INTEGER NOT NULL, `name` TEXT NOT NULL, `stores` TEXT NOT NULL, `pair` TEXT, `description` TEXT, `rev` INTEGER NOT NULL, `space` TEXT NOT NULL, PRIMARY KEY(`hash`))"
         private const val ALBUM_SQL = "CREATE TABLE IF NOT EXISTS `album` (`id` INTEGER NOT NULL, `name` TEXT NOT NULL, `origin` TEXT NOT NULL, `shared` INTEGER NOT NULL, PRIMARY KEY(`id`))"
 

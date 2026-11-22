@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit
 class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.Factory {
     lateinit var prefs: Prefs
     lateinit var db: AppDb
+    lateinit var lists: com.photohub.app.data.Lists
     lateinit var net: Net
     lateinit var files: MediaFiles
     lateinit var indexer: LocalIndexer
@@ -49,6 +50,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         super.onCreate()
         prefs = Prefs(this)
         db = AppDb.build(this)
+        lists = com.photohub.app.data.Lists(db, scope)
         net = Net(this, prefs)
         files = MediaFiles(this)
         indexer = LocalIndexer(this, db.media())

@@ -237,6 +237,7 @@ def test_synology_photos_space_is_indexed_in_check_mode(settings, db, chie):
     assert (d / "PXL_2 copy.jpg").exists()  # nothing moved
     r = c.get("/api/sync", headers=h).json()
     assert len(r["items"]) == 2
+    assert {i["folder"] for i in r["items"]} == {"MobileBackup/edge 60 pro/DCIM/Camera"}
 
 
 def test_takeout_in_google_drive_is_picked_up_from_cloud_sync(settings, db):

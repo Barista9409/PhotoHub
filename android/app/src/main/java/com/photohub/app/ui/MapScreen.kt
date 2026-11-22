@@ -57,7 +57,8 @@ import kotlin.math.sqrt
 fun MapScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
-    val timeline by app.db.media().timeline().collectAsState(initial = emptyList())
+    val loaded by app.lists.timeline.collectAsState()
+    val timeline = loaded ?: emptyList()
     val base by UiState.base.collectAsState()
     val located = remember(timeline) { timeline.filter { it.lat != null && it.lon != null && !(it.lat == 0.0 && it.lon == 0.0) } }
     val overlay = remember { PhotoMapOverlay(app) }
@@ -83,7 +84,10 @@ fun MapScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
     DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause() } }
     Box(Modifier.fillMaxSize()) {
         AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
-        if (located.isEmpty()) {
+        if (loaded == null) {
+            Text("読み込み中…", modifier = Modifier.align(Alignment.Center)
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(16.dp))
+        } else if (located.isEmpty()) {
             Text("位置情報のある写真がまだありません。\nスマホの写真は、同期の「スマホの写真を確認中」が終わると表示されます。",
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.align(Alignment.Center)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp)).padding(16.dp))

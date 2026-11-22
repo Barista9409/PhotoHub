@@ -433,12 +433,25 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             return [{"at": e.at.isoformat(), "level": e.level, "kind": e.kind, "message": e.message} for e in rows]
 
     # ---- F7 delta sync ---------------------------------------------------
+    def _folder_of(m: Media, owners: dict) -> str:
+        """The photo's folder inside its space (shared: the photo folder; personal: that person's
+        Photos folder), e.g. "2024年 沖縄旅行" - for browsing by folder in the app."""
+        root = settings.library if m.owner_id is None else owners.get(m.owner_id)
+        if not root:
+            return ""
+        try:
+            rel = Path(m.nas_path).parent.relative_to(root).as_posix()
+        except ValueError:
+            return ""
+        return "" if rel == "." else rel
+
     @app.get("/api/sync")
     def sync(cursor: int = 0, limit: int = 2000, user: User = Depends(auth)) -> dict:
         limit = max(1, min(limit, 5000))
         vis = visible_clause(user)
         with db.session() as s:
             rows = list(s.execute(select(Media).where(Media.rev > cursor, vis).order_by(Media.rev).limit(limit)).scalars())
+            owners = {u.id: u.personal_root for u in s.execute(select(User)).scalars() if u.personal_root}
             my_albums = set(s.execute(select(Album.id).where(album_visible(user))).scalars())
             ids = [m.id for m in rows]
             stores: dict[int, list[str]] = {}
@@ -458,7 +471,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "hash": m.content_hash, "file_hash": m.file_hash, "kind": m.kind, "mime": m.mime,
                 "taken_at": _ms(m.taken_at), "tz": m.tz_offset, "lat": m.lat, "lon": m.lon,
                 "w": m.width, "h": m.height, "duration": m.duration, "bytes": m.bytes,
-                "name": Path(m.nas_path).name, "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
+                "name": Path(m.nas_path).name, "folder": _folder_of(m, owners),
+                "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
                 "deleted": m.status != "active", "rev": m.rev, "pair": m.pair_key, "desc": m.description,
                 "space": "shared" if m.owner_id is None else ("mine" if m.owner_id == user.id else "granted"),
             } for m in rows]

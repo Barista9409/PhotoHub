@@ -34,6 +34,7 @@ data class SyncItem(
     val pair: String? = null,
     val desc: String? = null,
     val space: String = "mine",
+    val folder: String = "",
 )
 
 @Serializable

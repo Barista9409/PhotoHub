@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChip
@@ -53,8 +54,9 @@ import java.time.ZoneId
 @Composable
 fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {}) {
     val app = LocalContext.current.applicationContext as PhotoHubApp
-    val albums by app.db.media().albums().collectAsState(initial = emptyList())
+    val loadedAlbums by app.lists.albums.collectAsState()
     val folders by app.db.media().folders().collectAsState(initial = emptyList())
+    val albums = loadedAlbums ?: run { Loading(); return }
     if (albums.isEmpty() && folders.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("アルバムはまだありません") }
         return
@@ -114,30 +116,98 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
     }
 }
 
-/** 共有: what the family shares - shared albums on top, then every photo in the shared space. */
+/**
+ * 共有: what the family shares, three ways - by folder (as on the Synology), by album, or all photos.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, Int) -> Unit) {
     val app = LocalContext.current.applicationContext as PhotoHubApp
-    val albums by app.db.media().albums().collectAsState(initial = emptyList())
-    val family = albums.filter { it.shared }
-    val items by app.db.media().sharedSpace().collectAsState(initial = emptyList())
-    if (family.isEmpty() && items.isEmpty()) {
+    val albums by app.lists.albums.collectAsState()
+    val items by app.lists.shared.collectAsState()
+    val folderOf by app.lists.sharedFolders.collectAsState()
+    var mode by rememberSaveable { mutableStateOf("folder") }
+    var path by rememberSaveable { mutableStateOf("") }
+    val all = items
+    val fo = folderOf
+    if (all == null || fo == null || albums == null) { Loading(); return }
+    val family = albums!!.filter { it.shared }
+    if (family.isEmpty() && all.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            Text("家族の共有スペースに写真はまだありません。\nSynology Photosの「共有スペース」に入れた写真と、家族で共有したアルバムがここに出ます。")
+            Text("家族の共有スペースに写真はまだありません。\nSynology Photosの「共有スペース」（共有フォルダ photo）に入れた写真と、家族で共有したアルバムがここに出ます。")
         }
         return
     }
-    MediaGrid(items, onOpen, zoomBar = true, header = {
-        Column {
-            if (family.isNotEmpty()) {
-                SectionHead("家族の共有アルバム", "${family.size} 件")
-                androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
-                    items(family, key = { it.id }) { a -> AlbumCard(a, Modifier.width(140.dp)) { onAlbum(a.id, a.name) } }
-                }
-            }
-            SectionHead("共有スペースのすべての写真", "${items.size} 件")
+    val switcher: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().padding(12.dp, 8.dp), horizontalArrangement = Arrangement.Center) {
+            Segmented(listOf("folder" to "フォルダ", "album" to "アルバム", "all" to "すべての写真"), mode, { mode = it; path = "" })
         }
-    })
+    }
+    when (mode) {
+        "album" -> Column(Modifier.fillMaxSize()) {
+            switcher()
+            if (family.isEmpty()) Text("家族の共有アルバムはまだありません", modifier = Modifier.padding(24.dp))
+            LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                items(family, key = { it.id }) { a -> AlbumCard(a) { onAlbum(a.id, a.name) } }
+            }
+        }
+        "all" -> MediaGrid(all, onOpen, zoomBar = true, header = switcher)
+        else -> {
+            // folders one level below `path`, each with its photo count (including subfolders) and newest photo
+            val byHash = remember(all) { all.associateBy { it.hash } }
+            val prefix = if (path.isEmpty()) "" else "$path/"
+            val children = remember(fo, path) {
+                fo.filter { it.folder.startsWith(prefix) && it.folder.length > prefix.length }
+                    .groupBy { it.folder.removePrefix(prefix).substringBefore('/') }
+                    .map { (name, list) -> Triple(name, list.size, list.maxByOrNull { it.takenAt }?.hash) }
+                    .sortedBy { it.first.lowercase() }
+            }
+            val here = remember(fo, all, path) {
+                val hs = fo.filter { it.folder == path }.map { it.hash }.toSet()
+                all.filter { it.hash in hs }
+            }
+            MediaGrid(here, onOpen, header = {
+                Column {
+                    switcher()
+                    // where we are: 共有スペース > 2024 > 沖縄
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val parts = if (path.isEmpty()) emptyList() else path.split('/')
+                        Text("共有スペース", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { path = "" })
+                        parts.forEachIndexed { i, p ->
+                            Text("  ›  ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(p, color = if (i == parts.lastIndex) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                                maxLines = 1, modifier = Modifier.clickable { path = parts.take(i + 1).joinToString("/") })
+                        }
+                    }
+                    androidx.compose.foundation.layout.FlowRow(Modifier.padding(4.dp)) {
+                        children.forEach { (name, n, cover) ->
+                            FolderCard(name, n, cover?.let { byHash[it] }, Modifier.width(120.dp)) {
+                                path = if (path.isEmpty()) name else "$path/$name"
+                            }
+                        }
+                    }
+                    if (here.isNotEmpty()) SectionHead("このフォルダの写真", "${here.size} 件")
+                    else if (children.isEmpty()) Text("このフォルダに写真はありません", modifier = Modifier.padding(16.dp))
+                }
+            })
+        }
+    }
+}
+
+@Composable
+private fun FolderCard(name: String, count: Int, cover: TimelineItem?, modifier: Modifier, onClick: () -> Unit) {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    val base by UiState.base.collectAsState()
+    Column(modifier.padding(4.dp).clickable(onClick = onClick)) {
+        Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x22888888))) {
+            if (cover != null) AsyncImage(model = thumbModel(app, cover, base), contentDescription = name,
+                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Icon(Icons.Default.Folder, null, tint = Color.White, modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
+                .background(Color(0x66000000), RoundedCornerShape(6.dp)).padding(2.dp))
+        }
+        Text(name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        Text("${count} 件", style = MaterialTheme.typography.bodySmall)
+    }
 }
 
 @Composable
@@ -193,11 +263,11 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
     val results = remember(raw, favOnly, shots, favs) {
         raw.filter { (!favOnly || (it.hash != null && it.hash in favs)) && (!shots || it.name.contains("screenshot", ignoreCase = true)) }
     }
-    val all by app.db.media().timeline().collectAsState(initial = emptyList())
+    val all = app.lists.timeline.collectAsState().value ?: emptyList()
     val years = remember(all) {
         all.groupBy { java.time.Instant.ofEpochMilli(it.takenAt).atZone(zoneFor(it.tz)).year }.toSortedMap(compareByDescending { it })
     }
-    val albums by app.db.media().albums().collectAsState(initial = emptyList())
+    val albums = app.lists.albums.collectAsState().value ?: emptyList()
 
     val box: @Composable () -> Unit = {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

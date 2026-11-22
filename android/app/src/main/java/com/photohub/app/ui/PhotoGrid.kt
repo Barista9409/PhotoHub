@@ -382,7 +382,8 @@ private fun FastScroller(grid: androidx.compose.foundation.lazy.grid.LazyGridSta
 fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
-    val items by app.db.media().timeline().collectAsState(initial = emptyList())
+    val loaded by app.lists.timeline.collectAsState()
+    val items = loaded ?: run { Loading(); return }
     val today = LocalDate.now()
     val memories = remember(items) {
         items.filter { val d = localDate(it); d.monthValue == today.monthValue && d.dayOfMonth == today.dayOfMonth && d.year < today.year }
