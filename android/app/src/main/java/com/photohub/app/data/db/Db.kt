@@ -166,6 +166,9 @@ interface MediaDao {
     @Query("SELECT * FROM ($TIMELINE_SELECT) WHERE (name LIKE '%' || :q || '%' OR place LIKE '%' || :q || '%' OR hash IN (SELECT am.hash FROM album_media am JOIN album a ON a.id = am.albumId WHERE a.name LIKE '%' || :q || '%') OR hash IN (SELECT hash FROM remote_media WHERE description LIKE '%' || :q || '%')) AND takenAt BETWEEN :from AND :to AND (:kind = '' OR kind = :kind) AND (:withPlace = 0 OR lat IS NOT NULL) ORDER BY takenAt DESC LIMIT 5000")
     fun search(q: String, from: Long, to: Long, kind: String, withPlace: Int): Flow<List<TimelineItem>>
 
+    @Query("SELECT DISTINCT hash FROM album_media WHERE albumId IN (:albumIds)")
+    suspend fun albumHashes(albumIds: List<Long>): List<String>
+
     @Query("SELECT * FROM ($TIMELINE_SELECT) WHERE hash IN (SELECT hash FROM album_media WHERE albumId = :albumId) ORDER BY takenAt DESC")
     fun album(albumId: Long): Flow<List<TimelineItem>>
 

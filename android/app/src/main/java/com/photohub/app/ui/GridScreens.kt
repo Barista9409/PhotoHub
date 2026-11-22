@@ -2,6 +2,8 @@ package com.photohub.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,12 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Close
@@ -67,6 +75,27 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     var pullMsg by remember { mutableStateOf<String?>(null) }
     val mine = albums.filter { !it.shared }
     val family = albums.filter { it.shared }
+    var picked by remember { mutableStateOf(emptySet<Long>()) }
+    var askDelete by remember { mutableStateOf(false) }
+    val picking = picked.isNotEmpty()
+    fun card(a: com.photohub.app.data.db.AlbumWithCount): @Composable () -> Unit = {
+        AlbumCard(a, selected = if (picking) a.id in picked else null,
+            onLongClick = { picked = picked + a.id }) {
+            if (picking) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+    if (picking) androidx.compose.material3.Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.IconButton({ picked = emptySet() }) { androidx.compose.material3.Icon(Icons.Default.Close, "選択をやめる") }
+            Text("${picked.size} 件のアルバムを選択", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            val all = picked.size == albums.size
+            androidx.compose.material3.IconButton({ picked = if (all) emptySet() else albums.map { it.id }.toSet() }) {
+                androidx.compose.material3.Icon(if (all) Icons.Default.Deselect else Icons.Default.SelectAll, if (all) "すべて解除" else "すべて選択")
+            }
+            androidx.compose.material3.IconButton({ askDelete = true }) { androidx.compose.material3.Icon(Icons.Default.Delete, "アルバムを削除") }
+        }
+    }
     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(Modifier.padding(8.dp)) {
@@ -81,17 +110,17 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     }
                 }) { Text("Synology Photosのアルバムを読み込む") }
                 pullMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。", style = MaterialTheme.typography.bodySmall,
+                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムを長押しすると、選んで削除できます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (mine.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("自分のアルバム", "Synologyにある、自分だけのアルバム") }
-            items(mine, key = { "a${it.id}" }) { a -> AlbumCard(a) { onAlbum(a.id, a.name) } }
+            items(mine, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (family.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("家族の共有アルバム", "家族みんなが見られるアルバム（「共有」タブにもあります）") }
-            items(family, key = { "a${it.id}" }) { a -> AlbumCard(a) { onAlbum(a.id, a.name) } }
+            items(family, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (folders.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -109,6 +138,40 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             }
         }
     }
+    }
+    if (askDelete) {
+        val chosen = albums.filter { it.id in picked }
+        val photos = chosen.sumOf { it.count }
+        fun run(withPhotos: Boolean) {
+            askDelete = false
+            val ids = chosen.map { it.id }
+            picked = emptySet()
+            scope.launch {
+                val api = app.net.api()
+                pullMsg = if (api == null) "Synologyにつながりません" else try {
+                    var trashed = 0
+                    if (withPhotos) {
+                        val hs = app.db.media().albumHashes(ids)
+                        hs.chunked(500).forEach { trashed += api.deleteMedia(com.photohub.app.data.api.HashesBody(it))["trashed"] ?: 0 }
+                    }
+                    var gone = 0
+                    ids.forEach { id -> try { api.deleteAlbum(id); gone++ } catch (_: Exception) {} }
+                    "アルバム $gone 件を削除しました" + if (withPhotos) "（写真 $trashed 件をゴミ箱へ）" else ""
+                } catch (e: Exception) { "削除できませんでした（${e.message}）" }
+                com.photohub.app.data.SyncWorker.runNow(app)
+            }
+        }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { askDelete = false },
+            title = { Text(if (chosen.size == 1) "「${chosen[0].name}」を削除しますか？" else "アルバム ${chosen.size} 件を削除しますか？") },
+            text = { Text("「アルバムだけ」は入れ物だけを消し、写真は残ります。" +
+                "「写真も」は中の写真 $photos 件もSynologyのゴミ箱に移します（30日以内なら戻せます。ほかのアルバムに入っている写真も消えます）。" +
+                if (chosen.any { it.origin == "synology" }) "Synology Photosのアルバムも消えます。" else "") },
+            confirmButton = { Row {
+                androidx.compose.material3.TextButton({ run(true) }) { Text("写真も削除", color = MaterialTheme.colorScheme.error) }
+                androidx.compose.material3.TextButton({ run(false) }) { Text("アルバムだけ") }
+            } },
+            dismissButton = { androidx.compose.material3.TextButton({ askDelete = false }) { Text("やめる") } })
+    }
 }
 
 @Composable
@@ -120,16 +183,23 @@ private fun SectionHead(title: String, sub: String) {
 }
 
 @Composable
-fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = Modifier, onClick: () -> Unit) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = Modifier, selected: Boolean? = null,
+              onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
-    Column(modifier.padding(4.dp).clickable(onClick = onClick)) {
-        Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x22888888))) {
+    Column(modifier.padding(4.dp).combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
+        Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x22888888))
+            .then(if (selected == true) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier)) {
             val h = a.coverHash
             if (h != null) {
                 val model: Any? = if (app.files.hasThumb(h)) app.files.thumb(h) else base?.let { "$it/api/thumb/$h" }
                 AsyncImage(model = model, contentDescription = a.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
+            if (selected != null) androidx.compose.material3.Icon(
+                if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked, null,
+                tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
+                modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
         Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
         Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; else -> "" },

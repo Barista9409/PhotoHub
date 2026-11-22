@@ -41,6 +41,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -282,6 +284,10 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                 Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ selected = emptySet() }) { Icon(Icons.Default.Close, "選択をやめる") }
                     Text("${selected.size} 件を選択", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    val all = items.size == selected.size
+                    IconButton({ selected = if (all) emptySet() else items.map { it.itemKey }.toSet() }) {
+                        Icon(if (all) Icons.Default.Deselect else Icons.Default.SelectAll, if (all) "すべて解除" else "すべて選択")
+                    }
                     IconButton({
                         val chosen = items.filter { it.itemKey in selected }
                         scope.launch {
