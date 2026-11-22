@@ -171,32 +171,41 @@ data class GeoPoint(val itemKey: String, val hash: String?, val localUri: String
 
 @Dao
 interface MediaDao {
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM ($TIMELINE_SELECT) ORDER BY takenAt DESC")
     fun timeline(): Flow<List<TimelineItem>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM ($TIMELINE_SELECT) WHERE (name LIKE '%' || :q || '%' OR place LIKE '%' || :q || '%' OR hash IN (SELECT am.hash FROM album_media am JOIN album a ON a.id = am.albumId WHERE a.name LIKE '%' || :q || '%') OR hash IN (SELECT hash FROM remote_media WHERE description LIKE '%' || :q || '%')) AND takenAt BETWEEN :from AND :to AND (:kind = '' OR kind = :kind) AND (:withPlace = 0 OR lat IS NOT NULL) ORDER BY takenAt DESC LIMIT 5000")
     fun search(q: String, from: Long, to: Long, kind: String, withPlace: Int): Flow<List<TimelineItem>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT DISTINCT hash FROM album_media WHERE albumId IN (:albumIds)")
     suspend fun albumHashes(albumIds: List<Long>): List<String>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM ($TIMELINE_SELECT) WHERE hash IN (SELECT hash FROM album_media WHERE albumId = :albumId) ORDER BY takenAt DESC")
     fun album(albumId: Long): Flow<List<TimelineItem>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT itemKey, hash, localUri, lat, lon, takenAt FROM ($TIMELINE_SELECT) WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY takenAt DESC")
     fun geo(): Flow<List<GeoPoint>>
 
     /** Only the shared space: straight from remote_media (no union over the whole library). */
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("$REMOTE_PART WHERE r.space = 'shared' ORDER BY r.takenAt DESC")
     fun sharedSpace(): Flow<List<TimelineItem>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT place, COUNT(*) AS n, MAX(hash) AS hash FROM remote_media WHERE place IS NOT NULL AND place != ''
               GROUP BY place ORDER BY n DESC LIMIT 40""")
     fun places(): Flow<List<PlaceCount>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space = 'shared'")
     fun sharedFolders(): Flow<List<FolderOf>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(r.hash) AS count, a.shared AS shared,
               (SELECT am2.hash FROM album_media am2 JOIN remote_media r2 ON r2.hash = am2.hash
                WHERE am2.albumId = a.id ORDER BY r2.takenAt DESC LIMIT 1) AS coverHash
@@ -207,15 +216,19 @@ interface MediaDao {
     @Query("SELECT * FROM remote_media WHERE hash = :hash")
     suspend fun remote(hash: String): RemoteMedia?
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM remote_media WHERE takenAt >= :since ORDER BY takenAt DESC")
     suspend fun remoteSince(since: Long): List<RemoteMedia>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM remote_media WHERE hash IN (SELECT hash FROM album_media WHERE albumId IN (SELECT id FROM album WHERE name IN (:names)))")
     suspend fun remoteInAlbums(names: List<String>): List<RemoteMedia>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM remote_media WHERE hash IN (:hashes)")
     suspend fun remoteByHashes(hashes: List<String>): List<RemoteMedia>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT hash FROM remote_media ORDER BY takenAt DESC")  // newest first: what people look at
     suspend fun allRemoteHashes(): List<String>
 
@@ -228,6 +241,7 @@ interface MediaDao {
     @Upsert
     suspend fun upsertRemote(items: List<RemoteMedia>)
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT hash, rot FROM remote_media WHERE rot != 0")
     fun rotations(): Flow<List<HashRot>>
 
@@ -277,18 +291,22 @@ interface MediaDao {
     }
 
     // --- phone folders (shown as "このスマホのフォルダ" and sent to the NAS as albums) ---
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT bucket, COUNT(*) AS count, (SELECT l2.uri FROM local_media l2 WHERE l2.bucket = l.bucket
               ORDER BY l2.takenAt DESC LIMIT 1) AS coverUri FROM local_media l WHERE bucket IS NOT NULL
               GROUP BY bucket ORDER BY count DESC""")
     fun folders(): Flow<List<FolderCount>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT * FROM ($TIMELINE_SELECT) WHERE localUri IN (SELECT uri FROM local_media WHERE bucket = :bucket)
               ORDER BY takenAt DESC""")
     fun folder(bucket: String): Flow<List<TimelineItem>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT DISTINCT bucket FROM local_media WHERE bucket IS NOT NULL")
     suspend fun bucketNames(): List<String>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT fileHash FROM local_media WHERE bucket = :bucket AND fileHash IS NOT NULL")
     suspend fun hashesIn(bucket: String): List<String>
 
@@ -296,9 +314,11 @@ interface MediaDao {
     suspend fun pathOf(bucket: String): String?
 
     // --- local index ---
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM local_media")
     suspend fun allLocal(): List<LocalMedia>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM local_media WHERE fileHash IS NULL ORDER BY takenAt DESC LIMIT :limit")
     suspend fun localWithoutHash(limit: Int): List<LocalMedia>
 
@@ -318,6 +338,7 @@ interface MediaDao {
     suspend fun countUnhashed(): Int
 
     /** Synology copies dated later than the phone's own date by more than a day (see TIMELINE_SELECT). */
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT fileHash, MIN(takenAt) AS takenAt FROM (
                 SELECT r.fileHash AS fileHash, l.takenAt AS takenAt FROM remote_media r JOIN local_media l ON l.fileHash = r.fileHash
                 WHERE l.takenAt > 0 AND l.takenAt < r.takenAt - 86400000
@@ -332,24 +353,29 @@ interface MediaDao {
     suspend fun markOnNas(hashes: List<String>)
 
     // --- library breakdown ---
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT kind, COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM local_media GROUP BY kind")
     fun phoneCounts(): Flow<List<KindCount>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT kind, COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM (
                 SELECT fileHash, kind, bytes FROM remote_media
                 UNION SELECT fileHash, kind, size AS bytes FROM local_media
                       WHERE onNas AND fileHash NOT IN (SELECT fileHash FROM remote_media)) GROUP BY kind""")
     fun nasCounts(): Flow<List<KindCount>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT CASE WHEN mime LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind, COUNT(*) AS n,
               COALESCE(SUM(size), 0) AS bytes FROM drive_file GROUP BY 1""")
     fun driveCounts(): Flow<List<KindCount>>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT kind, COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM remote_media
               WHERE ',' || stores || ',' LIKE '%,google,%' GROUP BY kind""")
     fun googleCounts(): Flow<List<KindCount>>
 
     /** On the phone and nowhere else yet. */
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT kind, COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM local_media l
               WHERE NOT l.onNas AND (l.fileHash IS NULL OR (l.fileHash NOT IN (SELECT fileHash FROM remote_media)
                     AND l.fileHash NOT IN (SELECT fileHash FROM drive_file))) GROUP BY kind""")
@@ -362,12 +388,15 @@ interface MediaDao {
     suspend fun clearRemote()
 
     // --- backup ---
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM local_media WHERE fileHash IS NOT NULL ORDER BY takenAt DESC")
     suspend fun localHashed(): List<LocalMedia>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT fileHash FROM remote_media")
     suspend fun remoteFileHashes(): List<String>
 
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM drive_file")
     suspend fun driveFiles(): List<DriveFile>
 
@@ -384,6 +413,7 @@ interface MediaDao {
     suspend fun deleteDriveIds(ids: List<String>)
 
     /** Phone photos that are safely on the NAS (candidates for freeing up space). */
+    @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT l.* FROM local_media l WHERE (l.onNas OR l.fileHash IN (SELECT fileHash FROM remote_media))
               AND l.takenAt < :before ORDER BY l.takenAt""")
     suspend fun localOnNas(before: Long): List<LocalMedia>

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -39,7 +40,7 @@ class Lists(ctx: Context, db: AppDb, scope: CoroutineScope) {
             if (first) { first = false; AppLog.time("写真一覧（データベース・${it.size / 1000}千件台）", System.currentTimeMillis() - t0) }
             cache.write(it)
         })
-    }.distinctUntilChanged().flowOn(Dispatchers.IO).stateIn(scope, SharingStarted.Eagerly, null)
+    }.distinctUntilChanged().keepGoing().flowOn(Dispatchers.IO).stateIn(scope, SharingStarted.Eagerly, null)
     val shared: StateFlow<List<TimelineItem>?> = dao.sharedSpace().calm().stateIn(scope, SharingStarted.Eagerly, null)
     val sharedFolders: StateFlow<List<FolderOf>?> = dao.sharedFolders().calm().stateIn(scope, SharingStarted.Eagerly, null)
     val albums: StateFlow<List<AlbumWithCount>?> = dao.albums().calm().stateIn(scope, SharingStarted.Eagerly, null)
@@ -56,7 +57,15 @@ class Lists(ctx: Context, db: AppDb, scope: CoroutineScope) {
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 private fun <T> Flow<T>.calm(): Flow<T> {
     var first = true
-    return debounce { if (first) { first = false; 0L } else 800L }.distinctUntilChanged()
+    return debounce { if (first) { first = false; 0L } else 800L }.distinctUntilChanged().keepGoing()
+}
+
+/** A failed read (e.g. the phone busy writing) is written down and tried again a moment later,
+ *  instead of the list stopping for good. */
+private fun <T> Flow<T>.keepGoing(): Flow<T> = retryWhen { e, attempt ->
+    AppLog.error("一覧の読み込み", e)
+    kotlinx.coroutines.delay(minOf(30_000L, 1000L * (attempt + 1)))
+    true
 }
 
 /** The photo list in a small binary file (tens of thousands of rows read in a fraction of a second). */

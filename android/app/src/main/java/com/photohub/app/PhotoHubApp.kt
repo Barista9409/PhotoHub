@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.retryWhen
 import okhttp3.OkHttpClient
 import org.osmdroid.config.Configuration as OsmConfig
 import java.util.concurrent.TimeUnit
@@ -60,7 +61,11 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         net = Net(this, prefs)
         lists = com.photohub.app.data.Lists(this, db, scope)
         scope.launch(Dispatchers.IO) { files.loadIndex() }
-        scope.launch { db.media().rotations().collect { l -> com.photohub.app.ui.UiState.rots.value = l.associate { it.hash to it.rot } } }
+        scope.launch {
+            db.media().rotations()
+                .retryWhen { e, n -> com.photohub.app.data.AppLog.error("回転の読み込み", e); kotlinx.coroutines.delay(minOf(30_000L, 1000L * (n + 1))); true }
+                .collect { l -> com.photohub.app.ui.UiState.rots.value = l.associate { it.hash to it.rot } }
+        }
         indexer = LocalIndexer(this, db.media())
         updater = Updater(this)
         drive = com.photohub.app.data.DriveClient(this)

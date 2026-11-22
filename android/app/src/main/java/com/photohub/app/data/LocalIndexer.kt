@@ -1,5 +1,7 @@
 package com.photohub.app.data
 
+import kotlinx.coroutines.sync.withLock
+
 import android.content.ContentUris
 import android.content.Context
 import android.os.Build
@@ -15,10 +17,27 @@ import java.security.MessageDigest
  */
 class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
 
-    suspend fun scan(): Int {
+    /** One scan at a time (the camera trigger, the hourly run and the app can all ask at once). */
+    private val scanLock = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun scan(): Int = scanLock.withLock {
+        // Android's photo list can change while it is read (photos deleted elsewhere); a read that
+        // breaks half-way is read again from the start. A list that never reads whole changes nothing
+        // here (a half list would look like deleted photos).
         val found = mutableMapOf<Long, LocalMedia>()
-        query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "photo", found)
-        query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video", found)
+        var tries = 0
+        while (true) {
+            try {
+                found.clear()
+                query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "photo", found)
+                query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video", found)
+                break
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (++tries >= 3) { AppLog.error("スマホの写真の一覧", e); return@withLock 0 }
+                kotlinx.coroutines.delay(2000L * tries)
+            }
+        }
         val existing = dao.allLocal().associateBy { it.mediaStoreId }
         // new or modified files; their fileHash is reset to null so they get re-hashed
         val changed = found.values.filter { n ->
@@ -33,7 +52,7 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
         dao.upsertLocal(changed)
         val gone = existing.keys - found.keys
         if (gone.isNotEmpty()) gone.chunked(500).forEach { dao.deleteLocal(it) }
-        return changed.size
+        changed.size
     }
 
     private fun query(uri: android.net.Uri, kind: String, out: MutableMap<Long, LocalMedia>) {
