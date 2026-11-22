@@ -16,8 +16,8 @@ android {
         applicationId = "com.photohub.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 39
-        versionName = "0.28.1"
+        versionCode = 40
+        versionName = "0.28.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // GitHub repository whose latest Release the app updates itself from
         buildConfigField("String", "UPDATE_REPO", "\"Barista9409/PhotoHub\"")
@@ -97,6 +97,7 @@ dependencies {
 
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
+    implementation("androidx.documentfile:documentfile:1.1.0")
     // QR code reading for setup (Google code scanner: no camera permission needed)
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     // Google Drive backup (Authorization API, scope drive.file)

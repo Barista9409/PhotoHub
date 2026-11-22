@@ -136,6 +136,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     var confirmDelete by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var moveOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var albumOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
+    var downloadOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
 
@@ -299,12 +300,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                         scope.launch { items.filter { it.itemKey in selected && it.hash != null }.forEach { app.prefs.toggleFavorite(it.hash!!) } }
                         selected = emptySet()
                     }) { Icon(Icons.Default.Favorite, "お気に入り") }
-                    IconButton({
-                        val chosen = items.filter { it.itemKey in selected }
-                        selected = emptySet()
-                        val n = com.photohub.app.data.DownloadWorker.start(ctx, chosen, "保存した写真")
-                        toast = if (n == 0) "選んだ写真は、すべてこのスマホにあります" else "$n 件をこのスマホに保存しています（通知で進み具合が見られます）"
-                    }) { Icon(Icons.Default.Download, "このスマホに保存") }
+                    IconButton({ downloadOf = items.filter { it.itemKey in selected } }) { Icon(Icons.Default.Download, "このスマホに保存") }
                     IconButton({ albumOf = items.filter { it.itemKey in selected && it.hash != null } }) {
                         Icon(Icons.Default.PhotoAlbum, "アルバムに追加")
                     }
@@ -376,6 +372,9 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                     TextButton({ moveOf = null }) { Text("やめる") }
                 }
             })
+    }
+    downloadOf?.let { list ->
+        DownloadDialog(list, "保存した写真") { msg -> downloadOf = null; if (msg != null) { selected = emptySet(); toast = msg } }
     }
     albumOf?.let { list ->
         AddToAlbumDialog(list, onDone = { msg -> albumOf = null; selected = emptySet(); toast = msg })
