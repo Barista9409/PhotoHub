@@ -66,6 +66,11 @@ def rename(db: Database, settings: Settings, user: User, album_id: int, name: st
     _push(db, settings, user, album_id, rename=True)
 
 
+def device_gone_key(user_id: int, name: str) -> str:
+    import hashlib
+    return f"devicegone:{user_id}:{hashlib.sha1(name.encode()).hexdigest()[:20]}"
+
+
 def delete(db: Database, settings: Settings, user: User, album_id: int) -> None:
     with db.session() as s:
         a = s.get(Album, album_id)
@@ -82,6 +87,9 @@ def delete(db: Database, settings: Settings, user: User, album_id: int) -> None:
         if syno:
             # deleted here: never bring it back from Synology Photos, even if deleting it there fails
             kv_set(s, f"albumgone:{user.id}:{syno}", "1")
+        if a.origin == "device":
+            # a phone folder: the phone sends it on every sync; it must not come back
+            kv_set(s, device_gone_key(user.id, a.name), "1")
     if syno:
         _synology(db, settings, user, lambda ses: ses.call("SYNO.Foto.Browse.Album", "delete", 1, id=[syno]))
 
@@ -103,6 +111,8 @@ def change(db: Database, settings: Settings, user: User, album_id: int, add: lis
                 s.delete(ai)
                 touch_media(s, m)
                 n += 1
+            if a.origin == "device":   # the phone sends its folder again: do not put this one back
+                kv_set(s, f"devicerm:{a.id}:{m.id}", "1")
         _bump(s, a)
     _push(db, settings, user, album_id, add=add, remove=remove)
     return n

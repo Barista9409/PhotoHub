@@ -84,3 +84,37 @@ def test_pull_synology_photos_albums(settings, db, monkeypatch):
     assert c.delete(f"/api/albums/{fam}", headers=h).json()["ok"]
     c.post("/api/albums/pull", headers=h)
     assert c.get("/api/sync", headers=h).json()["albums"] == []
+
+
+def test_phone_folder_album_stays_deleted(settings, db):
+    import hashlib
+    from fastapi.testclient import TestClient
+    from photohub.api import create_app
+    from photohub.sample import make_image
+    from photohub.scanner import scan
+    from photohub.users import add_user, scan_roots
+    u, token = add_user(db, settings, "reo")
+    from pathlib import Path
+    p = Path(u.personal_root) / "LINE" / "a.jpg"
+    p.parent.mkdir(parents=True)
+    img = make_image(5)
+    p.write_bytes(img)
+    q = Path(u.personal_root) / "LINE" / "b.jpg"
+    img2 = make_image(6)
+    q.write_bytes(img2)
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    c = TestClient(create_app(settings, db))
+    h = {"Authorization": f"Bearer {token}"}
+    fh = [hashlib.sha256(img).hexdigest(), hashlib.sha256(img2).hexdigest()]
+    r = c.post("/api/device-albums", json={"name": "LINE", "file_hashes": fh}, headers=h).json()
+    assert r["added"] == 2
+    aid = r["album_id"]
+    # one photo taken out by hand: the next phone sync does not put it back
+    sync = c.get("/api/sync", headers=h).json()
+    one = next(i["hash"] for i in sync["items"] if i["file_hash"] == fh[0])
+    c.post(f"/api/albums/{aid}/remove", json={"hashes": [one]}, headers=h)
+    assert c.post("/api/device-albums", json={"name": "LINE", "file_hashes": fh}, headers=h).json()["added"] == 0
+    # the album deleted: the next phone sync does not bring it back
+    assert c.delete(f"/api/albums/{aid}", headers=h).json()["ok"]
+    assert c.post("/api/device-albums", json={"name": "LINE", "file_hashes": fh}, headers=h).json()["added"] == 0
+    assert c.get("/api/sync", headers=h).json()["albums"] == []

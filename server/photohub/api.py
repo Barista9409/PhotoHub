@@ -299,13 +299,18 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         if not name:
             raise HTTPException(400, "empty name")
         hashes = list(dict.fromkeys(body.file_hashes))[:5000]
+        from .albums import device_gone_key
         from .ingest import _album
         with db.session() as s:
+            if kv_get(s, device_gone_key(user.id, name)):
+                return {"album_id": 0, "matched": 0, "added": 0}   # deleted in the app: stays deleted
             album = _album(s, name, "device", user.id)
             matched = added = 0
             for m in s.execute(select(Media).where(Media.file_hash.in_(hashes), Media.status == "active",
                                                    visible_clause(user))).scalars():
                 matched += 1
+                if kv_get(s, f"devicerm:{album.id}:{m.id}"):
+                    continue   # taken out of the album by hand
                 if s.get(AlbumItem, (album.id, m.id)) is None:
                     s.add(AlbumItem(album_id=album.id, media_id=m.id))
                     touch_media(s, m)  # the phone gets the new album link on its next sync

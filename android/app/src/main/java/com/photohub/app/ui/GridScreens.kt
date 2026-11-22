@@ -59,6 +59,7 @@ import com.photohub.app.PhotoHubApp
 import com.photohub.app.data.db.TimelineItem
 import java.time.LocalDate
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import java.time.ZoneId
 
 @Composable
@@ -76,6 +77,11 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     val mine = albums.filter { !it.shared }
     val family = albums.filter { it.shared }
     var picked by remember { mutableStateOf(emptySet<Long>()) }
+    var folderMenu by remember { mutableStateOf<String?>(null) }
+    val phoneDelete = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) {
+        scope.launch { app.indexer.scan() }   // the folder list follows what is left on the phone
+    }
     var askDelete by remember { mutableStateOf(false) }
     val picking = picked.isNotEmpty()
     fun card(a: com.photohub.app.data.db.AlbumWithCount): @Composable () -> Unit = {
@@ -110,7 +116,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     }
                 }) { Text("Synology Photosのアルバムを読み込む") }
                 pullMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムを長押しすると、選んで削除できます。", style = MaterialTheme.typography.bodySmall,
+                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除できます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -128,7 +134,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             }
         }
         items(folders, key = { "f${it.bucket}" }) { f ->
-            Column(Modifier.padding(4.dp).clickable { onFolder(f.bucket) }) {
+            Column(Modifier.padding(4.dp).combinedClickable(onClick = { onFolder(f.bucket) }, onLongClick = { folderMenu = f.bucket })) {
                 Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x22888888))) {
                     AsyncImage(model = f.coverUri?.let { android.net.Uri.parse(it) }, contentDescription = f.bucket,
                         contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -138,6 +144,33 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             }
         }
     }
+    }
+    folderMenu?.let { bucket ->
+        val asAlbum = albums.firstOrNull { it.origin == "device" && it.name == bucket }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { folderMenu = null },
+            title = { Text("「$bucket」フォルダ") },
+            text = { Text("・Synologyのアルバムから外す：Synologyに作った「$bucket」アルバムを消し、これからも作りません。写真は消えません。\n" +
+                "・スマホから消す：このフォルダの写真をスマホから消します（Androidの確認が出ます）。Synologyにある分は残ります。") },
+            confirmButton = { Column(horizontalAlignment = Alignment.End) {
+                androidx.compose.material3.TextButton(enabled = asAlbum != null, onClick = {
+                    folderMenu = null
+                    scope.launch {
+                        pullMsg = try { app.net.api()!!.deleteAlbum(asAlbum!!.id); "「$bucket」アルバムを外しました" }
+                                  catch (e: Exception) { "外せませんでした（${e.message}）" }
+                        com.photohub.app.data.SyncWorker.runNow(app)
+                    }
+                }) { Text(if (asAlbum != null) "Synologyのアルバムから外す" else "Synologyにアルバムはありません") }
+                androidx.compose.material3.TextButton({
+                    folderMenu = null
+                    scope.launch {
+                        val uris = app.db.media().folder(bucket).first().mapNotNull { it.localUri?.let(android.net.Uri::parse) }
+                        if (uris.isEmpty()) { pullMsg = "スマホに写真がありません"; return@launch }
+                        val req = android.provider.MediaStore.createDeleteRequest(app.contentResolver, uris)
+                        phoneDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(req.intentSender).build())
+                    }
+                }) { Text("スマホから消す", color = MaterialTheme.colorScheme.error) }
+            } },
+            dismissButton = { androidx.compose.material3.TextButton({ folderMenu = null }) { Text("やめる") } })
     }
     if (askDelete) {
         val chosen = albums.filter { it.id in picked }
