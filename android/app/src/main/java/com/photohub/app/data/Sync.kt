@@ -229,8 +229,10 @@ class NewMediaWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 val s = app.prefs.current()
                 if (s.configured && (s.backupNas || s.backupDrive)) BackupWorker.runNow(applicationContext)
             }
+        } catch (e: Exception) {
+            AppLog.error("新しい写真の確認", e)
         } finally {
-            watch(applicationContext)   // next new photo
+            watch(applicationContext, fromWorker = true)   // next new photo
         }
         return androidx.work.ListenableWorker.Result.success()
     }
@@ -238,14 +240,17 @@ class NewMediaWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         private const val NAME = "photohub-new-media"
 
-        fun watch(ctx: Context) {
+        /** fromWorker: called by the running watcher itself, so the next one waits for it to finish
+         *  (replacing would cancel the very work that is running). */
+        fun watch(ctx: Context, fromWorker: Boolean = false) {
             val c = Constraints.Builder()
                 .addContentUriTrigger(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true)
                 .addContentUriTrigger(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true)
                 .setTriggerContentUpdateDelay(15, TimeUnit.SECONDS)   // a burst of shots: wait until it settles
                 .setTriggerContentMaxDelay(2, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(ctx).enqueueUniqueWork(NAME, ExistingWorkPolicy.REPLACE,
+            WorkManager.getInstance(ctx).enqueueUniqueWork(NAME,
+                if (fromWorker) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
                 OneTimeWorkRequestBuilder<NewMediaWorker>().setConstraints(c).build())
         }
     }
