@@ -144,7 +144,7 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
            (SELECT d.driveId FROM drive_file d WHERE d.fileHash = l.fileHash) AS driveId, NULL AS place, 0 AS rot
     FROM local_media l
     WHERE l.fileHash IS NULL OR (NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = l.fileHash)
-                               AND NOT EXISTS (SELECT 1 FROM remote_alias a WHERE a.fileHash = l.fileHash))
+                               AND NOT EXISTS (SELECT 1 FROM remote_alias a JOIN remote_media ra ON ra.hash = a.hash WHERE a.fileHash = l.fileHash))
     UNION ALL
     SELECT 'drive:' || d.fileHash AS itemKey, NULL AS hash, NULL AS localUri,
            CASE WHEN d.mime LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind,
@@ -152,7 +152,7 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
            d.size AS bytes, NULL AS w, NULL AS h, NULL AS duration, d.mime AS mime, d.driveId AS driveId, NULL AS place, 0 AS rot
     FROM drive_file d
     WHERE NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = d.fileHash)
-      AND NOT EXISTS (SELECT 1 FROM remote_alias a WHERE a.fileHash = d.fileHash)
+      AND NOT EXISTS (SELECT 1 FROM remote_alias a JOIN remote_media ra ON ra.hash = a.hash WHERE a.fileHash = d.fileHash)
       AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
       -- the same photo from Google Photos (Takeout) is on the Synology with other bytes: same name, same day
       AND NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.name = d.name AND d.takenAt > 0 AND ABS(r.takenAt - d.takenAt) < 129600000)
@@ -262,10 +262,12 @@ interface MediaDao {
     suspend fun setAliases(rows: List<RemoteAlias>) { clearAliases(); insertAliases(rows) }
 
     @Transaction
-    suspend fun applySync(upserts: List<RemoteMedia>, deletes: List<String>, links: List<AlbumMedia>, albums: List<AlbumRow>) {
-        // the Synology sends the whole album list every time: an empty list means every album is gone
-        upsertAlbums(albums)
-        pruneAlbums(albums.map { it.id })
+    suspend fun applySync(upserts: List<RemoteMedia>, deletes: List<String>, links: List<AlbumMedia>, albums: List<AlbumRow>?) {
+        // the album list comes whole when it changed (null = unchanged): an empty list means every album is gone
+        if (albums != null) {
+            upsertAlbums(albums)
+            pruneAlbums(albums.map { it.id })
+        }
         val touched = upserts.map { it.hash } + deletes
         touched.chunked(500).forEach { clearAlbumLinks(it) }
         deletes.chunked(500).forEach { deleteRemote(it) }
@@ -377,6 +379,9 @@ interface MediaDao {
 
     @Query("DELETE FROM drive_file")
     suspend fun clearDrive()
+
+    @Query("DELETE FROM drive_file WHERE driveId IN (:ids)")
+    suspend fun deleteDriveIds(ids: List<String>)
 
     /** Phone photos that are safely on the NAS (candidates for freeing up space). */
     @Query("""SELECT l.* FROM local_media l WHERE (l.onNas OR l.fileHash IN (SELECT fileHash FROM remote_media))

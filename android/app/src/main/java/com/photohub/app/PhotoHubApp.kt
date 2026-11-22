@@ -38,6 +38,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
     lateinit var indexer: LocalIndexer
     lateinit var updater: Updater
     lateinit var drive: com.photohub.app.data.DriveClient
+    lateinit var delta: com.photohub.app.data.DeltaState
     @Volatile var driveToken: String = ""
     // a failure in background work is written down (CrashLog) instead of stopping the whole app
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default +
@@ -55,6 +56,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         prefs = Prefs(this)
         db = AppDb.build(this)
         files = MediaFiles(this)
+        delta = com.photohub.app.data.DeltaState(this)
         net = Net(this, prefs)
         lists = com.photohub.app.data.Lists(this, db, scope)
         scope.launch(Dispatchers.IO) { files.loadIndex() }
@@ -70,7 +72,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         scope.launch { prefs.settings.collect { token = it.token } }
         // after an app update rebuilt the on-device index, sync the NAS index again from the start
         scope.launch {
-            if (prefs.current().cursor > 0 && db.media().allRemoteHashes().isEmpty()) prefs.resetCursor()
+            if (prefs.current().cursor > 0 && db.media().allRemoteHashes().isEmpty()) { prefs.resetCursor(); delta.clear() }
         }
         SyncWorker.schedule(this)
         Updater.schedule(this)
@@ -88,6 +90,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         db.media().clearAlbums()
         files.clearAll()
         lists.clearCache()
+        delta.clear()
         coil3.SingletonImageLoader.get(this).let { it.diskCache?.clear(); it.memoryCache?.clear() }
     }
 

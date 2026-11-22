@@ -19,7 +19,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from .config import Settings
-from .db import (Database, ImportItem, ImportJob, Media, Upload, User, grant_access, kv_set, log_event,
+from .db import (Database, next_rev, ImportItem, ImportJob, Media, Upload, User, grant_access, kv_set, log_event,
                  set_location, touch_media, utcnow)
 from .fileops import copy_verified, library_dir, plan_destination
 from .hashing import file_sha256, kind_of
@@ -264,6 +264,7 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
                 s.add(ImportItem(job_id=job.id, original_path=up.path, media_id=m.id, result=result))
                 if apply:
                     up.processed_at, up.media_id = utcnow(), m.id
+                    up.rev = next_rev(s)   # phones fetch the links made since their last look
             job.new_count, job.dup_count, job.error_count = rep.new, rep.duplicate, len(rep.errors)
             job.finished_at = utcnow()
             job.message = rep.summary()

@@ -6,6 +6,7 @@ shared space, their own personal space, and personal items they were granted (me
 Admins additionally organise the shared space and see every import job and the event log."""
 from __future__ import annotations
 
+import json
 import os
 
 import struct
@@ -658,7 +659,10 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         return "" if rel == "." else rel
 
     @app.get("/api/sync")
-    def sync(cursor: int = 0, limit: int = 2000, user: User = Depends(auth)) -> dict:
+    def sync(cursor: int = 0, limit: int = 2000, albums_tag: str = "", user: User = Depends(auth)) -> dict:
+        """Changes since `cursor` (every change gets a higher rev; deletions stay as rows marked deleted,
+        so nothing is missed). The album list is sent only when it differs from what the phone has
+        (`albums_tag`, a fingerprint of the list, like an HTTP ETag)."""
         limit = max(1, min(limit, 5000))
         vis = visible_clause(user)
         with db.session() as s:
@@ -692,10 +696,13 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "space": "shared" if m.owner_id is None else ("mine" if m.owner_id == user.id else "granted"),
             } for m in rows]
             albums = [{"id": a.id, "name": a.name, "origin": a.origin, "shared": a.owner_id is None}
-                      for a in s.execute(select(Album).where(album_visible(user)).order_by(Album.name)).scalars()]
+                      for a in s.execute(select(Album).where(album_visible(user)).order_by(Album.id)).scalars()]
+            import hashlib
+            tag = hashlib.sha1(json.dumps(albums, ensure_ascii=False).encode()).hexdigest()[:16]
             next_cursor = rows[-1].rev if rows else cursor
             more = bool(rows) and s.scalar(select(func.count()).select_from(Media).where(Media.rev > next_cursor, vis)) > 0
-        return {"items": items, "albums": albums, "cursor": next_cursor, "has_more": more}
+        return {"items": items, "albums": None if albums_tag == tag else albums, "albums_tag": tag,
+                "cursor": next_cursor, "has_more": more}
 
     @app.post("/api/logs")
     def logs_store(body: LogBatch, user: User = Depends(auth)) -> dict:
@@ -710,15 +717,17 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         return applog.summary(settings, max(1, min(days, 14)), None if user.is_admin else user.name)
 
     @app.get("/api/aliases")
-    def aliases(user: User = Depends(auth)) -> dict:
+    def aliases(after: int = 0, user: User = Depends(auth)) -> dict:
         """Other files that turned out to be the same photo as one on the Synology (e.g. the phone's
-        original in Google Drive, while the Synology keeps the Google Photos copy): file hash -> photo."""
+        original in Google Drive, while the Synology keeps the Google Photos copy): file hash -> photo.
+        Only the ones added since `after` (the `last` of the previous answer)."""
         from .db import Upload
         with db.session() as s:
-            rows = s.execute(select(Upload.file_hash, Media.content_hash)
-                             .join(Media, Media.id == Upload.media_id)
-                             .where(Upload.file_hash != Media.file_hash, Media.status == "active", visible_clause(user))).all()
-        return {"items": sorted({(fh, h) for fh, h in rows})}
+            q = (select(Upload.rev, Upload.file_hash, Media.content_hash).join(Media, Media.id == Upload.media_id)
+                 .where(Upload.file_hash != Media.file_hash, Media.status == "active", visible_clause(user)))
+            rows = s.execute(q.where(Upload.rev > after) if after > 0 else q).all()
+            last = s.scalar(select(func.max(Upload.rev))) or 0
+        return {"items": sorted({(fh, h) for _, fh, h in rows}), "last": max(last, after)}
 
     @app.post("/api/thumbs")
     def thumbs(body: Hashes, user: User = Depends(auth)) -> Response:

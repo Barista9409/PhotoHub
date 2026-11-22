@@ -104,6 +104,54 @@ class DriveClient(private val app: PhotoHubApp) {
     @Serializable private data class GFile(val id: String, val name: String = "", val size: String? = null,
                                            val mimeType: String? = null, val appProperties: Map<String, String> = emptyMap())
     @Serializable private data class GList(val files: List<GFile> = emptyList(), val nextPageToken: String? = null)
+    @Serializable private data class GChangeFile(val id: String, val name: String = "", val size: String? = null, val mimeType: String? = null,
+                                                 val appProperties: Map<String, String> = emptyMap(), val parents: List<String> = emptyList(),
+                                                 val trashed: Boolean = false)
+    @Serializable private data class GChange(val fileId: String? = null, val removed: Boolean = false, val file: GChangeFile? = null)
+    @Serializable private data class GChanges(val changes: List<GChange> = emptyList(), val nextPageToken: String? = null,
+                                              val newStartPageToken: String? = null)
+    @Serializable private data class GStart(val startPageToken: String)
+
+    /**
+     * Bring the phone's copy of the Drive folder list up to date with only what changed since last
+     * time (Drive's change list: a token marks "seen up to here"; additions, edits, deletions and
+     * trashing all come through it, so nothing is missed). The first time, or when the token is no
+     * longer accepted, the whole folder is read once and a fresh token taken *before* reading, so
+     * changes made during the read are fetched next time.
+     */
+    suspend fun refresh(token: String): List<DriveFile> = withContext(Dispatchers.IO) {
+        val dao = app.db.media()
+        val folder = folderId(token)
+        var page = app.delta.string("drive_changes")
+        if (page != null) {
+            try {
+                val gone = mutableListOf<String>(); val upd = mutableListOf<DriveFile>()
+                while (page != null) {
+                    val url = "$API/changes?pageToken=$page&pageSize=1000&spaces=drive&includeRemoved=true" +
+                        "&fields=nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,size,mimeType,appProperties,parents,trashed))"
+                    val c = json.decodeFromString<GChanges>(call(token, Request.Builder().url(url)))
+                    for (ch in c.changes) {
+                        val f = ch.file
+                        val fh = f?.appProperties?.get("fileHash")
+                        if (ch.removed || f == null || f.trashed || folder !in f.parents || fh == null) { ch.fileId?.let { gone += it } }
+                        else upd += DriveFile(fh, f.id, f.name, f.size?.toLongOrNull() ?: 0, f.appProperties["takenAt"]?.toLongOrNull() ?: 0, f.mimeType)
+                    }
+                    if (c.newStartPageToken != null) { app.delta.setString("drive_changes", c.newStartPageToken); page = null }
+                    else page = c.nextPageToken
+                }
+                if (gone.isNotEmpty()) dao.deleteDriveIds(gone)
+                if (upd.isNotEmpty()) dao.upsertDrive(upd)
+                return@withContext dao.driveFiles()
+            } catch (e: Exception) {
+                AppLog.error("ドライブの変更一覧", e)   // token too old or not accepted: read everything once
+            }
+        }
+        val start = json.decodeFromString<GStart>(call(token, Request.Builder().url("$API/changes/startPageToken"))).startPageToken
+        val all = list(token)
+        dao.clearDrive(); dao.upsertDrive(all)
+        app.delta.setString("drive_changes", start)
+        all
+    }
 
     /** What is in our Drive folder (rebuilds the local table, e.g. after reinstalling). */
     suspend fun list(token: String): List<DriveFile> = withContext(Dispatchers.IO) {
@@ -239,7 +287,9 @@ class BackupEngine(private val app: PhotoHubApp) {
         val label = "Synologyへ送信中"
         if (on) progress(BackupStep(BackupStep.NAS, "Synologyにある写真を確認中", 0, 0))
         val onNas = HashSet<String>(app.db.media().remoteFileHashes())
-        val unknown = local.filter { it.fileHash !in onNas }
+        // photos deleted on the Synology on purpose: asked once, never again
+        val deletedThere = app.delta.sent("deleted-on-synology")
+        val unknown = local.filter { it.fileHash !in onNas && it.fileHash!! !in deletedThere }
         // ask the Synology first, so the bar knows the real number to send
         val toSend = mutableListOf<LocalMedia>()
         for (chunk in unknown.chunked(500)) {
@@ -247,6 +297,7 @@ class BackupEngine(private val app: PhotoHubApp) {
             // "queued" = it already received it and is filing it away
             val there = have.filterValues { it == "nas" || it == "queued" }.keys.toList()
             if (there.isNotEmpty()) app.db.media().markOnNas(there)   // ("deleted" = deleted on purpose: not sent again)
+            deletedThere.addAll(have.filterValues { it == "deleted" }.keys)
             toSend += chunk.filter { have[it.fileHash] == null }
         }
         val already = local.size - toSend.size
@@ -273,8 +324,7 @@ class BackupEngine(private val app: PhotoHubApp) {
             progress(BackupStep(BackupStep.DRIVE, "", 0, 0, finished = true))
             return DriveOut(error = "Googleドライブに再接続してください")
         }
-        val inDrive = drive.list(token).also { app.db.media().clearDrive(); app.db.media().upsertDrive(it) }
-            .associateBy { it.fileHash }.toMutableMap()
+        val inDrive = drive.refresh(token).associateBy { it.fileHash }.toMutableMap()
         val candidates = (local.map { it.fileHash!! to (it.takenAt to it.size) } +
             inDrive.values.map { it.fileHash to (it.takenAt to it.size) }).distinctBy { it.first }
         val keep = Window.keep(candidates, s)

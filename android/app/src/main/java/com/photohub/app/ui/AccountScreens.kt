@@ -357,7 +357,7 @@ fun DeviceScreen() {
                 })
             GroupDivider()
             SettingRow(Icons.Default.Build, "一覧を作り直す", "表示がおかしいときに。自宅のWi-Fiで行ってください", onClick = {
-                scope.launch { app.prefs.resetCursor(); app.db.media().clearRemote(); SyncWorker.runNow(ctx)
+                scope.launch { app.prefs.resetCursor(); app.delta.clear(); app.db.media().clearRemote(); SyncWorker.runNow(ctx)
                     Toast.makeText(ctx, "作り直しを始めました", Toast.LENGTH_SHORT).show() }
             })
         }

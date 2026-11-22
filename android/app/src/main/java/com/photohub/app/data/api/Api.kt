@@ -43,7 +43,8 @@ data class SyncItem(
 data class SyncAlbum(val id: Long, val name: String, val origin: String, val shared: Boolean = false)
 
 @Serializable
-data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>, val cursor: Long, @SerialName("has_more") val hasMore: Boolean)
+data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>? = null, val cursor: Long, @SerialName("has_more") val hasMore: Boolean,
+                    @SerialName("albums_tag") val albumsTag: String? = null)
 
 @Serializable
 data class Me(val id: Long, val name: String, val admin: Boolean = false, @SerialName("takeout_target") val takeoutTarget: String = "personal",
@@ -91,7 +92,7 @@ data class LogGroup(val what: String, val count: Int = 0, val last: Long = 0, va
 data class LogTiming(val name: String, val count: Int = 0, val median: Long = 0, val p95: Long = 0, val max: Long = 0)
 
 @Serializable
-data class AliasList(val items: List<List<String>> = emptyList())
+data class AliasList(val items: List<List<String>> = emptyList(), val last: Long = 0)
 
 @Serializable
 data class BulkStatus(val running: Boolean = false, val total: Int = 0, val done: Int = 0, val trashed: Int = 0,
@@ -302,8 +303,9 @@ interface PhotoHubApi {
     @POST("api/drive-removed") suspend fun driveRemoved(@Body body: HashesBody): Map<String, Int>
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>
-    @GET("api/sync") suspend fun sync(@Query("cursor") cursor: Long, @Query("limit") limit: Int = 2000): SyncPage
-    @GET("api/aliases") suspend fun aliases(): AliasList
+    @GET("api/sync") suspend fun sync(@Query("cursor") cursor: Long, @Query("limit") limit: Int = 2000,
+                                      @Query("albums_tag") albumsTag: String = ""): SyncPage
+    @GET("api/aliases") suspend fun aliases(@Query("after") after: Long = 0): AliasList
     @POST("api/logs") suspend fun logs(@Body body: LogBatch): Map<String, Int>
     @GET("api/logs/summary") suspend fun logSummary(@Query("days") days: Int = 7): LogSummary
     @POST("api/thumbs") suspend fun thumbs(@Body body: HashesBody): ResponseBody

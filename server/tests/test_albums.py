@@ -118,3 +118,19 @@ def test_phone_folder_album_stays_deleted(settings, db):
     assert c.delete(f"/api/albums/{aid}", headers=h).json()["ok"]
     assert c.post("/api/device-albums", json={"name": "LINE", "file_hashes": fh}, headers=h).json()["added"] == 0
     assert c.get("/api/sync", headers=h).json()["albums"] == []
+
+
+def test_album_list_sent_only_when_changed(settings, db):
+    from fastapi.testclient import TestClient
+    from photohub.api import create_app
+    from photohub.users import add_user
+    _, token = add_user(db, settings, "reo")
+    c = TestClient(create_app(settings, db))
+    h = {"Authorization": f"Bearer {token}"}
+    first = c.get("/api/sync", headers=h).json()
+    assert first["albums"] == [] and first["albums_tag"]
+    same = c.get(f"/api/sync?albums_tag={first['albums_tag']}", headers=h).json()
+    assert same["albums"] is None   # unchanged: not sent again
+    c.post("/api/albums", json={"name": "旅行", "hashes": []}, headers=h)
+    changed = c.get(f"/api/sync?albums_tag={first['albums_tag']}", headers=h).json()
+    assert [a["name"] for a in changed["albums"]] == ["旅行"]

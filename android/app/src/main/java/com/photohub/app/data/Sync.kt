@@ -44,9 +44,11 @@ class SyncEngine(private val app: PhotoHubApp) {
             try { app.indexer.pushFolderAlbums(api) } catch (_: Exception) {}
             var cursor = prefs.current().cursor
             var changed = 0
+            // the album list comes only when it changed (the Synology compares its fingerprint)
+            var albumsTag = if (cursor == 0L) "" else app.delta.string("albums_tag") ?: ""
             // 1) metadata delta
             while (!isStopped()) {
-                val page = api.sync(cursor)
+                val page = api.sync(cursor, albumsTag = albumsTag)
                 val ups = page.items.filter { !it.deleted }.map {
                     RemoteMedia(
                         hash = it.hash, fileHash = it.fileHash, kind = it.kind, mime = it.mime,
@@ -57,7 +59,8 @@ class SyncEngine(private val app: PhotoHubApp) {
                 }
                 val dels = page.items.filter { it.deleted }.map { it.hash }
                 val links = page.items.filter { !it.deleted }.flatMap { i -> i.albums.map { AlbumMedia(it, i.hash) } }
-                dao.applySync(ups, dels, links, page.albums.map { AlbumRow(it.id, it.name, it.origin, it.shared) })
+                dao.applySync(ups, dels, links, page.albums?.map { AlbumRow(it.id, it.name, it.origin, it.shared) })
+                page.albumsTag?.let { albumsTag = it; app.delta.setString("albums_tag", it) }
                 files.removeFor(dels)
                 changed += page.items.size
                 cursor = page.cursor
@@ -66,8 +69,14 @@ class SyncEngine(private val app: PhotoHubApp) {
                 if (!page.hasMore) break
             }
             // other files of the same photos (the phone's original in Drive vs. the Google Photos copy)
-            try { dao.setAliases(api.aliases().items.filter { it.size == 2 }.map { com.photohub.app.data.db.RemoteAlias(it[0], it[1]) }) }
-            catch (_: Exception) {}   // older Synology: no list
+            // only the links made since the last look ("after" = the last answer's number)
+            try {
+                val after = app.delta.long("aliases_after")
+                val r = api.aliases(after)
+                val rows = r.items.filter { it.size == 2 }.map { com.photohub.app.data.db.RemoteAlias(it[0], it[1]) }
+                if (after == 0L) dao.setAliases(rows) else if (rows.isNotEmpty()) dao.insertAliases(rows)
+                app.delta.setLong("aliases_after", r.last)
+            } catch (_: Exception) {}   // older Synology: no list
             if (listOnly) {   // mobile data without permission: the list only; thumbnails load when shown
                 try { api.deviceSync("{}".toRequestBody()) } catch (_: Exception) {}
                 return@withContext Result(changed, 0, 0, "更新しました")
@@ -75,12 +84,16 @@ class SyncEngine(private val app: PhotoHubApp) {
             // photos the Synology dated "the day they arrived": tell it the phone's real date
             try {
                 // the Drive copies carry the phone's date: read the Drive list once if this phone has none yet
-                if (dao.driveFiles().isEmpty()) app.drive.token()?.let { t -> dao.upsertDrive(app.drive.list(t)) }
+                if (dao.driveFiles().isEmpty()) app.drive.token()?.let { t -> app.drive.refresh(t) }
             } catch (_: Exception) {}
             try {
-                val fixes = dao.datesToFix()
-                for (chunk in fixes.chunked(500))
+                // each correction once: "<file hash>@<date>" (a new date for the same photo is a new item)
+                val sent = app.delta.sent("dates")
+                val fixes = sent.notSent(dao.datesToFix()) { "${it.fileHash}@${it.takenAt}" }
+                for (chunk in fixes.chunked(500)) {
                     api.fixDates(com.photohub.app.data.api.DateFixBody(chunk.map { com.photohub.app.data.api.DateFixItem(it.fileHash, it.takenAt) }))
+                    sent.addAll(chunk.map { "${it.fileHash}@${it.takenAt}" })
+                }
             } catch (_: Exception) {}
             // 2) thumbnails for everything, in packs of 300
             val missing = dao.allRemoteHashes().filterNot { files.hasThumb(it) }

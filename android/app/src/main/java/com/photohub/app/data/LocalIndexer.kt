@@ -73,10 +73,16 @@ class LocalIndexer(private val ctx: Context, private val dao: MediaDao) {
     /** Phone folders -> the person's albums on the NAS (add-only; matched by file hash). */
     suspend fun pushFolderAlbums(api: com.photohub.app.data.api.PhotoHubApi): Int {
         var linked = 0
+        val onNas = dao.remoteFileHashes().toHashSet()
         for (b in dao.bucketNames()) {
             if (isCameraRoll(b, dao.pathOf(b))) continue
-            for (chunk in dao.hashesIn(b).chunked(5000)) {
+            // only photos not sent for this folder yet; a photo not on the Synology yet is kept back
+            // until it is there (the Synology can only link what it has)
+            val sent = (ctx.applicationContext as com.photohub.app.PhotoHubApp).delta.sent("folder-$b")
+            val todo = sent.notSent(dao.hashesIn(b)) { it }.filter { it in onNas }
+            for (chunk in todo.chunked(5000)) {
                 linked += api.deviceAlbum(com.photohub.app.data.api.DeviceAlbumBody(b, chunk)).added
+                sent.addAll(chunk)
             }
         }
         return linked

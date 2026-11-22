@@ -242,6 +242,7 @@ class Upload(Base):
     held: Mapped[bool] = mapped_column(Boolean, default=False)  # dry-run: waiting for apply
     device: Mapped[str | None] = mapped_column(String(128))     # phone name (Synology's backup folder)
     rel_path: Mapped[str | None] = mapped_column(Text)          # folder on the phone, e.g. DCIM/Camera/
+    rev: Mapped[int] = mapped_column(Integer, default=0, index=True)  # when it was linked to a photo (phones ask for newer)
 
 
 class ScanState(Base):

@@ -480,4 +480,7 @@ def test_aliases_link_the_drive_original_to_the_synology_copy(settings, db, chie
     assert _count(db) == 1
     with db.session() as s:
         m = s.execute(select(Media)).scalar_one()
-    assert c.get("/api/aliases", headers=h).json()["items"] == [[hashlib.sha256(img).hexdigest(), m.content_hash]]
+    r = c.get("/api/aliases", headers=h).json()
+    assert r["items"] == [[hashlib.sha256(img).hexdigest(), m.content_hash]]
+    # asked again with the last answer: nothing new to send
+    assert c.get(f"/api/aliases?after={r['last']}", headers=h).json()["items"] == []
