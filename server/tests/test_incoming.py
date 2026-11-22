@@ -427,3 +427,27 @@ def test_dates_from_the_phone(settings, db, chie):
     assert abs(items["b.png"]["taken_at"] - old) < 2000
     # a real (older) date is never moved
     assert c.post("/api/media/dates", json={"items": [{"file_hash": fh2, "taken_at": old - 86400000 * 400}]}, headers=h).json()["fixed"] == 0
+
+
+def test_mts_video_made_playable(settings, db, chie):
+    """An AVCHD-style .MTS (MPEG-TS, H.264 + AC-3) gets a phone-friendly MP4 on first play."""
+    import shutil
+    import subprocess
+    import pytest
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    u, h, c = chie
+    src = Path(u.personal_root) / "AVCHD" / "00013.MTS"
+    src.parent.mkdir(parents=True)
+    r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25", "-f", "lavfi",
+                        "-i", "sine=frequency=440", "-t", "1", "-c:v", "libx264", "-c:a", "ac3", "-f", "mpegts", str(src)])
+    if r.returncode != 0:
+        pytest.skip("ffmpeg without libx264/ac3")
+    from photohub.scanner import scan
+    from photohub.users import scan_roots
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    item = c.get("/api/sync", headers=h).json()["items"][0]
+    assert c.get(f"/api/playable/{item['hash']}", headers=h).status_code == 404
+    assert c.post(f"/api/playable/{item['hash']}", headers=h).json()["ok"]
+    r = c.get(f"/api/playable/{item['hash']}", headers=h)
+    assert r.status_code == 200 and r.content[4:8] == b"ftyp"

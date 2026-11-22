@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import okhttp3.RequestBody.Companion.toRequestBody
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -239,19 +240,38 @@ fun ZoomableImage(model: Any?, desc: String, onTap: () -> Unit = {}) {
     )
 }
 
+private val PLAY_VIA_SYNOLOGY = setOf("mts", "m2ts", "avi", "wmv", "mpg", "mpeg", "vob", "flv", "asf", "mod", "tod", "3g2", "divx")
+
 @Composable
 fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
     val ctx = LocalContext.current
     var error by remember(item.itemKey) { mutableStateOf<String?>(null) }
     // where to play from, best first: the phone's own file, the Synology, Google Drive
+    // formats phones cannot play (AVCHD .MTS, AVI, WMV, MPEG-2 ...): the Synology makes an MP4 first
+    val needsMp4 = item.name.substringAfterLast('.', "").lowercase() in PLAY_VIA_SYNOLOGY
     val sources = remember(item.itemKey, base) {
-        listOfNotNull(item.localUri, originalUrl(base, item), item.driveId?.let { app.drive.mediaUrl(it) })
+        val mp4 = if (item.hash != null && base != null) "playable" else null
+        if (needsMp4) listOfNotNull(mp4, item.localUri, originalUrl(base, item))
+        else listOfNotNull(item.localUri, originalUrl(base, item), item.driveId?.let { app.drive.mediaUrl(it) }, mp4)
     }
     var at by remember(item.itemKey) { mutableStateOf(0) }
     val player = remember(item.itemKey) { ExoPlayer.Builder(ctx).build() }
     androidx.compose.runtime.LaunchedEffect(item.itemKey, at, sources) {
-        val uri = sources.getOrNull(at) ?: run { error = "再生できる場所がありません（Synologyにつながっていないかもしれません）"; return@LaunchedEffect }
+        var uri = sources.getOrNull(at) ?: run { error = "再生できる場所がありません（Synologyにつながっていないかもしれません）"; return@LaunchedEffect }
         error = null
+        if (uri == "playable") {
+            error = "この形式はスマホで再生できないため、Synologyで再生できる形に変換しています…（初回だけ。長い動画は数分かかります）"
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    app.net.client(app.token).newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.MINUTES).build()
+                        .newCall(okhttp3.Request.Builder().url("$base/api/playable/${item.hash}")
+                            .post(ByteArray(0).toRequestBody(null)).build()).execute().use { it.isSuccessful }
+                } catch (e: Exception) { false }
+            }
+            if (!ok) { if (at + 1 < sources.size) at++ else error = "変換できませんでした"; return@LaunchedEffect }
+            error = null
+            uri = "$base/api/playable/${item.hash}"
+        }
         val http = if (uri.contains("googleapis.com")) {
             app.drive.token()
             OkHttpDataSource.Factory(okhttp3.OkHttpClient()).setDefaultRequestProperties(mapOf("Authorization" to "Bearer ${app.driveToken}"))

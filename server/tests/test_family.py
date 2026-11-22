@@ -102,10 +102,8 @@ def test_admin_only_for_shared_and_events(settings, db, family):
 
     # what each person is offered
     assert {g["space"] for g in c.get("/api/similar", headers=h_reo).json()} == {"shared"}
-    assert {g["space"] for g in c.get("/api/similar", headers=h_chie).json()} == {"mine"}
-    # chie may not organise the shared space; reo may not organise chie's personal space
-    r = c.post(f"/api/similar/{groups[None]}/resolve", json={"keep": [keep_shared]}, headers=h_chie)
-    assert r.status_code == 403
+    assert {g["space"] for g in c.get("/api/similar", headers=h_chie).json()} == {"mine", "shared"}
+    # anyone may organise the shared space (to the trash); reo may not organise chie's personal space
     r = c.post(f"/api/similar/{groups[chie.id]}/resolve", json={"keep": [keep_chie]}, headers=h_reo)
     assert r.status_code == 403
     assert c.post(f"/api/similar/{groups[chie.id]}/resolve", json={"keep": [keep_chie]}, headers=h_chie).status_code == 200

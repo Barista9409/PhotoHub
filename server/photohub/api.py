@@ -599,9 +599,9 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "amazon_heartbeat": (hb.isoformat() if (hb := storage.amazon_heartbeat(db, settings)) else None)}
 
     def _group_scope(user: User):  # noqa: ANN202
-        """Similar groups a person may organise: their own space; admins also the shared one."""
-        own = SimilarGroup.owner_id == user.id
-        return (SimilarGroup.owner_id.is_(None)) | own if user.is_admin else own
+        """Similar groups a person may organise: their own space and the family's shared one
+        (rejected photos go to the trash, restorable for 30 days)."""
+        return (SimilarGroup.owner_id.is_(None)) | (SimilarGroup.owner_id == user.id)
 
     @app.get("/api/jobs")
     def jobs(limit: int = 50, user: User = Depends(auth)) -> list[dict]:
@@ -724,6 +724,30 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     @app.get("/api/preview/{content_hash}")
     def preview(content_hash: str, user: User = Depends(auth)) -> FileResponse:
         return _derived("preview", content_hash, user)
+
+    @app.post("/api/playable/{content_hash}")
+    def playable_prepare(content_hash: str, user: User = Depends(auth)) -> dict:
+        """Make a phone-friendly MP4 of a video the phone cannot play (first time only; can take a while)."""
+        from . import playable
+        with db.session() as s:
+            m = media_or_404(s, content_hash, user)
+        if not Path(m.nas_path).exists():
+            raise HTTPException(410, "file not on NAS")
+        try:
+            p = playable.make(settings, m)
+        except RuntimeError as e:
+            raise HTTPException(422, str(e)) from e
+        return {"ok": True, "bytes": p.stat().st_size}
+
+    @app.get("/api/playable/{content_hash}")
+    def playable_get(content_hash: str, user: User = Depends(auth)) -> FileResponse:
+        from . import playable
+        with db.session() as s:
+            m = media_or_404(s, content_hash, user)
+        p = playable.path_for(settings, m)
+        if not p.exists():
+            raise HTTPException(404, "prepare it first (POST)")
+        return FileResponse(p, media_type="video/mp4", headers=IMMUTABLE)
 
     @app.get("/api/original/{content_hash}")
     def original(content_hash: str, user: User = Depends(auth)) -> FileResponse:

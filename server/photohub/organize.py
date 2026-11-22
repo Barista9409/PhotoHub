@@ -35,19 +35,20 @@ def _move_with_sidecar(src: Path, dst: Path) -> None:
             pass
 
 
-def _may_change(s, user: User, m: Media) -> bool:  # noqa: ANN001
-    """Own photos and the family's shared ones (not someone else's that is merely visible)."""
-    return m.owner_id is None or m.owner_id == user.id
+def _may_change(s, user: User | None, m: Media) -> bool:  # noqa: ANN001
+    """Own photos and the family's shared ones (not someone else's that is merely visible).
+    user None = the NAS itself (command line, similar-photo groups resolved there)."""
+    return user is None or m.owner_id is None or m.owner_id == user.id
 
 
-def trash(db: Database, settings: Settings, user: User, hashes: list[str]) -> int:
+def trash(db: Database, settings: Settings, user: User | None, hashes: list[str]) -> int:
     n = 0
     with db.session() as s:
         for m in s.execute(select(Media).where(Media.content_hash.in_(hashes[:5000]), Media.status == "active")).scalars():
             if not _may_change(s, user, m):
                 continue
             src = Path(m.nas_path)
-            info = {"from": str(src), "by": user.name, "owner": m.owner_id}
+            info = {"from": str(src), "by": user.name if user else "PhotoHub", "owner": m.owner_id}
             if src.exists():
                 dst = unique_in(_bin(settings) / f"{m.id}", src.name)
                 _move_with_sidecar(src, dst)
@@ -58,7 +59,7 @@ def trash(db: Database, settings: Settings, user: User, hashes: list[str]) -> in
             touch_media(s, m)
             n += 1
         if n:
-            log_event(s, "info", "trash", f"{user.name}: {n} item(s) moved to the trash")
+            log_event(s, "info", "trash", f"{user.name if user else 'PhotoHub'}: {n} item(s) moved to the trash")
     return n
 
 

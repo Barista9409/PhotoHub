@@ -114,20 +114,36 @@ fun SimilarScreen() {
     val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<String?>(null) }
     if (groups == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
-    if (groups.isEmpty()) { Text("類似の候補はありません", Modifier.padding(16.dp)); return }
+    if (groups.isEmpty()) { Text("似ている写真はありません（Synologyに新しい写真が入るたびに探します）", Modifier.padding(16.dp)); return }
+    // what to keep in each group: the recommended one (largest picture) unless changed
+    val keeps = remember(groups) {
+        androidx.compose.runtime.mutableStateMapOf<Long, Set<Long>>().apply {
+            groups.forEach { g -> put(g.id, setOf(g.members.maxByOrNull { (it.w ?: 0) * (it.h ?: 0) }?.mediaId ?: 0L)) }
+        }
+    }
+    var confirmAll by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf<String?>(null) }
+    val drop = groups.sumOf { g -> g.members.count { it.mediaId !in (keeps[g.id] ?: emptySet()) } }
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
-        item { Text("残す写真をタップして選び、「決定」を押します。残さない写真はSynologyのゴミ箱フォルダへ移ります（削除はしません）。" +
-            "共有スペースの写真は管理者だけが、個人スペースの写真は本人だけが整理できます。",
-            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }
+        item {
+            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("枠で囲まれた写真を残します（おすすめ＝いちばん大きい写真を選んであります）。写真をタップすると、残す・残さないを変えられます。" +
+                    "残さない写真はゴミ箱に入り、30日間は「ゴミ箱」から戻せます。", style = MaterialTheme.typography.bodySmall)
+                Button(enabled = progress == null && drop > 0 && groups.all { (keeps[it.id] ?: emptySet()).isNotEmpty() },
+                    onClick = { confirmAll = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(progress ?: "まとめて処理：${groups.size} 組の選んだ写真を残し、ほかの $drop 枚をゴミ箱へ")
+                }
+            }
+        }
         items(groups, key = { it.id }) { g ->
-            var keep by remember(g.id) { mutableStateOf(setOf(g.members.maxByOrNull { (it.w ?: 0) * (it.h ?: 0) }?.mediaId ?: 0L)) }
+            val keep = keeps[g.id] ?: emptySet()
             Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                 Column(Modifier.padding(8.dp)) {
                     Text(if (g.space == "shared") "共有スペース" else "あなたの個人スペース", style = MaterialTheme.typography.labelMedium)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(g.members, key = { it.mediaId }) { m ->
                             val selected = m.mediaId in keep
-                            Column(Modifier.clickable { keep = if (selected) keep - m.mediaId else keep + m.mediaId }) {
+                            Column(Modifier.clickable { keeps[g.id] = if (selected) keep - m.mediaId else keep + m.mediaId }) {
                                 val model: Any? = if (app.files.hasThumb(m.hash)) app.files.thumb(m.hash) else base?.let { "$it/api/thumb/${m.hash}" }
                                 AsyncImage(model, m.name, contentScale = ContentScale.Crop,
                                     modifier = Modifier.size(120.dp).border(if (selected) 4.dp else 0.dp, MaterialTheme.colorScheme.primary))
@@ -149,6 +165,25 @@ fun SimilarScreen() {
             }
         }
     }
+    if (confirmAll) AlertDialog(onDismissRequest = { confirmAll = false },
+        title = { Text("まとめて処理しますか？") },
+        text = { Text("${groups.size} 組それぞれで、選んだ写真を残し、ほかの $drop 枚をゴミ箱に入れます。30日間は「ゴミ箱」から戻せます。") },
+        confirmButton = { TextButton({
+            confirmAll = false
+            scope.launch {
+                var ok = 0; var failed = 0
+                for ((i, g) in groups.withIndex()) {
+                    progress = "処理中… ${i + 1} / ${groups.size}"
+                    try { if (app.net.api()!!.resolve(g.id, com.photohub.app.data.api.KeepBody((keeps[g.id] ?: emptySet()).toList())).applied) ok++ else failed++ }
+                    catch (e: Exception) { failed++ }
+                }
+                progress = null
+                info = "$ok 組を処理しました" + (if (failed > 0) "（$failed 組はできませんでした）" else "")
+                com.photohub.app.data.SyncWorker.runNow(ctx)
+                refresh++
+            }
+        }) { Text("処理する") } },
+        dismissButton = { TextButton({ confirmAll = false }) { Text("やめる") } })
     info?.let { AlertDialog(onDismissRequest = { info = null }, confirmButton = { TextButton({ info = null }) { Text("OK") } }, text = { Text(it) }) }
 }
 

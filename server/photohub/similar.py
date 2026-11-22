@@ -90,10 +90,11 @@ class Forbidden(PermissionError):
 
 
 def may_resolve(user: User | None, grp: SimilarGroup) -> bool:
-    """Shared-space groups: admins only. Personal-space groups: that person only."""
+    """Shared-space groups: anyone in the family (they go to the trash and can be restored).
+    Personal-space groups: that person only."""
     if user is None:  # CLI on the NAS
         return True
-    return user.is_admin if grp.owner_id is None else grp.owner_id == user.id
+    return grp.owner_id is None or grp.owner_id == user.id
 
 
 def resolve(db: Database, settings: Settings, group_id: int, keep_ids: set[int], *, apply: bool,
@@ -113,6 +114,7 @@ def resolve(db: Database, settings: Settings, group_id: int, keep_ids: set[int],
         if not keep_ids or not keep_ids <= {m.media_id for m in members}:
             raise ValueError("keep at least one photo of this group")
         day = f"{utcnow():%Y-%m-%d}"
+        losers: list[str] = []
         for mem in members:
             mem.keep = mem.media_id in keep_ids
             if mem.keep:
@@ -124,19 +126,15 @@ def resolve(db: Database, settings: Settings, group_id: int, keep_ids: set[int],
             except ValueError:
                 rel = Path(src.name)
             dst = unique_in((settings.trash / day / space_name / rel).parent, src.name)
-            actions.append(f"move {src} -> {dst}")
-            if apply and src.exists():
-                move_verified(src, dst, m.file_hash)
-                sc = sidecar_path(src)
-                if sc.exists():
-                    move_verified(sc, dst.with_name(dst.name + ".xmp"))
-                m.status = "trashed"
-                m.nas_path = str(dst)
-                set_location(s, m.id, "nas", "removed", source_ref=str(dst))
-                touch_media(s, m)
-                log_event(s, "info", "trash_move", f"similar group {group_id}: {src} -> {dst}")
+            actions.append(f"trash {src}")
+            losers.append(m.content_hash)
         if apply:
             grp.status = "resolved"
         else:
             s.rollback()
+    if apply and losers:
+        # the same trash as deleting in the app: restorable for 30 days from 「ゴミ箱」
+        from .organize import trash
+        trash(db, settings, user, losers)
     return actions
+
