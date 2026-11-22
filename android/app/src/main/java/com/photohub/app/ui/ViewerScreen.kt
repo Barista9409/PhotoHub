@@ -276,11 +276,13 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
         else listOfNotNull(item.localUri, originalUrl(base, item), item.driveId?.let { app.drive.mediaUrl(it) }, mp4)
     }
     var at by remember(item.itemKey) { mutableStateOf(0) }
+    var preparing by remember(item.itemKey) { mutableStateOf(false) }   // the Synology is making its copy
     val player = remember(item.itemKey) { ExoPlayer.Builder(ctx).build() }
     androidx.compose.runtime.LaunchedEffect(item.itemKey, at, sources) {
         var uri = sources.getOrNull(at) ?: run { error = "再生できる場所がありません（Synologyにつながっていないかもしれません）"; return@LaunchedEffect }
         error = null
         if (uri == "playable") {
+            preparing = true
             error = "この形式はスマホで再生できないため、Synologyで再生できる形に変換しています…（初回だけ。長い動画は数分かかります）"
             val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
@@ -289,6 +291,7 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
                             .post(ByteArray(0).toRequestBody(null)).build()).execute().use { it.isSuccessful }
                 } catch (e: Exception) { false }
             }
+            preparing = false
             if (!ok) { if (at + 1 < sources.size) at++ else error = "変換できませんでした"; return@LaunchedEffect }
             error = null
             uri = "$base/api/playable/${item.hash}"
@@ -302,11 +305,33 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
         player.prepare()
         player.playWhenReady = true
     }
+    // a video that does not start (e.g. a big phone video read over a slow connection, or one whose
+    // index sits at the end of the file): after 20 seconds, try the next place - last of all the
+    // Synology's ready-to-stream copy - and write down what happened (エラーの記録)
+    var started by remember(item.itemKey) { mutableStateOf(false) }
+    var buffering by remember(item.itemKey) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(item.itemKey, at, started) {
+        if (started) return@LaunchedEffect
+        kotlinx.coroutines.delay(20_000)
+        while (preparing) kotlinx.coroutines.delay(1000)   // making the copy can take minutes: wait for it
+        if (sources.getOrNull(at) == "playable") kotlinx.coroutines.delay(20_000)   // then give it its 20 seconds
+        if (!started) {
+            com.photohub.app.data.AppLog.error("動画が始まらない",
+                msg = "${item.name} ${humanBytes(item.bytes)} 場所${at + 1}/${sources.size}: ${sources.getOrNull(at)?.substringBefore("?")}")
+            if (at + 1 < sources.size) at++
+            else error = "再生を始められませんでした。通信が遅いか、この動画の形式に対応していないかもしれません"
+        }
+    }
     DisposableEffect(item.itemKey) {
         val l = object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(e: androidx.media3.common.PlaybackException) {
+                com.photohub.app.data.AppLog.error("動画の再生", e, "${item.name}: ${e.errorCodeName}")
                 if (at + 1 < sources.size) at++   // try the next place
                 else error = "再生できませんでした（${e.errorCodeName}）"
+            }
+            override fun onPlaybackStateChanged(state: Int) {
+                buffering = state == androidx.media3.common.Player.STATE_BUFFERING
+                if (state == androidx.media3.common.Player.STATE_READY) started = true
             }
         }
         player.addListener(l)
@@ -318,6 +343,14 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
         error?.let {
             Text(it, color = Color.White, modifier = Modifier.align(Alignment.Center)
                 .background(Color(0xCC000000), RoundedCornerShape(12.dp)).padding(16.dp))
+        }
+        if (error == null && buffering && !started) {
+            val where = sources.getOrNull(at).orEmpty().let { u ->
+                when { u.startsWith("content:") -> "このスマホ"; u.contains("googleapis") -> "Googleドライブ"
+                       u.contains("/api/playable") || u == "playable" -> "Synology（再生用）"; else -> "Synology" } }
+            Text("読み込み中…（$where から・${humanBytes(item.bytes)}）", color = Color.White,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp)
+                    .background(Color(0xAA000000), RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
         }
     }
 }
