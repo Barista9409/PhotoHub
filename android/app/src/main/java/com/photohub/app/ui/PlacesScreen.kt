@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.NetworkCheck
@@ -217,13 +218,28 @@ fun PhotosLinkRows() {
     var busy by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { linked = try { app.net.api()?.me()?.photosLinked } catch (e: Exception) { null } }
-    SettingRow(Icons.Default.PhotoAlbum, "アルバムの同期",
+    SettingRow(Icons.Default.PhotoAlbum, "Synology Photosとの連携",
         when (linked) {
-            true -> "連携しています（パスワードは暗号化してSynologyに保存）"
-            false -> "連携していません。ログアウトして、ログイン画面で「Synology Photosのアルバムも同期する」にチェックを入れてログインし直してください"
+            true -> "連携しています：アルバムの同期と、新しい写真の反映（パスワードは暗号化してSynologyに保存）"
+            false -> "連携していません。このままだと、PhotoHubが送った写真がSynology Photosにすぐ出ません。ログアウトして、ログイン画面で「Synology Photosのアルバムも同期する」にチェックを入れてログインし直してください"
             null -> "Synologyにつながると表示されます"
         })
     if (linked == true) {
+        GroupDivider()
+        var reflect by remember { mutableStateOf<String?>(null) }
+        SettingRow(Icons.Default.Sync, "新しい写真をSynology Photosに反映",
+            reflect ?: "PhotoHubが送った写真は、数分ごとに自動で反映します。今すぐ反映したいときに押してください",
+            onClick = {
+                reflect = "反映を頼んでいます…"
+                scope.launch {
+                    reflect = try {
+                        val r = app.net.api()!!.photosReindex()
+                        if (r["ok"]?.toString() == "true") "Synology Photosに読み直しを頼みました。数分で表示されます"
+                        else "頼めませんでした（${r["error"]?.toString()?.trim('"')}）。「接続を確かめる」の結果を送ってください"
+                    } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "頼めませんでした（HTTP ${e.code()}）" }
+                      catch (e: Exception) { "頼めませんでした（${e.message}）" }
+                }
+            })
         GroupDivider()
         SettingRow(Icons.Default.NetworkCheck, if (busy) "確かめています…" else "接続を確かめる",
             "Synology Photosのアルバムを読み取れるか確かめます（何も変えません）。結果をコピーしてClaudeに送ってください",

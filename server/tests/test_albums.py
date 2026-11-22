@@ -134,3 +134,37 @@ def test_album_list_sent_only_when_changed(settings, db):
     c.post("/api/albums", json={"name": "旅行", "hashes": []}, headers=h)
     changed = c.get(f"/api/sync?albums_tag={first['albums_tag']}", headers=h).json()
     assert [a["name"] for a in changed["albums"]] == ["旅行"]
+
+
+def test_photos_reindex_tries_forms_and_remembers(settings, db, monkeypatch):
+    import httpx
+    from fastapi.testclient import TestClient
+    from sqlalchemy import select
+    from photohub.api import create_app
+    from photohub.db import User, kv_get
+    from photohub.users import add_user
+    from photohub.vault import seal
+    _, token = add_user(db, settings, "reo")
+    with db.session() as s:
+        s.execute(select(User)).scalar_one().dsm_secret = seal(settings, {"account": "reo", "password": "x"})
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        from urllib.parse import parse_qs
+        form = {k: v[0] for k, v in parse_qs(req.content.decode()).items()}
+        if form["api"] == "SYNO.API.Auth":
+            return httpx.Response(200, json={"success": True, "data": {"sid": "S"}})
+        seen.append((form["api"], form["method"], form.get("type")))
+        # this NAS only accepts the form without "type"
+        ok = form["api"] == "SYNO.Foto.Index" and "type" not in form
+        return httpx.Response(200, json={"success": ok, "error": None if ok else {"code": 120}})
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    c = TestClient(create_app(settings, db))
+    r = c.post("/api/me/photos-reindex", headers={"Authorization": f"Bearer {token}"}).json()
+    assert r["ok"] and r["form"] == 1
+    with db.session() as s:
+        assert kv_get(s, "photos_reindex_form") == "1"
+    seen.clear()
+    assert c.post("/api/me/photos-reindex", headers={"Authorization": f"Bearer {token}"}).json()["ok"]
+    assert seen == [("SYNO.Foto.Index", "reindex", None)]   # the form that worked is used first

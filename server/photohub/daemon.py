@@ -53,6 +53,9 @@ class Service:
     def job_inbox(self) -> None:
         reports = import_inbox(self.db, self.s, apply=self.s.apply)
         if any(r.new or r.merged for r in reports if not r.dry_run):
+            from .photos_link import mark_due
+            with self.db.session() as s:
+                mark_due(s, None)   # Takeout photos were placed: Synology Photos is asked to look again
             self._after_import()
 
     def job_incoming(self) -> None:
@@ -105,6 +108,10 @@ class Service:
         from .organize import remove_system_thumbs
         remove_system_thumbs(self.db, self.s)
         repair(self.db, self.s)
+
+    def job_photos_reindex(self) -> None:
+        from .photos_link import reindex_due
+        reindex_due(self.db, self.s)
 
     def job_autoalbums(self) -> None:
         from . import autoalbums
@@ -160,6 +167,9 @@ class Service:
                     next_run_time=datetime.now() + timedelta(minutes=3))
         sch.add_job(lambda: self._guard("places", self.job_places, heavy=False), "interval", hours=1, id="places",
                     next_run_time=datetime.now() + timedelta(minutes=5))
+        # photos PhotoHub put in Synology Photos' folders: ask it to look again (it does not notice by itself)
+        sch.add_job(lambda: self._guard("photos_reindex", self.job_photos_reindex, heavy=False), "interval", minutes=5,
+                    id="photos_reindex", next_run_time=datetime.now() + timedelta(minutes=2))
         # ふりかえり / 旅行 / フォルダ albums: every night, and once soon after starting
         sch.add_job(lambda: self._guard("autoalbums", self.job_autoalbums, heavy=False), "cron", hour=3, minute=40,
                     id="autoalbums")

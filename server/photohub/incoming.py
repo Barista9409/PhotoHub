@@ -259,6 +259,9 @@ def process_incoming(db: Database, settings: Settings, *, apply: bool) -> Incomi
                         write_sidecar(s, m)
                     result = "new"
                     rep.new += 1
+                    if apply and not plan.already_present:
+                        from .photos_link import mark_due
+                        mark_due(s, own)   # Synology Photos is asked to look again (it does not notice by itself)
                 if up.source == "drive":
                     set_location(s, m.id, "drive", "present", user_id=user.id, source_ref=up.path)
                 s.add(ImportItem(job_id=job.id, original_path=up.path, media_id=m.id, result=result))

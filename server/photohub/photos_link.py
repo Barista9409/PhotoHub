@@ -114,3 +114,71 @@ def probe(settings: Settings, user: User) -> dict:
         ok = False
     report = json.dumps(out, ensure_ascii=False, indent=1)
     return {"ok": ok, "report": report[:20000]}
+
+
+# How Synology Photos is asked to look at its folders again. The API is undocumented: the forms that
+# worked on this NAS are remembered (KV "photos_reindex_form"), the others are tried in this order.
+_REINDEX_FORMS = [
+    ("SYNO.Foto.Index", "reindex", 1, {"type": "basic"}),
+    ("SYNO.Foto.Index", "reindex", 1, {}),
+    ("SYNO.Foto.Index", "reindex", 2, {"type": "basic"}),
+]
+
+
+def reindex(settings: Settings, user: User, preferred: int | None = None) -> dict:
+    """Ask Synology Photos (as this person) to index their Photos folder again, so photos PhotoHub put
+    there appear in it (files written from the container do not notify Synology Photos by themselves).
+    Returns {"ok", "form", "error"}."""
+    forms = list(range(len(_REINDEX_FORMS)))
+    if preferred is not None and 0 <= preferred < len(forms):
+        forms.remove(preferred)
+        forms.insert(0, preferred)
+    last = None
+    try:
+        with Session(settings, user) as ses:
+            for i in forms:
+                api, method, version, params = _REINDEX_FORMS[i]
+                b = ses.raw(api, method, version, **params)
+                if b.get("success"):
+                    return {"ok": True, "form": i}
+                last = b.get("error")
+    except (PhotosError, httpx.HTTPError, ValueError) as e:
+        return {"ok": False, "form": None, "error": str(e)}
+    return {"ok": False, "form": None, "error": f"Synology Photos refused: {last}"}
+
+
+def reindex_due(db, settings: Settings, min_gap_minutes: int = 10) -> int:  # noqa: ANN001
+    """For everyone with new photos placed since the last time (KV "reindex_due:<id>"), ask Synology
+    Photos to look again - at most every `min_gap_minutes` per person. Returns how many were asked."""
+    import time
+    from sqlalchemy import select
+    from .db import kv_get, kv_set, log_event
+    n = 0
+    with db.session() as s:
+        users = [u for u in s.execute(select(User)).scalars() if u.dsm_secret and kv_get(s, f"reindex_due:{u.id}")]
+        for u in users:
+            s.expunge(u)
+    for u in users:
+        with db.session() as s:
+            if time.time() - float(kv_get(s, f"reindex_at:{u.id}") or 0) < min_gap_minutes * 60:
+                continue
+            pref = kv_get(s, "photos_reindex_form")
+        r = reindex(settings, u, int(pref) if pref else None)
+        with db.session() as s:
+            kv_set(s, f"reindex_at:{u.id}", str(time.time()))
+            if r["ok"]:
+                kv_set(s, f"reindex_due:{u.id}", "")
+                kv_set(s, "photos_reindex_form", str(r["form"]))
+                n += 1
+            else:
+                log_event(s, "warn", "photos_reindex", f"{u.name}: {r.get('error')}")
+    return n
+
+
+def mark_due(s, user_id: int | None) -> None:  # noqa: ANN001
+    """New photos were put in this person's folders (None = the shared space: everyone who can see it)."""
+    from sqlalchemy import select
+    from .db import kv_set
+    ids = [user_id] if user_id is not None else [u.id for u in s.execute(select(User)).scalars()]
+    for i in ids:
+        kv_set(s, f"reindex_due:{i}", "1")

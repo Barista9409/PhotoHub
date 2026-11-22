@@ -304,6 +304,7 @@ interface PhotoHubApi {
     @GET("api/suggestions/blurry") suspend fun blurry(): HashScores
     @GET("api/me/browse") suspend fun browse(@retrofit2.http.Query("base") base: String, @retrofit2.http.Query("path") path: String): BrowseResult
     @POST("api/me/synology-probe") suspend fun synologyProbe(): ProbeResult
+    @POST("api/me/photos-reindex") suspend fun photosReindex(): Map<String, kotlinx.serialization.json.JsonElement>
     @retrofit2.http.DELETE("api/me/synology-link") suspend fun synologyUnlink(): Map<String, Boolean>
     @POST("api/drive-removed") suspend fun driveRemoved(@Body body: HashesBody): Map<String, Int>
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>

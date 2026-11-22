@@ -374,6 +374,20 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         from .photos_link import probe
         return probe(settings, user)
 
+    @app.post("/api/me/photos-reindex")
+    def photos_reindex(user: User = Depends(auth)) -> dict:
+        """Ask Synology Photos to look at this person's folders again now (new photos appear in it)."""
+        from .db import kv_get, kv_set
+        from .photos_link import reindex
+        with db.session() as s:
+            pref = kv_get(s, "photos_reindex_form")
+        r = reindex(settings, user, int(pref) if pref else None)
+        if r["ok"]:
+            with db.session() as s:
+                kv_set(s, "photos_reindex_form", str(r["form"]))
+                kv_set(s, f"reindex_due:{user.id}", "")
+        return r
+
     @app.delete("/api/me/synology-link")
     def synology_unlink(user: User = Depends(auth)) -> dict:
         with db.session() as s:
