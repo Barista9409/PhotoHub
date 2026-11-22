@@ -212,10 +212,9 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 androidx.compose.material3.Button({ confirmLogout = true }) { Text("ログアウトしてログインし直す") }
             }
         }
-        // A flat list like most apps: every setting is on this page; a row opens a page only for a tool
-        // (tidy up, migration, folders, records). Order = how often it is needed.
-        SectionTitle("バックアップ")
-        Group {
+        // Groups that fold away (remembered on this phone); every setting sits in its group on this page,
+        // a row opens a page only for a tool (tidy up, migration, folders, records). Order = how often it is needed.
+        CollapsibleGroup("sync", "バックアップ", "Synology・Googleドライブ・モバイル回線・今すぐ同期・電池", openByDefault = true) {
             SwitchRow(Icons.Default.Dns, "Synologyに保存",
                 if (cur.backupNas) "撮った写真を数分でSynologyに送り、Synologyの写真をこのスマホで見られます" else "オフ：Synologyの写真を見るだけ（このスマホの写真は送りません）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
@@ -232,8 +231,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             BatteryRow()
         }
 
-        SectionTitle("写真")
-        Group {
+        CollapsibleGroup("library", "写真", "整理とゴミ箱・このスマホの容量・内訳・Googleフォトからの移行", openByDefault = true) {
             // one door for tidying up: similar / same photos, suggestions, dates, free space and the trash are inside
             SettingRow(Icons.Default.CleaningServices, "整理とゴミ箱",
                 (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
@@ -248,16 +246,17 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
         }
 
-        SectionTitle("接続")
-        Group {
+        CollapsibleGroup("connect", "接続", "外出先からの接続・Synologyの保存場所", openByDefault = false) {
             RemoteAddressRow()
             GroupDivider()
             SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeoutを置くフォルダ",
                 onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        SectionTitle("アプリ")
-        Group {
+        // closed, the summary still says when an update is waiting
+        CollapsibleGroup("app", "アプリ",
+            (if (updater is Updater.State.Available || updater is Updater.State.Ready) "新しい版があります・" else "") +
+                "更新・Synology側の版・家族に送る・使い方・エラーの記録", openByDefault = false) {
             UpdateRow()
             GroupDivider()
             SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "新しい版をWi-Fiで取り込んで入れます", cur.autoUpdate) {
