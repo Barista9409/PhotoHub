@@ -257,7 +257,7 @@ def test_takeout_in_google_drive_is_picked_up_from_cloud_sync(settings, db):
     assert collect_from_drive_sync(db, settings, u) == 1
     assert (settings.inbox / "chie" / done.name).read_bytes() == b"zip-1"
     assert not (settings.inbox / "chie" / "takeout-20261121T000000Z-002.zip").exists()
-    assert done.exists()  # the Drive copy is left alone
+    assert done.exists()  # check mode: the Drive copy is left alone
     (settings.inbox / "chie" / done.name).unlink()  # imported and deleted
     assert collect_from_drive_sync(db, settings, u) == 0  # not copied again
 
@@ -379,3 +379,20 @@ def test_deep_folders_for_drive_photos_and_takeout(settings, db, chie):
     (deep / "写真" / "PXL_8.jpg").write_bytes(make_image(8))
     assert process_incoming(db, settings, apply=True).new == 1
     assert collect_from_drive_sync(db, settings, by_name(db, "chie")) == 1
+
+
+def test_takeout_leaves_drive_once_copied(settings, db):
+    """Live mode: as soon as the copy on the Synology is complete, the ZIP leaves the Drive folder."""
+    import os
+    import time
+    from photohub.takeout import collect_from_drive_sync
+    settings.apply = True
+    u, _ = add_user(db, settings, "chie")
+    t = settings.homes_root / "chie" / "Takeout"
+    t.mkdir(parents=True)
+    z = t / "takeout-5-001.zip"
+    z.write_bytes(b"zip")
+    old = time.time() - 3600
+    os.utime(z, (old, old))
+    assert collect_from_drive_sync(db, settings, u) == 1
+    assert not z.exists() and (settings.inbox / "chie" / z.name).read_bytes() == b"zip"

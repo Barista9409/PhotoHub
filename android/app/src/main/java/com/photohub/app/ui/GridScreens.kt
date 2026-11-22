@@ -247,11 +247,13 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
     val album = (app.lists.albums.collectAsState().value ?: emptyList()).firstOrNull { it.id == albumId }
     var rename by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var download by remember { mutableStateOf(false) }
     MediaGrid(items, onOpen, albumId = albumId, header = {
         Row(Modifier.fillMaxWidth().padding(12.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(listOfNotNull(if (album?.shared == true) "家族で共有" else "自分だけ",
                 if (album?.origin == "synology") "Synology Photosと同期" else null, "${items.size} 件").joinToString("・"),
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton({ download = true }) { Text("ダウンロード") }
             androidx.compose.material3.TextButton({ rename = album?.name ?: "" }) { Text("名前を変える") }
             androidx.compose.material3.TextButton({ confirmDelete = true }) { Text("削除") }
         }
@@ -266,6 +268,20 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
                     com.photohub.app.data.SyncWorker.runNow(ctx) }
             }) { Text("変える") } },
             dismissButton = { androidx.compose.material3.TextButton({ rename = null }) { Text("やめる") } })
+    }
+    if (download) {
+        val need = items.filter { it.hash != null && it.localUri == null }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { download = false },
+            title = { Text("アルバムをこのスマホに保存") },
+            text = { Text(if (need.isEmpty()) "すべてこのスマホにあります。"
+                else "${need.size} 件（${humanBytes(need.sumOf { it.bytes })}）を、このスマホの「Pictures/PhotoHub/${album?.name ?: "アルバム"}」に保存します。" +
+                    "すでにスマホにある写真は飛ばします。アプリを閉じても続きます。") },
+            confirmButton = { androidx.compose.material3.TextButton(enabled = need.isNotEmpty(), onClick = {
+                download = false
+                val n = com.photohub.app.data.DownloadWorker.start(ctx, items, album?.name ?: "アルバム")
+                android.widget.Toast.makeText(ctx, "$n 件の保存を始めました（通知で進み具合が見られます）", android.widget.Toast.LENGTH_LONG).show()
+            }) { Text("保存する") } },
+            dismissButton = { androidx.compose.material3.TextButton({ download = false }) { Text("やめる") } })
     }
     if (confirmDelete) androidx.compose.material3.AlertDialog(onDismissRequest = { confirmDelete = false },
         title = { Text("アルバムを削除しますか？") },

@@ -350,10 +350,22 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
                 continue
             os.replace(tmp, dest)
             copied += 1
+        removed = False
+        if settings.apply and dest.exists() and dest.stat().st_size == st.st_size:
+            # the copy on the Synology is complete: remove the one in the Drive folder right away, so
+            # (with a two-way Cloud Sync task) it also leaves Google Drive and stops using Drive space
+            try:
+                z.unlink()
+                removed = True
+            except OSError:
+                pass
         with db.session() as s:
             kv_set(s, key, sig)
             kv_set(s, f"takeout_source:{user.name}/{z.name}", str(z))
-            log_event(s, "info", "takeout_found", f"{user.name}: {z.name} from Google Drive")
+            if removed:
+                kv_set(s, f"takeout_deleted:{user.name}/{z.name}", utcnow().isoformat())
+            log_event(s, "info", "takeout_found", f"{user.name}: {z.name} from Google Drive"
+                      + (" (removed from the Drive folder)" if removed else ""))
     return copied
 
 

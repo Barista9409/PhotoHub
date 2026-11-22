@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.FamilyRestroom
@@ -298,6 +299,12 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                         scope.launch { items.filter { it.itemKey in selected && it.hash != null }.forEach { app.prefs.toggleFavorite(it.hash!!) } }
                         selected = emptySet()
                     }) { Icon(Icons.Default.Favorite, "お気に入り") }
+                    IconButton({
+                        val chosen = items.filter { it.itemKey in selected }
+                        selected = emptySet()
+                        val n = com.photohub.app.data.DownloadWorker.start(ctx, chosen, "保存した写真")
+                        toast = if (n == 0) "選んだ写真は、すべてこのスマホにあります" else "$n 件をこのスマホに保存しています（通知で進み具合が見られます）"
+                    }) { Icon(Icons.Default.Download, "このスマホに保存") }
                     IconButton({ albumOf = items.filter { it.itemKey in selected && it.hash != null } }) {
                         Icon(Icons.Default.PhotoAlbum, "アルバムに追加")
                     }
