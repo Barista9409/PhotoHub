@@ -90,6 +90,12 @@ class Updater(private val app: PhotoHubApp) {
 
     /** Commit (first 7 chars) of the newest server image that finished building on GitHub. */
     suspend fun latestServer(): ServerBuild? = withContext(Dispatchers.IO) {
+        // the note the server build leaves at a download address (no hourly limit)
+        try {
+            val o = json.parseToJsonElement(get("https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/server-latest/server.json")).jsonObject
+            val at = o["at"]?.jsonPrimitive?.content?.let { java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime() }
+            return@withContext ServerBuild(o["sha"]!!.jsonPrimitive.content, o["number"]?.jsonPrimitive?.content?.toIntOrNull(), at)
+        } catch (_: Exception) { /* not published yet: ask the API */ }
         try {
             val body = get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/actions/workflows/server-image.yml/runs?branch=main&status=success&per_page=1",
                 "application/vnd.github+json")
@@ -120,6 +126,12 @@ class Updater(private val app: PhotoHubApp) {
     }
 
     private fun fetchLatest(): AppRelease? {
+        // the fixed-name manifest of the newest release, from the download address (no hourly limit)
+        try {
+            val r = json.decodeFromString<AppRelease>(get("https://github.com/${BuildConfig.UPDATE_REPO}/releases/latest/download/PhotoHub.json"))
+            if (r.versionCode > 0 && r.apk.isNotBlank())
+                return r.copy(apkUrl = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/v${r.versionName}/${r.apk}")
+        } catch (_: Exception) { /* releases before this file existed: ask the API */ }
         val body = try {
             get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest", "application/vnd.github+json")
         } catch (e: IllegalStateException) {

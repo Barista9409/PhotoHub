@@ -10,7 +10,7 @@ on:
       - .github/workflows/server-image.yml
 
 permissions:
-  contents: read
+  contents: write   # the "server-latest" note the app reads
   packages: write
 
 concurrency:
@@ -63,3 +63,17 @@ jobs:
           tags: |
             ${{ steps.img.outputs.name }}:latest
             ${{ steps.img.outputs.name }}:${{ github.sha }}
+
+      # What the newest server is, at a download address the app can read without the GitHub API
+      # (the API allows 60 questions an hour per home connection). A pre-release that is never
+      # "latest", so the app's own release stays the latest one.
+      - name: Publish server-latest note
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '{"build":"%s","sha":"%s","number":%s,"at":"%s"}\n' "${{ steps.stamp.outputs.b }}" "${GITHUB_SHA::7}" \
+            "${{ github.run_number }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > server.json
+          gh release view server-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create server-latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --title "Synology側の最新版（自動）" --notes "アプリが読む目印です。消さないでください。"
+          gh release upload server-latest server.json --clobber --repo "$GITHUB_REPOSITORY"

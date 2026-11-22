@@ -82,7 +82,10 @@ jobs:
           # a fixed-name copy gives a link that always points to the newest app:
           #   https://github.com/<owner>/<repo>/releases/latest/download/PhotoHub.apk
           cp ../dist/photohub-*.apk ../dist/PhotoHub.apk
-          gh release create "$TAG" ../dist/photohub-*.apk ../dist/photohub-*.json ../dist/PhotoHub.apk \
+          # and a fixed-name copy of the update manifest: phones read it from the download address,
+          # which (unlike the GitHub API) has no hourly limit per home connection
+          cp ../dist/photohub-*.json ../dist/PhotoHub.json
+          gh release create "$TAG" ../dist/photohub-*.apk ../dist/photohub-*.json ../dist/PhotoHub.apk ../dist/PhotoHub.json \
             --target "$GITHUB_SHA" --title "PhotoHub $TAG" --notes-file app/release-notes.txt
 
       - name: Remove key
