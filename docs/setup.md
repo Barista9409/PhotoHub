@@ -118,11 +118,13 @@ DIR=/volume1/docker/photohub
 LOG=$DIR/update.txt
 LAST=$DIR/update-last.txt
 BAD=$DIR/update-bad.txt
-LOCK=/tmp/photohub-update.lock
+LOCK=/run/photohub-update.lock   # memory, not disk
+[ -w /run ] || LOCK=/tmp/photohub-update.lock
 cd "$DIR" || exit 1
 
 now() { date '+%Y-%m-%d %H:%M'; }
-say() { echo "$(now) $1" > "$LAST"; }
+# write only when the message changes (no disk write every minute)
+say() { [ "$(cut -d' ' -f3- "$LAST" 2>/dev/null)" = "$1" ] || echo "$(now) $1" > "$LAST"; }
 log() { echo "$(now) $1" >> "$LOG"; }
 
 # one at a time; the running one touches the lock every minute, so a lock untouched for
