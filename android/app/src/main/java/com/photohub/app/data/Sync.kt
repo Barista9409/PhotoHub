@@ -36,7 +36,8 @@ class SyncEngine(private val app: PhotoHubApp) {
 
     data class Result(val changed: Int, val thumbs: Int, val previews: Int, val message: String)
 
-    suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }, listOnly: Boolean = false): Result =
+    suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }, listOnly: Boolean = false,
+                    light: Boolean = false): Result =
         withContext(Dispatchers.IO) {
             val api = app.net.api(force = true) ?: return@withContext Result(0, 0, 0, "Synologyに接続できません")
             // phone folders -> albums on the NAS first, so the delta below already carries them
@@ -106,7 +107,7 @@ class SyncEngine(private val app: PhotoHubApp) {
             var used = files.usedBytes()
             val metered = app.net.isMetered()
             for (h in wanted) {
-                if (isStopped() || metered) break  // previews only on Wi-Fi
+                if (isStopped() || metered || light) break  // previews only on Wi-Fi, and not when the app just opened
                 if (files.hasPreview(h)) continue
                 if (used > cap) break
                 val req = Request.Builder().url("$base/api/preview/$h").build()
@@ -131,15 +132,16 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         val app = applicationContext as PhotoHubApp
         if (!app.prefs.current().configured) return androidx.work.ListenableWorker.Result.success()
         val manual = inputData.getBoolean(KEY_MANUAL, false)
+        val light = inputData.getBoolean(KEY_LIGHT, false)   // the app was just opened: what is new, nothing heavy
         // periodic runs only at home (spec: 自宅のWi-Fiにいて充電中)
         if (!manual && !app.net.isHomeLan()) return androidx.work.ListenableWorker.Result.success()
         return try {
             app.indexer.scan()
-            app.indexer.hashPending(limit = if (manual) 500 else 5000, isStopped = { isStopped })
+            app.indexer.hashPending(limit = if (light) 100 else if (manual) 500 else 5000, isStopped = { isStopped })
             // one mobile-data setting for everything (send, receive, Google Drive)
             val limited = app.net.isMetered() && !app.prefs.current().backupOnMobile
             if (limited && !manual) return androidx.work.ListenableWorker.Result.success()
-            val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }, isStopped = { isStopped }, listOnly = limited)
+            val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }, isStopped = { isStopped }, listOnly = limited, light = light)
             if (r.message == "更新しました") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
             // a run started by hand (or on opening the app) does not sit in a growing retry wait:
             // the next opening / button press / periodic run tries again
@@ -153,6 +155,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
     companion object {
         const val KEY_MANUAL = "manual"
+        const val KEY_LIGHT = "light"
         private const val PERIODIC = "photohub-sync"
         const val ONCE = "photohub-sync-now"
 
@@ -168,10 +171,10 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, req)
         }
 
-        fun runNow(ctx: Context) {
+        fun runNow(ctx: Context, light: Boolean = false) {
             val wm = WorkManager.getInstance(ctx)
             val req = OneTimeWorkRequestBuilder<SyncWorker>()
-                .setInputData(workDataOf(KEY_MANUAL to true))
+                .setInputData(workDataOf(KEY_MANUAL to true, KEY_LIGHT to light))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
             // keep one that is running; replace one that is only waiting (e.g. a retry after a failure)

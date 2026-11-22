@@ -26,6 +26,9 @@ object UiState {
 
     var viewerItems: List<TimelineItem> = emptyList()
 
+    /** Tapping the tab you are on: the visible photo grid goes back to the top (like Google Photos). */
+    val scrollTop = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
     /** Photos turned upright (hash -> clockwise degrees), kept current from the database. */
     val rots = MutableStateFlow<Map<String, Int>>(emptyMap())
 
@@ -80,7 +83,7 @@ private fun rawThumb(app: PhotoHubApp, item: TimelineItem, base: String?): Any? 
     item.localUri != null -> Uri.parse(item.localUri)
     item.hash != null && app.files.hasThumb(item.hash) -> app.files.thumb(item.hash)
     item.hash != null && base != null -> "$base/api/thumb/${item.hash}"
-    item.driveId != null -> app.drive.mediaUrl(item.driveId)   // away without VPN: recent photos from Drive
+    item.driveId != null -> DriveThumb(item.driveId)   // away without VPN: recent photos from Drive
     else -> null
 }
 

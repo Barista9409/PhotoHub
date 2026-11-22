@@ -117,6 +117,8 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         return ImageLoader.Builder(context)
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { client }))
+                add(com.photohub.app.ui.DriveThumbFetcher.Factory(this@PhotoHubApp) { client })
+                add(com.photohub.app.ui.DriveThumbFetcher.Key())
                 add(VideoFrameDecoder.Factory())
             }
             .diskCache { DiskCache.Builder().directory(cacheDir.resolve("coil")).maxSizeBytes(256L * 1024 * 1024).build() }

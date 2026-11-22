@@ -76,7 +76,7 @@ if [ -n "$ok" ]; then
   docker image prune -f >> "$LOG" 2>&1
 else
   log "新しい版が起動しません。前の版に戻します"
-  echo "$remote" >> "$BAD"
+  echo "$remote" >> "$BAD"; tail -n 20 "$BAD" > "$BAD.tmp" && mv "$BAD.tmp" "$BAD"
   if docker image inspect photohub-previous:latest >/dev/null 2>&1; then
     docker tag photohub-previous:latest "$IMG:latest"
     docker rm -f photohub >> "$LOG" 2>&1

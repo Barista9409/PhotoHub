@@ -127,7 +127,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         if (!app.prefs.current().configured) nav.navigate("setup")
         else {
             // fetch what is new on the NAS (photos Synology Photos backed up, Takeout, other phones)
-            com.photohub.app.data.SyncWorker.runNow(app)
+            com.photohub.app.data.SyncWorker.runNow(app, light = true)
             // and whether a new version of the app is out (only a small check; the banner offers it)
             app.scope.launch { try { app.updater.check() } catch (_: Exception) {} }
             if (openUpdate) nav.navigate(Dest.APP.route)
@@ -153,18 +153,18 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
             if (!fullScreen) NavigationBar {
                 tabs.forEach { t ->
                     NavigationBarItem(selected = route == t.route, onClick = {
-                        nav.navigate(t.route) { popUpTo("timeline") { saveState = true }; launchSingleTop = true; restoreState = true }
+                        if (route == t.route) UiState.scrollTop.tryEmit(Unit)
+                        else nav.navigate(t.route) { popUpTo("timeline") { saveState = true }; launchSingleTop = true; restoreState = true }
                     }, icon = { Icon(t.icon, t.label) }, label = { Text(t.label) })
                 }
             }
         },
     ) { pad ->
         Column(if (fullScreen) Modifier else Modifier.padding(pad)) {
-            // loading bar above the content (never on top of it)
-            if (!fullScreen) com.photohub.app.ui.NasListBanner()
             if (!fullScreen) com.photohub.app.ui.DownloadBanner()
             if (!fullScreen) com.photohub.app.ui.WhatsNewOnce()
             if (tabs.any { it.route == route }) com.photohub.app.ui.UpdateBanner { nav.navigate(Dest.APP.route) }
+            androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
                 composable("albums") {
@@ -209,6 +209,9 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable("viewer/{i}", arguments = listOf(navArgument("i") { type = NavType.IntType })) {
                     ViewerScreen(it.arguments!!.getInt("i")) { nav.popBackStack() }
                 }
+            }
+            // sync progress floats over the top edge: the photos never jump down and back up
+            if (!fullScreen) com.photohub.app.ui.NasListBanner(Modifier.align(androidx.compose.ui.Alignment.TopCenter))
             }
         }
     }

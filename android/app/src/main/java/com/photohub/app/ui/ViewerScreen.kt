@@ -108,7 +108,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                 onDragCancel = { dragY = 0f },
             ) { change, dy -> dragY += dy; change.consume() }
         }) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize().graphicsLayer(translationY = dragY,
+        HorizontalPager(state = pager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize().graphicsLayer(translationY = dragY,
             scaleX = 1f - kotlin.math.abs(dragY) / 4000f, scaleY = 1f - kotlin.math.abs(dragY) / 4000f),
             key = { "$it:${items[it].itemKey}" }) { page ->
             val rots by UiState.rots.collectAsState()

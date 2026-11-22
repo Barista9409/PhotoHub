@@ -190,6 +190,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     val rows = built?.second ?: emptyList()
     val grid = rememberLazyGridState()
     val headerOffset = 1   // the legend of the marks (and the screen's own header)
+    androidx.compose.runtime.LaunchedEffect(Unit) { UiState.scrollTop.collect { grid.animateScrollToItem(0) } }
     androidx.compose.runtime.LaunchedEffect(rows) {
         jumpTo?.let { target ->
             val r = rows.indexOfFirst { it == target || (it is Header && it.first == target) }

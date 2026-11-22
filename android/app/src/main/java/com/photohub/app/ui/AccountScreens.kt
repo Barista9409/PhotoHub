@@ -219,23 +219,16 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        CollapsibleGroup("library", "ライブラリ", "このスマホのデータ・内訳・似ている写真・空き容量・整理・ゴミ箱", openByDefault = true) {
+        CollapsibleGroup("library", "ライブラリ", "このスマホのデータ・内訳・写真の整理", openByDefault = true) {
             SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", storageSummary() + "使う容量の上限・外出先ですぐ開ける期間",
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(), onClick = { open(Dest.LIBRARY) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.AutoAwesomeMosaic, "似ている写真",
-                status?.let { if (it.similarOpen > 0) "${it.similarOpen} 組。残す写真を選べます" else "今はありません（Synologyに新しい写真が入るたびに探します）" }
-                    ?: "連写や加工前後の写真を見つけます", onClick = { open(Dest.SIMILAR) }) { Chevron() }
-            GroupDivider()
-            SettingRow(Icons.Default.DataSaverOn, "空き容量を増やす", "Synologyに保存済みの写真をスマホから消します",
-                onClick = { open(Dest.FREE_UP) }) { Chevron() }
-            GroupDivider()
-            SettingRow(Icons.Default.CleaningServices, "写真の整理", "同じ写真・スクリーンショット・大きい動画・ぼやけた写真",
-                onClick = { open(Dest.ORGANIZE) }) { Chevron() }
-            GroupDivider()
-            SettingRow(Icons.Default.Delete, "ゴミ箱", "消した写真は30日間ここから戻せます", onClick = { open(Dest.TRASH) }) { Chevron() }
+            // one door for tidying up: similar / same photos, suggestions, free space and the trash are inside
+            SettingRow(Icons.Default.CleaningServices, "写真の整理",
+                (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
+                    "同じ写真・スクリーンショット・空き容量・ゴミ箱", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
         }
 
         CollapsibleGroup("migration", "Googleフォトからの移行", "移行の手順・反映状況・Googleフォトを空にする", openByDefault = false) {
@@ -632,10 +625,12 @@ fun NasListBanner(modifier: Modifier = Modifier) {
     val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(com.photohub.app.data.SyncWorker.ONCE)
         .collectAsState(initial = emptyList())
     val w = work.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: return
-    Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
-        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
-        Text(w.progress.getString("msg") ?: "Synologyの写真の一覧を確認中…", style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp))
+        Text(w.progress.getString("msg") ?: "Synologyの写真の一覧を確認中…", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+            modifier = Modifier.padding(top = 4.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f), RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 4.dp))
     }
 }
 
