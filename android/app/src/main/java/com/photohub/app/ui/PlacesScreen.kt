@@ -12,6 +12,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +49,16 @@ fun SynologyPlacesScreen() {
     var f by remember { mutableStateOf<MyFolders?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var pick by remember { mutableStateOf<String?>(null) }   // "backup" / "drive"
-    suspend fun load() { f = try { app.net.api()?.myFolders() } catch (e: Exception) { null } }
+    var why by remember { mutableStateOf("読み込み中…") }
+    suspend fun load() {
+        val api = app.net.api()
+        if (api == null) { why = "Synologyにつながりません。自宅のWi-Fiか、外出先ならTailscaleをオンにしてください。"; return }
+        f = try { api.myFolders() } catch (e: retrofit2.HttpException) {
+            why = if (e.code() == 404) "Synology側（サーバー）が古い版です。新しい版に更新してください（導入ガイド「サーバー（Synology側）を新しい版にする」）。更新できたかは「更新と共有」→「Synology側の版」で確かめられます。"
+                  else "Synologyでエラーが出ました（${e.code()}）"
+            null
+        } catch (e: Exception) { why = "Synologyにつながりません（${e.message}）"; null }
+    }
     LaunchedEffect(Unit) { load() }
     fun save(body: MySettings) = scope.launch {
         error = try { app.net.api()!!.setMySettings(body); load(); null } catch (e: Exception) { "保存できませんでした（${e.message}）" }
@@ -56,7 +68,7 @@ fun SynologyPlacesScreen() {
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
         val cur = f
         if (cur == null) {
-            Text("Synologyにつながると表示されます", modifier = Modifier.padding(20.dp))
+            Text(why, modifier = Modifier.padding(20.dp))
             return@Column
         }
         SectionTitle("このスマホから送った写真の保存先")
@@ -85,6 +97,9 @@ fun SynologyPlacesScreen() {
 
         SectionTitle("Googleから取り込んだ写真の保存先")
         Group { PlaceSetting() }
+
+        SectionTitle("Synology Photosのアルバム")
+        Group { PhotosLinkRows() }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp)) }
     }
 
@@ -125,5 +140,51 @@ private fun FolderLine(label: String, depth: Int, on: Boolean, onClick: () -> Un
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         RadioButton(on, onClick)
         Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+
+/** Link to Synology Photos albums: status, a read-only connection check whose report can be copied, unlink. */
+@Composable
+fun PhotosLinkRows() {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = rememberCoroutineScope()
+    var linked by remember { mutableStateOf<Boolean?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { linked = try { app.net.api()?.me()?.photosLinked } catch (e: Exception) { null } }
+    SettingRow(Icons.Default.PhotoAlbum, "アルバムの同期",
+        when (linked) {
+            true -> "連携しています（パスワードは暗号化してSynologyに保存）"
+            false -> "連携していません。ログアウトして、ログイン画面で「Synology Photosのアルバムも同期する」にチェックを入れてログインし直してください"
+            null -> "Synologyにつながると表示されます"
+        })
+    if (linked == true) {
+        GroupDivider()
+        SettingRow(Icons.Default.NetworkCheck, if (busy) "確かめています…" else "接続を確かめる",
+            "Synology Photosのアルバムを読み取れるか確かめます（何も変えません）。結果をコピーしてClaudeに送ってください",
+            enabled = !busy, onClick = {
+                busy = true
+                scope.launch {
+                    report = try { app.net.api()!!.synologyProbe().let { (if (it.ok) "OK\n" else "NG\n") + it.report } }
+                        catch (e: Exception) { "失敗: ${e.message}" }
+                    busy = false
+                }
+            })
+        GroupDivider()
+        SettingRow(Icons.Default.LinkOff, "連携をやめる", "保存したパスワードを消します", onClick = {
+            scope.launch { try { app.net.api()!!.synologyUnlink(); linked = false } catch (_: Exception) {} }
+        })
+    }
+    report?.let { text ->
+        AlertDialog(onDismissRequest = { report = null }, title = { Text("接続の確認結果") },
+            text = { LazyColumn(Modifier.heightIn(max = 420.dp)) { item { Text(text, style = MaterialTheme.typography.bodySmall) } } },
+            confirmButton = { TextButton({
+                val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub", text))
+                report = null
+            }) { Text("コピーして閉じる") } },
+            dismissButton = { TextButton({ report = null }) { Text("閉じる") } })
     }
 }

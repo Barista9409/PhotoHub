@@ -42,7 +42,8 @@ private data class RedeemResult(val token: String, val user: String, val admin: 
 class SetupFailed(message: String, val needOtp: Boolean = false) : Exception(message)
 
 @Serializable
-private data class LoginBody(val username: String, val password: String, val otp: String? = null, val device: String)
+private data class LoginBody(val username: String, val password: String, val otp: String? = null, val device: String,
+                             @kotlinx.serialization.SerialName("link_photos") val linkPhotos: Boolean = false)
 
 @Serializable
 private data class ErrorBody(val detail: String = "")
@@ -52,10 +53,10 @@ object Setup {
     private val http = OkHttpClient.Builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
 
     /** DSM user name + password (the ones used for Synology Photos). Returns the person's name. */
-    suspend fun login(app: PhotoHubApp, base: String, username: String, password: String, otp: String?): String =
+    suspend fun login(app: PhotoHubApp, base: String, username: String, password: String, otp: String?, linkPhotos: Boolean = false): String =
         withContext(Dispatchers.IO) {
             val body = json.encodeToString(LoginBody.serializer(),
-                LoginBody(username.trim(), password, otp?.trim()?.ifBlank { null }, "${Build.MANUFACTURER} ${Build.MODEL}"))
+                LoginBody(username.trim(), password, otp?.trim()?.ifBlank { null }, "${Build.MANUFACTURER} ${Build.MODEL}", linkPhotos))
             val req = Request.Builder().url("$base/api/login").post(body.toRequestBody("application/json".toMediaType())).build()
             val r = try {
                 http.newCall(req).execute().use { resp ->

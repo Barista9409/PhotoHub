@@ -20,7 +20,7 @@ NOT_ALLOWED = {"admin", "guest"}
 
 
 def check_password(settings: Settings, username: str, password: str, otp: str | None = None,
-                   who: dict | None = None) -> str:
+                   who: dict | None = None, device_token: str | None = None) -> str:
     """'ok' or a reason (see RESULT; 'unreachable' when DSM does not answer).
     With `who`, also fills in the real DSM user name ("name") and e-mail ("email"):
     DSM accepts an e-mail address as the login name, but folders are named after the user name."""
@@ -28,6 +28,11 @@ def check_password(settings: Settings, username: str, password: str, otp: str | 
             "passwd": password, "session": "PhotoHubLogin", "format": "sid"}
     if otp:
         data["otp_code"] = otp
+    if who is not None and "remember" in who:
+        # ask DSM for a device token, so PhotoHub can log in again later without the 2-step code
+        data.update({"enable_device_token": "yes", "device_name": "PhotoHub"})
+    if device_token:
+        data["device_id"] = device_token
     try:
         with httpx.Client(base_url=dsm_url(settings), verify=settings.dsm_verify_tls, timeout=20) as c:
             body = c.post("/webapi/entry.cgi", data=data).json()
@@ -35,6 +40,9 @@ def check_password(settings: Settings, username: str, password: str, otp: str | 
                 sid = (body.get("data") or {}).get("sid")
                 if who is not None:
                     who.update(_identity(c, sid or ""))
+                    did = (body.get("data") or {}).get("did")
+                    if did:
+                        who["did"] = did
                 try:
                     c.post("/webapi/entry.cgi", data={"api": "SYNO.API.Auth", "version": "6", "method": "logout",
                                                       "session": "PhotoHubLogin", "_sid": sid or ""})
@@ -75,13 +83,14 @@ def _identity(c: httpx.Client, sid: str) -> dict:
 
 
 def login(db: Database, settings: Settings, username: str, password: str, otp: str | None,
-          device: str | None) -> tuple[str, dict | None]:
+          device: str | None, link_photos: bool = False) -> tuple[str, dict | None]:
     """Returns (status, result). status 'ok' -> result has token/user/admin."""
     username = (username or "").strip()
     if not username or username.lower() in NOT_ALLOWED:
         return "denied", None
-    who: dict = {}
+    who: dict = {"remember": True} if link_photos else {}
     status = check_password(settings, username, password, otp, who=who)
+    who.pop("remember", None)
     if status != "ok":
         return status, None
     name = who.get("name") or username
@@ -114,5 +123,10 @@ def login(db: Database, settings: Settings, username: str, password: str, otp: s
         import threading
         from .prescan import refresh_index
         threading.Thread(target=lambda: refresh_index(db, settings, u), daemon=True, name="first-scan").start()
+    if link_photos:
+        from .vault import seal
+        with db.session() as s:
+            s.get(User, u.id).dsm_secret = seal(settings, {"account": username, "password": password,
+                                                           "did": who.get("did")})
     token = issue_device_token(db, u.id, device)
     return "ok", {"token": token, "user": u.name, "admin": u.is_admin}

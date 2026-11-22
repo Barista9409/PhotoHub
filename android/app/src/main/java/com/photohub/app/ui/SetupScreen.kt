@@ -58,6 +58,7 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
+    var linkPhotos by remember { mutableStateOf(true) }
     var needOtp by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -113,20 +114,26 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
                     OutlinedTextField(otp, { otp = it }, label = { Text("2段階認証のコード（6桁）") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), modifier = Modifier.fillMaxWidth())
                 }
+                androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(linkPhotos, { linkPhotos = it })
+                    Text("Synology Photosのアルバムも同期する（パスワードを暗号化してSynologyに保存）",
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Button(enabled = !busy && user.isNotBlank() && pass.isNotEmpty(), modifier = Modifier.fillMaxWidth().height(52.dp),
                     onClick = {
                         busy = true
                         message = null
                         scope.launch {
                             try {
-                                finished(Setup.login(app, base!!, user, pass, if (needOtp) otp else null))
+                                finished(Setup.login(app, base!!, user, pass, if (needOtp) otp else null, linkPhotos))
                             } catch (e: SetupFailed) {
                                 if (e.needOtp) needOtp = true
                                 message = e.message
                             } finally { busy = false }
                         }
                     }) { Text("ログイン") }
-                Text("パスワードはPhotoHubに保存されません。Synologyで確かめたあと、このスマホ専用の鍵だけを受け取ります。",
+                Text(if (linkPhotos) "パスワードは暗号化して、自宅のSynologyの中だけに保存します（アルバムの同期に使います）。設定からいつでも消せます。"
+                    else "パスワードはPhotoHubに保存されません。Synologyで確かめたあと、このスマホ専用の鍵だけを受け取ります。",
                     style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             }
         }

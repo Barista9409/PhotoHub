@@ -42,6 +42,7 @@ class Login(BaseModel):
     password: str
     otp: str | None = None
     device: str | None = None
+    link_photos: bool = False  # keep the password (encrypted) to sync Synology Photos albums
 
 
 class MySettings(BaseModel):
@@ -118,7 +119,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         recent = [t for t in fails.get(ip, []) if time.time() - t < 600]
         if len(recent) >= 10:
             raise HTTPException(429, "too many attempts")
-        status_, res = login(db, settings, body.username, body.password, body.otp, body.device)
+        status_, res = login(db, settings, body.username, body.password, body.otp, body.device, body.link_photos)
         if status_ != "ok":
             if status_ not in ("otp_required", "unreachable", "need_username"):
                 fails[ip] = recent + [time.time()]
@@ -300,6 +301,19 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         from .incoming import have
         return have(db, user, body.hashes)
 
+    @app.post("/api/me/synology-probe")
+    def synology_probe(user: User = Depends(auth)) -> dict:
+        """Log in to Synology Photos as this person and report what its album APIs return (read only).
+        Used once to confirm the undocumented API on this NAS before albums are synced."""
+        from .photos_link import probe
+        return probe(settings, user)
+
+    @app.delete("/api/me/synology-link")
+    def synology_unlink(user: User = Depends(auth)) -> dict:
+        with db.session() as s:
+            s.get(User, user.id).dsm_secret = None
+        return {"ok": True}
+
     @app.post("/api/drive-removed")
     def drive_removed_files(body: Hashes, user: User = Depends(auth)) -> dict:
         """The phone removed these from Google Drive; tidy the Synology's copy of the Drive folder."""
@@ -311,7 +325,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         return {"id": user.id, "name": user.name, "admin": user.is_admin, "takeout_target": user.takeout_target,
                 # False = their Synology Photos folder (/homes/<name>/Photos) is not there: log in again
                 "photo_folder": bool(user.personal_root and Path(user.personal_root).is_dir()),
-                "backup_dir": user.backup_dir or ""}
+                "backup_dir": user.backup_dir or "",
+                "photos_linked": bool(user.dsm_secret)}
 
     @app.get("/api/status")
     def status(user: User = Depends(auth)) -> dict:

@@ -44,7 +44,11 @@ data class SyncPage(val items: List<SyncItem>, val albums: List<SyncAlbum>, val 
 
 @Serializable
 data class Me(val id: Long, val name: String, val admin: Boolean = false, @SerialName("takeout_target") val takeoutTarget: String = "personal",
-              @SerialName("photo_folder") val photoFolder: Boolean = true)
+              @SerialName("photo_folder") val photoFolder: Boolean = true,
+              @SerialName("photos_linked") val photosLinked: Boolean = false)
+
+@Serializable
+data class ProbeResult(val ok: Boolean = false, val report: String = "")
 
 @Serializable
 data class MySettings(
@@ -170,6 +174,8 @@ interface PhotoHubApi {
     @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status
     @GET("api/me/folders") suspend fun myFolders(): MyFolders
+    @POST("api/me/synology-probe") suspend fun synologyProbe(): ProbeResult
+    @retrofit2.http.DELETE("api/me/synology-link") suspend fun synologyUnlink(): Map<String, Boolean>
     @POST("api/drive-removed") suspend fun driveRemoved(@Body body: HashesBody): Map<String, Int>
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>

@@ -112,7 +112,7 @@ def test_admin_only_for_shared_and_events(settings, db, family):
     assert c.get("/api/events", headers=h_chie).status_code == 403
     assert c.get("/api/events", headers=h_reo).status_code == 200
     assert c.post("/api/amazon/heartbeat", headers=h_chie).status_code == 403
-    assert {k: v for k, v in c.get("/api/me", headers=h_chie).json().items() if k not in ("photo_folder", "backup_dir")} == {"id": chie.id, "name": "chie", "admin": False,
+    assert {k: v for k, v in c.get("/api/me", headers=h_chie).json().items() if k not in ("photo_folder", "backup_dir", "photos_linked")} == {"id": chie.id, "name": "chie", "admin": False,
                                                        "takeout_target": "personal"}
 
 
@@ -211,7 +211,7 @@ def test_dsm_login(settings, db, monkeypatch):
     from photohub import dsm_login
     users = {"reo": ("pw-reo", None), "chie": ("pw-chie", "123456")}  # chie uses 2-step verification
 
-    def fake_check(_settings, username, password, otp=None, who=None):
+    def fake_check(_settings, username, password, otp=None, who=None, device_token=None):
         if username not in users or users[username][0] != password:
             return "bad_password"
         need = users[username][1]
@@ -315,7 +315,7 @@ def test_login_with_email_finds_the_dsm_user_name(settings, db, monkeypatch):
     from photohub.api import create_app
     from photohub.users import add_user
 
-    def fake_check(settings, username, password, otp=None, who=None):
+    def fake_check(settings, username, password, otp=None, who=None, device_token=None):
         if who is not None and username in ("reo@example.com", "reo"):
             who.update({"name": "reo", "email": "reo@example.com"})
         return "ok"
@@ -334,7 +334,7 @@ def test_login_with_email_finds_the_dsm_user_name(settings, db, monkeypatch):
     # logging in with the user name afterwards is the same person
     assert c.post("/api/login", json={"username": "reo", "password": "pw"}).json()["user"] == "reo"
 
-    def no_name(settings, username, password, otp=None, who=None):
+    def no_name(settings, username, password, otp=None, who=None, device_token=None):
         return "ok"
     monkeypatch.setattr(dsm_login, "check_password", no_name)
     assert c.post("/api/login", json={"username": "mio@example.com", "password": "pw"}).json()["detail"] == "need_username"
@@ -359,3 +359,48 @@ def test_dsm_identity_from_fake_dsm(settings, monkeypatch):
     who: dict = {}
     assert dsm_login.check_password(settings, "reo@example.com", "pw", who=who) == "ok"
     assert who["name"] == "reo"
+
+
+def test_link_photos_keeps_the_login_encrypted_and_probe_reports(settings, db, monkeypatch):
+    """Agreed in the app: the login is kept encrypted (never in plain text) and the probe logs in with it."""
+    import httpx
+    from fastapi.testclient import TestClient
+    from photohub import dsm_login
+    from photohub.api import create_app
+    from photohub.db import User
+
+    def fake_check(settings, username, password, otp=None, who=None, device_token=None):
+        if who is not None:
+            who.update({"name": "reo"})
+            if "remember" in who:
+                who["did"] = "DEV1"
+        return "ok"
+    monkeypatch.setattr(dsm_login, "check_password", fake_check)
+    c = TestClient(create_app(settings, db))
+    r = c.post("/api/login", json={"username": "reo", "password": "s3cret!", "link_photos": True}).json()
+    h = {"Authorization": f"Bearer {r['token']}"}
+    with db.session() as s:
+        secret = s.execute(select(User)).scalar_one().dsm_secret
+    assert secret and "s3cret!" not in secret
+    assert c.get("/api/me", headers=h).json()["photos_linked"] is True
+
+    seen = []
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("query.cgi"):
+            return httpx.Response(200, json={"success": True, "data": {"SYNO.Foto.Browse.Album": {"minVersion": 1, "maxVersion": 2}}})
+        form = dict(x.split("=", 1) for x in req.content.decode().split("&"))
+        seen.append((form["api"], form["method"], form.get("device_id")))
+        if form["api"] == "SYNO.API.Auth":
+            return httpx.Response(200, json={"success": True, "data": {"sid": "S"}})
+        if form["api"] == "SYNO.Foto.Browse.Album" and "category" not in form:
+            return httpx.Response(200, json={"success": True, "data": {"list": [{"id": 7, "name": "Trip"}]}})
+        if form["api"] == "SYNO.Foto.Browse.Item":
+            return httpx.Response(200, json={"success": True, "data": {"list": [{"id": 1, "filename": "a.jpg", "folder_id": 3}]}})
+        return httpx.Response(200, json={"success": False, "error": {"code": 103}})
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    p = c.post("/api/me/synology-probe", headers=h).json()
+    assert p["ok"] and '"Trip"' in p["report"] and "first_album_items" in p["report"]
+    assert ("SYNO.API.Auth", "login", "DEV1") in seen  # no 2-step code needed again
+    assert c.delete("/api/me/synology-link", headers=h).json()["ok"]
+    assert c.get("/api/me", headers=h).json()["photos_linked"] is False
