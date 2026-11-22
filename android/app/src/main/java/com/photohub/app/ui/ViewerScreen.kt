@@ -228,7 +228,11 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                                     "大きさ：${str(j["bytes"])} バイト（一覧では ${str(j["indexed_bytes"])}）",
                                     "長さ：${str(fmt?.get("duration"))} 秒・${str(fmt?.get("format_name"))}",
                                     "目次が先頭：${if (str(j["faststart"]) == "true") "はい" else "いいえ（最後）"}",
-                                    "すぐ再生できるコピー：${if (str(j["ready_copy"]) == "true") "あり" else "まだ"}",
+                                    "すぐ再生できるコピー：" + when {
+                                        str(j["ready_copy"]) == "true" -> "あり"
+                                        str(j["copy_needed"]) == "false" -> "不要（この動画はそのまま再生できる形です）"
+                                        else -> "まだ（Synologyが1時間ごとに、新しい動画から順に作ります）"
+                                    },
                                     streams, str(j["errors"])?.takeIf { it.isNotBlank() }?.let { "エラー：$it" } ?: "")
                                     .filter { it.isNotBlank() }.joinToString("\n")
                             } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "調べられませんでした（HTTP ${e.code()}）" }

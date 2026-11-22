@@ -841,6 +841,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             info = {}
         return {"exists": True, "bytes": p.stat().st_size, "indexed_bytes": m.bytes, "path": str(p),
                 "faststart": playable.is_faststart(p), "ready_copy": playable.path_for(settings, m).exists(),
+                "copy_needed": playable.wants_copy(m),
                 "streams": info.get("streams", []), "format": info.get("format", {}), "errors": r.stderr[-600:]}
 
     @app.head("/api/playable/{content_hash}")
