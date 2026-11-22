@@ -7,6 +7,7 @@ results show up in the job history / events, which is how the first run on real 
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta
@@ -144,9 +145,19 @@ def serve(settings: Settings, db: Database) -> None:
     log.info("PhotoHub starting (apply=%s, library=%s)", settings.apply, settings.library)
     with db.session() as s:
         log_event(s, "info", "daemon_start", f"apply={settings.apply}")
-    Service(settings, db).start_background()
+    sch = Service(settings, db).start_background()
     from .netinfo import Advertiser, lan_url, remote_url
     adv = Advertiser(settings)
     log.info("home address %s, Tailscale address %s, mDNS %s", lan_url(settings) or "?",
              remote_url(settings) or "none", "on" if adv.start() else "off")
     uvicorn.run(create_app(settings, db), host=settings.api_host, port=settings.api_port, log_level="info")
+    # Stop right away when Container Manager stops the container: a scan or import that is running
+    # would otherwise keep the process alive until it finishes. All work resumes on the next start
+    # (scans skip what is already indexed, imports are re-run safely).
+    log.info("PhotoHub stopping")
+    try:
+        sch.shutdown(wait=False)
+    except Exception:  # noqa: BLE001
+        pass
+    logging.shutdown()
+    os._exit(0)
