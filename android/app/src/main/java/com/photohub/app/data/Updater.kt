@@ -220,9 +220,9 @@ class Updater(private val app: PhotoHubApp) {
 
         fun schedule(ctx: Context) {
             val req = PeriodicWorkRequestBuilder<UpdateWorker>(12, TimeUnit.HOURS)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build())
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("photohub-update", ExistingPeriodicWorkPolicy.KEEP, req)
+            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork("photohub-update", ExistingPeriodicWorkPolicy.UPDATE, req)
         }
     }
 }
@@ -232,6 +232,7 @@ class UpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
     override suspend fun doWork(): Result {
         val app = applicationContext as PhotoHubApp
         if (!app.prefs.current().autoUpdate) return Result.success()
+        if (app.net.isMetered()) return Result.success()   // Wi-Fi only (checked past the VPN)
         val u = app.updater
         val r = u.check() ?: return Result.success()
         val file = (u.state.value as? Updater.State.Ready)?.file ?: u.download(r) ?: return Result.retry()

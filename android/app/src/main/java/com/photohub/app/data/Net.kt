@@ -37,8 +37,17 @@ class Net(private val ctx: Context, private val prefs: Prefs) {
     private val probeClient = OkHttpClient.Builder()
         .connectTimeout(1500, TimeUnit.MILLISECONDS).readTimeout(3, TimeUnit.SECONDS).build()
 
+    /**
+     * Whether the phone is really on mobile data. Looks past a VPN (Tailscale always on): Android
+     * treats a VPN as metered, which would make "Wi-Fi only" work wait forever even on Wi-Fi.
+     */
+    @Suppress("DEPRECATION")
     fun isMetered(): Boolean {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
+        val real = cm.allNetworks.mapNotNull { cm.getNetworkCapabilities(it) }
+            .filter { !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) }
+        if (real.any { it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) }) return false
+        if (real.any { it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) }) return true
         return cm.isActiveNetworkMetered
     }
 

@@ -107,8 +107,14 @@ fun DownloadBanner() {
             else androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
         }
     } else if (waiting > 0) {
-        Text("保存はWi-Fiにつながるのを待っています（モバイル回線では保存しない設定です）", style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.fillMaxWidth().background(bg).padding(horizontal = 16.dp, vertical = 8.dp))
+        Row(Modifier.fillMaxWidth().background(bg).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(when (DownloadWorker.waitReason(ctx)) {
+                    "nas" -> "Synologyにつながらないため、少し待ってやり直します（外出先ではTailscaleがオンか確かめてください）"
+                    "wifi" -> "保存はWi-Fiにつながるのを待っています（モバイル回線では保存しない設定です）"
+                    else -> "保存の順番を待っています"
+                }, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            TextButton({ wm.cancelUniqueWork(DownloadWorker.UNIQUE) }) { Text("取り消す") }
+        }
     } else if (finished != null) {
         Row(Modifier.fillMaxWidth().background(bg).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(finished.outputData.getString("msg") ?: "保存が終わりました", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))

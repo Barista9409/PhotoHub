@@ -151,7 +151,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
         fun schedule(ctx: Context) {
             val c = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.UNMETERED)
+                .setRequiredNetworkType(NetworkType.CONNECTED)   // home Wi-Fi is checked in doWork (a VPN counts as metered)
                 .setRequiresCharging(true)
                 .build()
             val req = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)

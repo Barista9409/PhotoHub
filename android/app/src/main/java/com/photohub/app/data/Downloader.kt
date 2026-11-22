@@ -31,7 +31,9 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val folder = (inputData.getString(KEY_FOLDER) ?: "PhotoHub").replace(Regex("""[\\/:*?"<>|]"""), "_").take(60)
         val dest = inputData.getString(KEY_DEST) ?: "pictures"
         val hashes = list.readLines().filter { it.isNotBlank() }
-        val base = app.net.baseUrl(force = true) ?: return Result.retry()
+        if (app.net.isMetered() && !app.prefs.current().backupOnMobile) { waitReason(applicationContext, "wifi"); return Result.retry() }
+        val base = app.net.baseUrl(force = true) ?: run { waitReason(applicationContext, "nas"); return Result.retry() }
+        waitReason(applicationContext, "")
         val client = app.net.client(app.prefs.current().token).newBuilder().readTimeout(10, TimeUnit.MINUTES).build()
         var done = 0; var saved = 0; var failed = 0
         for (h in hashes) {
@@ -63,6 +65,12 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         const val KEY_LIST = "list"; const val KEY_FOLDER = "folder"; const val KEY_DONE = "done"; const val KEY_TOTAL = "total"
         const val KEY_DEST = "dest"
+
+        /** Why a download is waiting: "wifi" (mobile data not allowed) / "nas" (Synology not reachable) / "". */
+        fun waitReason(ctx: Context, r: String) =
+            ctx.getSharedPreferences("photohub_ui", Context.MODE_PRIVATE).edit().putString("download_wait", r).apply()
+        fun waitReason(ctx: Context): String =
+            ctx.getSharedPreferences("photohub_ui", Context.MODE_PRIVATE).getString("download_wait", "") ?: ""
 
         /** Where downloads go: "pictures" / "dcim" / "download" (all under …/PhotoHub/<name>) or "tree:<uri>" (a chosen folder). */
         fun destLabel(dest: String, folder: String): String = when {
@@ -110,7 +118,9 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             val mobileOk = kotlinx.coroutines.runBlocking { app.prefs.current().backupOnMobile }
             val req = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setInputData(workDataOf(KEY_LIST to f.absolutePath, KEY_FOLDER to folder, KEY_DEST to dest))
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(if (mobileOk) NetworkType.CONNECTED else NetworkType.UNMETERED).build())
+                // not Android's "unmetered" (a VPN such as Tailscale always counts as metered): checked in doWork
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(androidx.work.BackoffPolicy.LINEAR, 2, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(ctx).enqueueUniqueWork(UNIQUE, ExistingWorkPolicy.APPEND_OR_REPLACE, req)
             return want.size
