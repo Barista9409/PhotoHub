@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Build
@@ -95,6 +96,14 @@ import com.photohub.app.data.api.Status
 
 /** Link that always downloads the newest app (a fixed-name copy attached to every release). */
 val APP_DOWNLOAD_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/latest/download/PhotoHub.apk"
+
+/** The setup guide (docs/setup.md), always the latest version, opened in the browser. */
+const val GUIDE_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/blob/main/docs/setup.md"
+
+fun openGuide(ctx: android.content.Context) {
+    try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(GUIDE_URL))) }
+    catch (_: Exception) { Toast.makeText(ctx, "ブラウザを開けませんでした", Toast.LENGTH_SHORT).show() }
+}
 
 /** Where the account hub's rows lead. */
 enum class Dest(val route: String, val title: String) {
@@ -251,10 +260,13 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        CollapsibleGroup("app", "アプリ", "更新・家族に送る・動作の記録", openByDefault = false) {
+        CollapsibleGroup("app", "アプリ", "更新・家族に送る・使い方・動作の記録", openByDefault = false) {
             SettingRow(Icons.Default.SystemUpdate, "更新・家族に送る",
                 when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・Synology側の版" },
                 onClick = { open(Dest.APP) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方（導入ガイド）", "Synologyの準備・家族の始め方・困ったとき（いつも最新版）",
+                onClick = { openGuide(ctx) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.BugReport, "動作の記録", "止まった・失敗した・遅かった処理（家族のスマホ全部）",
                 onClick = { open(Dest.LOGS) }) { Chevron() }

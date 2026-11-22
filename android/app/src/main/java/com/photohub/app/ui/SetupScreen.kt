@@ -158,5 +158,7 @@ fun SetupScreen(pendingLink: String?, onDone: () -> Unit) {
                 }
             }) { Text("このアドレスを使う") }
         }
+        // the setup guide (how to get the Synology ready, what to do first)
+        androidx.compose.material3.TextButton({ openGuide(ctx) }) { Text("導入ガイドを見る") }
     }
 }
