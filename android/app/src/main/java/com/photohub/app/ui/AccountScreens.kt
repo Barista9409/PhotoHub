@@ -106,7 +106,6 @@ enum class Dest(val route: String, val title: String) {
     DEVICE("device", "このスマホの容量"),
     APP("app", "更新・家族に送る"),
     LIBRARY("library", "ライブラリの内訳"),
-    FREE_UP("free_up", "空き容量を増やす"),
     TAKEOUT("takeout", "取り込みの状況"),
     PLACES("places", "Synologyの保存場所"),
     ORGANIZE("organize", "写真の整理とゴミ箱"),
@@ -226,7 +225,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             // one door for tidying up: similar / same photos, suggestions, free space and the trash are inside
             SettingRow(Icons.Default.CleaningServices, "写真の整理とゴミ箱",
                 (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
-                    "同じ写真・スクリーンショット・空き容量・ゴミ箱", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
+                    "同じ写真・スクリーンショット・日付直し・空き容量・ゴミ箱", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PhoneAndroid, "このスマホの容量", storageSummary() + "上限・外出先ですぐ開ける期間",
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
@@ -235,13 +234,13 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         }
 
         CollapsibleGroup("migration", "Googleフォトからの移行", "手順・取り込みの状況・Googleフォトを空にする", openByDefault = false) {
-            SettingRow(Icons.Default.PhotoLibrary, "1. 移行の手順", "Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
+            SettingRow(Icons.Default.PhotoLibrary, "移行の手順", "はじめに：Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "2. 取り込みの状況", "進み具合・結果・取り込んだZIPの削除",
+            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "取り込みの状況", "進み具合・結果・取り込んだZIPの削除",
                 onClick = { open(Dest.TAKEOUT) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.TaskAlt, "3. Googleフォトを空にする", "Synologyに保存済みか確かめてから、月ごとに案内します",
+            SettingRow(Icons.Default.TaskAlt, "Googleフォトを空にする", "最後に：Synologyに保存済みか確かめてから、月ごとに案内します",
                 onClick = { open(Dest.CLEANUP) }) { Chevron() }
         }
 
@@ -316,7 +315,7 @@ fun DriveBackupScreen() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        SectionTitle("状況")
+        SectionTitle("今すぐ実行")
         Group { if (rememberBackupLive().running) BackupProgress(rememberBackupLive(), only = "drive") else RunNowRow() }
     }
 }
@@ -335,8 +334,6 @@ fun DeviceScreen() {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
         Text("Synologyの写真を外出先でもすぐ見られるよう、一覧と縮小画像をこのスマホに持っています。自宅のWi-Fiで充電中に自動で更新します。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
-        SectionTitle("Synologyの写真の一覧")
-        Group { ReceiveRow() }
         SectionTitle("使う容量")
         Group {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -347,21 +344,10 @@ fun DeviceScreen() {
                 StorageUsage()
             }
         }
+        SectionTitle("Synologyの写真の一覧")
+        Group { ReceiveRow() }
         SectionTitle("困ったとき")
         Group {
-            SettingRow(Icons.Default.Event, "日付のおかしい写真を直す",
-                "「Synologyに届いた日」の日付になった写真を、ファイル名などの手がかりから直します。手がかりがない写真は、選んで「日付を変更」で直せます",
-                onClick = {
-                    scope.launch {
-                        val msg = try {
-                            val r = app.net.api()!!.repairDates()
-                            "ファイル名から ${r["from_name"] ?: 0} 枚・ファイルの中の日付から ${r["from_inside"] ?: 0} 枚・ファイルの日付から ${r["from_file"] ?: 0} 枚を直しました。手がかりなし ${r["no_clue"] ?: 0} 枚（Googleドライブに残っている日付からも、同期のたびに直します）"
-                        } catch (e: Exception) { "直せませんでした（${e.message}）" }
-                        SyncWorker.runNow(ctx)
-                        Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
-                    }
-                })
-            GroupDivider()
             SettingRow(Icons.Default.Build, "一覧を作り直す", "表示がおかしいときに。自宅のWi-Fiで行ってください", onClick = {
                 scope.launch { app.prefs.resetCursor(); app.delta.clear(); app.db.media().clearRemote(); SyncWorker.runNow(ctx)
                     Toast.makeText(ctx, "作り直しを始めました", Toast.LENGTH_SHORT).show() }
@@ -485,17 +471,6 @@ fun ReceiveRow() {
         }, enabled = !running, onClick = { SyncWorker.runNow(ctx) })
 }
 
-@Composable
-fun BackupNowRow(only: String? = null, title: String = "今すぐ実行") {
-    val ctx = LocalContext.current
-    val app = ctx.applicationContext as PhotoHubApp
-    val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
-    val live = rememberBackupLive()
-    if (live.running) { BackupProgress(live, only); return }
-    val sub = if (last.first > 0) "前回 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}　${last.second}"
-        else "まだ実行していません"
-    SettingRow(Icons.Default.CloudUpload, title, sub, onClick = { BackupWorker.runNow(ctx); if (only == "nas") SyncWorker.runNow(ctx) })
-}
 
 @Composable
 fun PlaceSetting() {
@@ -518,30 +493,6 @@ fun PlaceSetting() {
     }
 }
 
-@Composable
-fun FreeUpSpaceRow() {
-    val ctx = LocalContext.current
-    val app = ctx.applicationContext as PhotoHubApp
-    val scope = rememberCoroutineScope()
-    var refresh by remember { mutableIntStateOf(0) }
-    var freeable by remember { mutableStateOf<Pair<Int, Long>?>(null) }
-    val olderThan = 30L * 24 * 3600 * 1000
-    LaunchedEffect(refresh) { val l = app.db.media().localOnNas(System.currentTimeMillis() - olderThan); freeable = l.size to l.sumOf { it.size } }
-    val delete = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
-        scope.launch { app.indexer.scan(); refresh++ }
-    }
-    val f = freeable
-    SettingRow(Icons.Default.DataSaverOn, "空き容量を増やす",
-        when { f == null -> "計算中…"; f.first == 0 -> "消せる写真はありません（Synologyに保存済みで30日以上前のもの）"
-            else -> "Synologyに保存済みの写真 ${f.first} 枚（${humanBytes(f.second)}）をスマホから削除。消してもこのアプリで見られます" },
-        enabled = (f?.first ?: 0) > 0 && Build.VERSION.SDK_INT >= 30, onClick = {
-            scope.launch {
-                val uris = app.db.media().localOnNas(System.currentTimeMillis() - olderThan).map { android.net.Uri.parse(it.uri) }
-                if (uris.isNotEmpty()) delete.launch(IntentSenderRequest.Builder(
-                    MediaStore.createDeleteRequest(ctx.contentResolver, uris).intentSender).build())
-            }
-        })
-}
 
 @Composable
 fun UpdateRow() {
@@ -659,7 +610,7 @@ fun DriveToggleRow(onOpen: () -> Unit) {
         scope.launch { if (r.resultCode == Activity.RESULT_OK && app.drive.token() != null) turnOn() else note = "Googleドライブに接続できませんでした" }
     }
     val range = when (cur.driveMode) { "gb" -> "最大 ${cur.driveGb} GB"; "both" -> "直近 ${cur.driveMonths} か月・最大 ${cur.driveGb} GB"; else -> "直近 ${cur.driveMonths} か月" }
-    SettingRow(Icons.Default.Cloud, "最近の写真と動画をGoogleドライブに保存",
+    SettingRow(Icons.Default.Cloud, "Googleドライブにも保存（最近の写真と動画）",
         note ?: if (cur.backupDrive) "$range（押して変更）。古いものは自動で片付けます" else "オフ（押すと範囲を設定できます）",
         onClick = onOpen) {
         androidx.compose.material3.Switch(cur.backupDrive, { on ->
@@ -682,7 +633,7 @@ fun RunNowRow() {
     val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
     val s by app.prefs.settings.collectAsState(initial = null)
     val cur = s ?: return
-    val what = listOfNotNull(if (cur.backupNas) "Synologyと同期" else null, if (cur.backupDrive) "ドライブに保存" else null)
+    val what = listOfNotNull(if (cur.backupNas) "Synologyへの保存" else null, if (cur.backupDrive) "ドライブへの保存" else null)
     SettingRow(Icons.Default.CloudUpload, "今すぐ同期・保存",
         when {
             what.isEmpty() -> "Synologyの写真の一覧だけを受け取ります"
@@ -825,4 +776,25 @@ private fun CrashRow() {
             show = false
         }) { Text("コピー") } },
         dismissButton = { TextButton({ com.photohub.app.CrashLog.clear(ctx); text = null; show = false }) { Text("消す") } })
+}
+
+
+/** Photos dated the day they reached the Synology: fixed from their name, inside or file date. */
+@Composable
+fun DateRepairRow() {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = rememberCoroutineScope()
+    SettingRow(Icons.Default.Event, "日付のおかしい写真を直す",
+        "「Synologyに届いた日」の日付になった写真を、ファイル名などの手がかりから直します。手がかりがない写真は、選んで「日付を変更」で直せます",
+        onClick = {
+            scope.launch {
+                val msg = try {
+                    val r = app.net.api()!!.repairDates()
+                    "ファイル名から ${r["from_name"] ?: 0} 枚・ファイルの中の日付から ${r["from_inside"] ?: 0} 枚・ファイルの日付から ${r["from_file"] ?: 0} 枚を直しました。手がかりなし ${r["no_clue"] ?: 0} 枚（Googleドライブに残っている日付からも、同期のたびに直します）"
+                } catch (e: Exception) { "直せませんでした（${e.message}）" }
+                SyncWorker.runNow(ctx)
+                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+            }
+        })
 }

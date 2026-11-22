@@ -113,7 +113,7 @@ fun SynologyPlacesScreen() {
         SectionTitle("Googleから取り込んだ写真の保存先")
         Group { PlaceSetting() }
 
-        SectionTitle("Synology Photosのアルバム")
+        SectionTitle("Synology Photosのアルバムとの連携")
         Group { PhotosLinkRows() }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp)) }
     }

@@ -89,8 +89,6 @@ fun OrganizeScreen(open: (String) -> Unit) {
     val shots = remember(all) { all.filter(::isScreenshot) }
     val bigVideos = remember(all) { all.filter { it.kind == "video" && it.bytes >= BIG_VIDEO } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        SectionTitle("スマホの空き容量")
-        Group { FreeUpCard() }
         SectionTitle("重なっている写真")
         Group {
             SettingRow(Icons.Default.ContentCopy, "まったく同じ写真が2か所に",
@@ -111,9 +109,13 @@ fun OrganizeScreen(open: (String) -> Unit) {
             GroupDivider()
             SettingRow(Icons.Default.BlurOn, "ぼやけた写真", "ピントが合っていない写真を探します", onClick = { open("suggest/blurry") })
         }
-        Text("選んで右上のゴミ箱を押すと、Synology・ドライブ・スマホのすべてから消えます（30日間はゴミ箱から戻せます）。写真を長押しすると選べます。",
+        Text("選んで上の赤いゴミ箱を押すと、Synology・ドライブ・スマホのすべてから消えます（30日間はゴミ箱から戻せます）。写真を長押しすると選べます。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp))
+        SectionTitle("日付のおかしい写真")
+        Group { DateRepairRow() }
+        SectionTitle("スマホの空き容量")
+        Group { FreeUpCard() }
         SectionTitle("ゴミ箱")
         Group {
             SettingRow(Icons.Default.Delete, "ゴミ箱",
@@ -124,14 +126,6 @@ fun OrganizeScreen(open: (String) -> Unit) {
 }
 
 /** Free up phone space: photos already on the Synology, older than the chosen period. */
-@Composable
-fun FreeUpScreen() {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp)) {
-        Text("Synologyに保存済みの写真だけを、このスマホから消します。消してもこのアプリで見られます（自宅ではSynologyから、外出先ではTailscale経由、ドライブにある分はそこから）。",
-            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 8.dp))
-        Group { FreeUpCard() }
-    }
-}
 
 @Composable
 private fun FreeUpCard() {

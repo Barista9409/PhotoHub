@@ -55,13 +55,13 @@ fun MigrationScreen(open: (Dest) -> Unit = {}) {
             GroupDivider()
             SettingRow(Icons.Default.Inventory2, "3. Synologyが取り込む",
                 "日時と場所を整え、すでにSynologyにある写真とは重複しないよう1枚にまとめます。終わったZIPは自動で削除します（ドライブ側のTakeoutも消えて、ドライブの容量が空きます）",
-                onClick = { open(Dest.IMPORT_LOG) })
+                onClick = { open(Dest.TAKEOUT) })
             GroupDivider()
             SettingRow(Icons.Default.TaskAlt, "4. Googleフォトを空にする",
                 "Synologyに保存済みと確認できた写真を、月ごとに案内します。Googleフォトのアプリで消してください",
                 onClick = { open(Dest.CLEANUP) })
         }
-        Text("取り込みの様子は「Synologyへの取り込み記録」で見られます。30GBで数時間かかります。",
+        Text("取り込みの様子は「取り込みの状況」で見られます（3を押しても開きます）。30GBで数時間かかります。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(20.dp))
     }
