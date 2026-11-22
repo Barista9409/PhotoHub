@@ -112,6 +112,7 @@ enum class Dest(val route: String, val title: String) {
     ORGANIZE("organize", "写真の整理"),
     TRASH("trash", "ゴミ箱"),
     DUPLICATES("duplicates", "まったく同じ写真"),
+    LOGS("logs", "動作の記録"),
 }
 
 @Composable
@@ -243,10 +244,13 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         }
 
         CrashRow()
-        CollapsibleGroup("app", "アプリ", "更新と共有", openByDefault = false) {
+        CollapsibleGroup("app", "アプリ", "更新と共有・動作の記録", openByDefault = false) {
             SettingRow(Icons.Default.SystemUpdate, "更新と共有",
                 when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・家族に送る" },
                 onClick = { open(Dest.APP) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.BugReport, "動作の記録", "止まった・失敗した・遅かった処理（家族のスマホ全部）",
+                onClick = { open(Dest.LOGS) }) { Chevron() }
         }
 
         CollapsibleGroup("account", "アカウント", "外出先からの接続・ログアウト", openByDefault = false) {

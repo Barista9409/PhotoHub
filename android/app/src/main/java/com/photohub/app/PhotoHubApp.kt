@@ -50,6 +50,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
 
     override fun onCreate() {
         super.onCreate()
+        com.photohub.app.data.AppLog.init(this)
         CrashLog.install(this)
         prefs = Prefs(this)
         db = AppDb.build(this)

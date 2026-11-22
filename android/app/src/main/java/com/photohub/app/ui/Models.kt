@@ -25,6 +25,7 @@ object UiState {
     val base: StateFlow<String?> = _base
 
     var viewerItems: List<TimelineItem> = emptyList()
+    var startLogged = false
 
     /** Tapping the tab you are on: the visible photo grid goes back to the top (like Google Photos). */
     val scrollTop = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)

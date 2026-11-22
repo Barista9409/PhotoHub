@@ -75,6 +75,22 @@ data class DateFixItem(@SerialName("file_hash") val fileHash: String, @SerialNam
 data class DateFixBody(val items: List<DateFixItem>)
 
 @Serializable
+data class LogBatch(val device: String, val version: String, val items: List<com.photohub.app.data.AppLog.Item>)
+
+@Serializable
+data class LogSummary(val days: Int = 7, val devices: List<LogDevice> = emptyList(), val stops: List<LogGroup> = emptyList(),
+                      val errors: List<LogGroup> = emptyList(), val timing: List<LogTiming> = emptyList())
+
+@Serializable
+data class LogDevice(val device: String, val version: String? = null, val last: Long = 0, val stops: Int = 0, val errors: Int = 0)
+
+@Serializable
+data class LogGroup(val what: String, val count: Int = 0, val last: Long = 0, val version: String? = null, val sample: String = "")
+
+@Serializable
+data class LogTiming(val name: String, val count: Int = 0, val median: Long = 0, val p95: Long = 0, val max: Long = 0)
+
+@Serializable
 data class AliasList(val items: List<List<String>> = emptyList())
 
 @Serializable
@@ -288,6 +304,8 @@ interface PhotoHubApi {
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>
     @GET("api/sync") suspend fun sync(@Query("cursor") cursor: Long, @Query("limit") limit: Int = 2000): SyncPage
     @GET("api/aliases") suspend fun aliases(): AliasList
+    @POST("api/logs") suspend fun logs(@Body body: LogBatch): Map<String, Int>
+    @GET("api/logs/summary") suspend fun logSummary(@Query("days") days: Int = 7): LogSummary
     @POST("api/thumbs") suspend fun thumbs(@Body body: HashesBody): ResponseBody
     @GET("api/similar") suspend fun similar(@Query("status") status: String = "open"): List<SimilarGroup>
     @POST("api/similar/resolve-all") suspend fun resolveAll(): BulkStatus

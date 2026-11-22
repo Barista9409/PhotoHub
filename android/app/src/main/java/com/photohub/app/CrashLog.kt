@@ -26,6 +26,7 @@ object CrashLog {
                 append(e.stackTraceToString().take(6000))
             }
             file(ctx).writeText(text)
+            com.photohub.app.data.AppLog.crash(e, fatal)
         } catch (_: Exception) {}
     }
 

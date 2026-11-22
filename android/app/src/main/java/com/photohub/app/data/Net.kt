@@ -30,7 +30,20 @@ class Net(private val ctx: Context, private val prefs: Prefs) {
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .addInterceptor { chain ->
-            chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
+            val req = chain.request()
+            val t0 = System.currentTimeMillis()
+            // "/api/thumb/<hash>" -> "/api/thumb/…": one line per kind of request in the summary
+            val path = req.url.encodedPath.replace(Regex("/[0-9a-zA-Z:_-]{20,}.*$"), "/…").replace(Regex("/[0-9]+(?=/|$)"), "/n")
+            try {
+                val r = chain.proceed(req.newBuilder().header("Authorization", "Bearer $token").build())
+                val ms = System.currentTimeMillis() - t0
+                if (r.code >= 500) AppLog.error("Synology $path: HTTP ${r.code}")
+                if (ms > 3000 && !path.startsWith("/api/upload") && !path.startsWith("/api/original")) AppLog.time("遅い通信 $path", ms)
+                r
+            } catch (e: java.io.IOException) {
+                AppLog.error("Synology $path: つながらない", e)
+                throw e
+            }
         }
         .build()
 

@@ -289,7 +289,7 @@ class BackupEngine(private val app: PhotoHubApp) {
                 inDrive[m.fileHash!!] = f
                 app.db.media().upsertDrive(listOf(f))
                 sent++
-            } catch (e: Exception) { /* next run */ }
+            } catch (e: Exception) { AppLog.error("ドライブへの保存", e) /* next run */ }
         }
         // tidy: outside the window AND safely on the Synology
         var removed = 0
@@ -315,9 +315,7 @@ class BackupEngine(private val app: PhotoHubApp) {
         return DriveOut(sent, removed)
     }
 
-    private fun deviceName(): String =
-        android.provider.Settings.Global.getString(app.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
-            ?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL
+    private fun deviceName(): String = deviceName(app)
 
     private fun uploadToNas(m: LocalMedia): Boolean {
         val base = kotlinx.coroutines.runBlocking { app.net.baseUrl() } ?: return false
@@ -331,8 +329,11 @@ class BackupEngine(private val app: PhotoHubApp) {
             .post(streamBody(app, Uri.parse(m.uri), m.mime ?: "application/octet-stream", m.size)).build()
         return try {
             app.net.client(app.token).newBuilder().readTimeout(10, TimeUnit.MINUTES).writeTimeout(10, TimeUnit.MINUTES)
-                .build().newCall(req).execute().use { it.isSuccessful }
-        } catch (e: Exception) { false }
+                .build().newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) AppLog.error("Synologyへの送信: HTTP ${r.code}")
+                    r.isSuccessful
+                }
+        } catch (e: Exception) { AppLog.error("Synologyへの送信", e); false }
     }
 }
 
@@ -368,6 +369,7 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             SyncWorker.runNow(applicationContext)  // marks (NAS / Drive) refresh
             androidx.work.ListenableWorker.Result.success()
         } catch (e: Exception) {
+            AppLog.error("バックアップ", e)
             app.prefs.setLastBackup(System.currentTimeMillis(), "失敗: ${e.message?.take(120)}")
             androidx.work.ListenableWorker.Result.retry()
         }
@@ -412,3 +414,8 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         }
     }
 }
+
+/** The phone's name as its owner set it (falls back to the model). */
+fun deviceName(ctx: Context): String =
+    android.provider.Settings.Global.getString(ctx.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
+        ?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL

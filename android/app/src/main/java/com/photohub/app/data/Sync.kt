@@ -141,13 +141,19 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             // one mobile-data setting for everything (send, receive, Google Drive)
             val limited = app.net.isMetered() && !app.prefs.current().backupOnMobile
             if (limited && !manual) return androidx.work.ListenableWorker.Result.success()
+            val t0 = System.currentTimeMillis()
             val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }, isStopped = { isStopped }, listOnly = limited, light = light)
+            AppLog.time(if (light) "同期（開いたとき）" else "同期", System.currentTimeMillis() - t0)
+            if (r.message != "更新しました") AppLog.error("同期: ${r.message}")
+            // the phone's record goes to the Synology (「動作の記録」)
+            try { app.net.api()?.let { AppLog.upload(it, deviceName(app)) } } catch (_: Exception) {}
             if (r.message == "更新しました") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
             // a run started by hand (or on opening the app) does not sit in a growing retry wait:
             // the next opening / button press / periodic run tries again
             else if (manual) androidx.work.ListenableWorker.Result.failure(workDataOf("msg" to r.message))
             else androidx.work.ListenableWorker.Result.retry()
         } catch (e: Exception) {
+            AppLog.error("同期", e)
             if (manual) androidx.work.ListenableWorker.Result.failure(workDataOf("msg" to "Synologyにつながりませんでした"))
             else androidx.work.ListenableWorker.Result.retry()
         }

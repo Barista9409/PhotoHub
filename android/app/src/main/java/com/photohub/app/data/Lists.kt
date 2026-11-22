@@ -32,8 +32,13 @@ class Lists(ctx: Context, db: AppDb, scope: CoroutineScope) {
     private val cache = TimelineCache(File(ctx.filesDir, "timeline.bin"))
 
     val timeline: StateFlow<List<TimelineItem>?> = flow {
-        cache.read()?.let { emit(it) }
-        emitAll(dao.timeline().calm().onEach { cache.write(it) })
+        val t0 = System.currentTimeMillis()
+        cache.read()?.let { AppLog.time("写真一覧（保存分を読む）", System.currentTimeMillis() - t0); emit(it) }
+        var first = true
+        emitAll(dao.timeline().calm().onEach {
+            if (first) { first = false; AppLog.time("写真一覧（データベース・${it.size / 1000}千件台）", System.currentTimeMillis() - t0) }
+            cache.write(it)
+        })
     }.distinctUntilChanged().flowOn(Dispatchers.IO).stateIn(scope, SharingStarted.Eagerly, null)
     val shared: StateFlow<List<TimelineItem>?> = dao.sharedSpace().calm().stateIn(scope, SharingStarted.Eagerly, null)
     val sharedFolders: StateFlow<List<FolderOf>?> = dao.sharedFolders().calm().stateIn(scope, SharingStarted.Eagerly, null)

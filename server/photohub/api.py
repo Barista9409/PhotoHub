@@ -66,6 +66,20 @@ class Rotate(BaseModel):
     degrees: int  # clockwise: 90, -90, 180 (added to the current turn)
 
 
+class LogItem(BaseModel):
+    t: int | None = None
+    kind: str = "info"   # crash / error / time / info
+    name: str = ""
+    ms: float | None = None
+    msg: str | None = None
+
+
+class LogBatch(BaseModel):
+    device: str = ""
+    version: str = ""
+    items: list[LogItem] = []
+
+
 class Hashes(BaseModel):
     hashes: list[str]
 
@@ -677,6 +691,18 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             next_cursor = rows[-1].rev if rows else cursor
             more = bool(rows) and s.scalar(select(func.count()).select_from(Media).where(Media.rev > next_cursor, vis)) > 0
         return {"items": items, "albums": albums, "cursor": next_cursor, "has_more": more}
+
+    @app.post("/api/logs")
+    def logs_store(body: LogBatch, user: User = Depends(auth)) -> dict:
+        """The phone's own record: stops, errors and timings (kept 14 days on the Synology)."""
+        from . import applog
+        return {"stored": applog.store(settings, user.name, body.device, body.version, [i.model_dump() for i in body.items])}
+
+    @app.get("/api/logs/summary")
+    def logs_summary(days: int = 7, user: User = Depends(auth)) -> dict:
+        """Grouped stops / errors and how long things take. Administrators see every phone in the family."""
+        from . import applog
+        return applog.summary(settings, max(1, min(days, 14)), None if user.is_admin else user.name)
 
     @app.get("/api/aliases")
     def aliases(user: User = Depends(auth)) -> dict:

@@ -200,6 +200,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.FREE_UP.route) { com.photohub.app.ui.FreeUpScreen() }
                 composable(Dest.TAKEOUT.route) { com.photohub.app.ui.TakeoutStatusScreen(open = { d -> nav.navigate(d.route) }) }
                 composable(Dest.DUPLICATES.route) { com.photohub.app.ui.DuplicatesScreen() }
+                composable(Dest.LOGS.route) { com.photohub.app.ui.LogScreen() }
                 composable("suggest/{kind}") { com.photohub.app.ui.SuggestScreen(it.arguments!!.getString("kind")!!, open) }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {

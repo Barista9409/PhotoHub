@@ -184,7 +184,9 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     var built by remember { mutableStateOf<Pair<List<TimelineItem>, List<Any>>?>(null) }
     androidx.compose.runtime.LaunchedEffect(items, level.group) {
         val group = level.group
-        built = items to kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { buildRows(items, group) }
+        built = items to kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            com.photohub.app.data.AppLog.timed("日付の見出し作り") { buildRows(items, group) }
+        }
     }
     val shown = built?.first ?: emptyList()
     val rows = built?.second ?: emptyList()
@@ -503,6 +505,15 @@ fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
     val base by UiState.base.collectAsState()
     val loaded by app.lists.timeline.collectAsState()
     val items = loaded ?: run { Loading(); return }
+    // from tapping the app icon to seeing photos (once per start)
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (!UiState.startLogged) {
+            UiState.startLogged = true
+            val ms = android.os.SystemClock.uptimeMillis() - android.os.Process.getStartUptimeMillis()
+            // a process started earlier for background work is not "opening the app"
+            if (ms < 60_000) com.photohub.app.data.AppLog.time("起動から写真が出るまで", ms)
+        }
+    }
     val today = LocalDate.now()
     val memories = remember(items) {
         items.filter { val d = localDate(it); d.monthValue == today.monthValue && d.dayOfMonth == today.dayOfMonth && d.year < today.year }
