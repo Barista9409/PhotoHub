@@ -332,3 +332,25 @@ def test_drive_removed_deletes_the_synology_copy_of_the_drive_folder(settings, d
     assert c.post("/api/drive-removed", json={"hashes": [fh]}, headers=h).json()["deleted"] == 1
     assert not (whole / "PXL_55.jpg").exists()
     assert _count(db) == 1  # the library copy stays
+
+
+def test_drive_synced_into_photohub_inbox(settings, db):
+    """Cloud Sync task with local folder photohub/inbox/drive/<name>: shown, and Takeout read there."""
+    import os
+    import time
+    from fastapi.testclient import TestClient
+    from photohub.api import create_app
+    from photohub.takeout import collect_from_drive_sync
+    u, token = add_user(db, settings, "reo")
+    Path(u.personal_root).mkdir(parents=True)
+    d = settings.inbox.parent / "drive" / "reo"
+    (d / "PhotoHub").mkdir(parents=True)
+    (d / "Takeout").mkdir()
+    z = d / "Takeout" / "takeout-1-001.zip"
+    z.write_bytes(b"z")
+    old = time.time() - 3600
+    os.utime(z, (old, old))
+    c = TestClient(create_app(settings, db))
+    f = c.get("/api/me/folders", headers={"Authorization": f"Bearer {token}"}).json()
+    assert f["drive_detected"].endswith("inbox/drive/reo")
+    assert collect_from_drive_sync(db, settings, u) == 1

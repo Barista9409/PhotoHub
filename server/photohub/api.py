@@ -186,10 +186,16 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             pass
         from .incoming import drive_dir
         dd = drive_dir(settings, user)
-        try:
-            detected = dd.parent.relative_to(home).as_posix() if dd.exists() and dd.parent != home else ""
-        except ValueError:
-            detected = ""
+        detected = ""
+        if dd.exists():
+            try:
+                detected = dd.parent.relative_to(home).as_posix() if dd.parent != home else ""
+            except ValueError:  # outside the home folder, e.g. photohub/inbox/drive/<name>
+                try:
+                    shown = dd.parent if dd.name == "PhotoHub" else dd
+                    detected = "/" + shown.relative_to(settings.root.parent).as_posix()
+                except ValueError:
+                    detected = ""
         return {"root": f"homes/{user.name}/Photos", "folders": out, "backup_dir": user.backup_dir or "",
                 "home": f"homes/{user.name}", "home_folders": home_out, "drive_root": user.drive_root or "",
                 "drive_detected": detected}

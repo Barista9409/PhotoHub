@@ -43,6 +43,8 @@ def drive_dir(settings: Settings, user: User) -> Path:
     if user.drive_root:
         return settings.homes_root / user.name / user.drive_root / "PhotoHub"
     default = settings.inbox.parent / "drive" / user.name
+    if (default / "PhotoHub").is_dir():
+        return default / "PhotoHub"  # the whole Drive is synced here, not just its PhotoHub folder
     if default.exists() and any(default.iterdir()):
         return default
     home = settings.homes_root / user.name

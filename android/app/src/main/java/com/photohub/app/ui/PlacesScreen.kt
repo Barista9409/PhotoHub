@@ -87,6 +87,7 @@ fun SynologyPlacesScreen() {
             SettingRow(Icons.Default.Cloud, "Googleドライブを同期しているフォルダ",
                 when {
                     cur.driveRoot.isNotBlank() -> "${cur.home}/${cur.driveRoot}"
+                    shown.startsWith("/") -> "自動で見つけました：${shown.drop(1)}"
                     shown.isNotBlank() -> "自動で見つけました：${cur.home}/$shown"
                     else -> "見つかりません。Cloud Syncで同期しているフォルダを選んでください"
                 }, onClick = { pick = "drive" })

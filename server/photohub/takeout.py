@@ -289,6 +289,8 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
     home = settings.homes_root / user.name
     try:
         found = set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip"))
+        drive_in = settings.inbox.parent / "drive" / user.name   # Cloud Sync into photohub/inbox/drive/<name>
+        found |= set((drive_in / "Takeout").glob("*.zip")) | set(drive_in.glob("takeout-*.zip"))
         if user.drive_root:  # the Drive folder the person chose in the app
             found |= set((home / user.drive_root / "Takeout").glob("*.zip"))
         found = sorted(found)
