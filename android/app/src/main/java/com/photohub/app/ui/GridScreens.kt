@@ -193,7 +193,8 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
             .then(if (selected == true) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier)) {
             val h = a.coverHash
             if (h != null) {
-                val model: Any? = if (app.files.hasThumb(h)) app.files.thumb(h) else base?.let { "$it/api/thumb/$h" }
+                val rots by UiState.rots.collectAsState()
+                val model: Any? = remember(h, rots[h], base) { hashThumb(app, h, base) }
                 AsyncImage(model = model, contentDescription = a.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
             if (selected != null) androidx.compose.material3.Icon(

@@ -51,6 +51,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         prefs = Prefs(this)
         db = AppDb.build(this)
         lists = com.photohub.app.data.Lists(db, scope)
+        scope.launch { db.media().rotations().collect { l -> com.photohub.app.ui.UiState.rots.value = l.associate { it.hash to it.rot } } }
         net = Net(this, prefs)
         files = MediaFiles(this)
         indexer = LocalIndexer(this, db.media())

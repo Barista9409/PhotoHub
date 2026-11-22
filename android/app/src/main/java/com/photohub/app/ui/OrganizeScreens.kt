@@ -265,7 +265,7 @@ fun TrashScreen() {
                 val on = t.hash in selected
                 Box(Modifier.padding(1.dp).aspectRatio(1f).background(Color(0x22888888))
                     .clickable { selected = if (on) selected - t.hash else selected + t.hash }) {
-                    val model: Any? = if (app.files.hasThumb(t.hash)) app.files.thumb(t.hash) else base?.let { "$it/api/thumb/${t.hash}" }
+                    val model: Any? = hashThumb(app, t.hash, base)
                     AsyncImage(model, t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                     Text("あと${t.daysLeft}日", color = Color.White, style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.align(Alignment.BottomStart).background(Color(0x99000000)).padding(horizontal = 4.dp))

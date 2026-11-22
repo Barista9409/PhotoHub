@@ -26,6 +26,9 @@ object UiState {
 
     var viewerItems: List<TimelineItem> = emptyList()
 
+    /** Photos turned upright (hash -> clockwise degrees), kept current from the database. */
+    val rots = MutableStateFlow<Map<String, Int>>(emptyMap())
+
     suspend fun refreshBase(app: PhotoHubApp, force: Boolean = false) {
         _base.value = if (app.prefs.current().configured) app.net.baseUrl(force) else null
     }
@@ -52,14 +55,26 @@ suspend fun rotatePhotos(app: PhotoHubApp, hashes: List<String>, degrees: Int): 
     val api = app.net.api() ?: return "Synologyにつながりません"
     val r = api.rotate(com.photohub.app.data.api.RotateBody(hashes, degrees)).rotation
     r.forEach { (h, rot) -> app.db.media().setRot(h, rot) }
+    UiState.rots.value = UiState.rots.value + r
     if (r.isEmpty()) "回転できる写真がありません（動画やスマホにしかない写真は回せません）" else "${r.size} 枚を回転しました"
 } catch (e: retrofit2.HttpException) {
     if (e.code() == 404) "Synology側が古い版です。新しい版に更新してください" else "回転できませんでした（HTTP ${e.code()}）"
 } catch (e: Exception) { "Synologyにつながりません" }
 
-fun thumbModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = turned(app, item, rawThumb(app, item, base))
+/** The item with its latest turn (lists handed to the viewer are snapshots). */
+private fun current(item: TimelineItem): TimelineItem =
+    item.hash?.let { UiState.rots.value[it] ?: 0 }?.takeIf { it != item.rot }?.let { item.copy(rot = it) } ?: item
 
-fun previewModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = turned(app, item, rawPreview(app, item, base))
+fun thumbModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = current(item).let { turned(app, it, rawThumb(app, it, base)) }
+
+fun previewModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = current(item).let { turned(app, it, rawPreview(app, it, base)) }
+
+/** Thumbnail of a Synology photo known only by its hash (album covers, suggestions, similar photos). */
+fun hashThumb(app: PhotoHubApp, hash: String, base: String?): Any? {
+    val data: Any? = if (app.files.hasThumb(hash)) app.files.thumb(hash) else base?.let { "$it/api/thumb/$hash" }
+    val rot = UiState.rots.value[hash] ?: 0
+    return if (data == null || rot == 0) data else ImageRequest.Builder(app).data(data).transformations(Rotate(rot)).build()
+}
 
 private fun rawThumb(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when {
     item.localUri != null -> Uri.parse(item.localUri)

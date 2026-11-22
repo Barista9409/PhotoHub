@@ -111,7 +111,8 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize().graphicsLayer(translationY = dragY,
             scaleX = 1f - kotlin.math.abs(dragY) / 4000f, scaleY = 1f - kotlin.math.abs(dragY) / 4000f),
             key = { items[it].itemKey }) { page ->
-            val item = items[page]
+            val rots by UiState.rots.collectAsState()
+            val item = items[page].let { it0 -> it0.hash?.let { h -> it0.copy(rot = rots[h] ?: 0) } ?: it0 }
             val auto = item.kind == "video" && page == pager.currentPage && (item.localUri != null || !app.net.isMetered())
             if (item.kind == "video" && (playing == item.itemKey || auto)) {
                 VideoPlayer(app, item, base)

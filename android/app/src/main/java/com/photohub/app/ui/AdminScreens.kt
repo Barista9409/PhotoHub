@@ -177,7 +177,7 @@ fun SimilarScreen() {
                         items(g.members, key = { it.mediaId }) { m ->
                             val selected = m.mediaId in keep
                             Column(Modifier.clickable { keeps[g.id] = if (selected) keep - m.mediaId else keep + m.mediaId }) {
-                                val model: Any? = if (app.files.hasThumb(m.hash)) app.files.thumb(m.hash) else base?.let { "$it/api/thumb/${m.hash}" }
+                                val model: Any? = hashThumb(app, m.hash, base)
                                 AsyncImage(model, m.name, contentScale = ContentScale.Crop,
                                     modifier = Modifier.size(120.dp).border(if (selected) 4.dp else 0.dp, MaterialTheme.colorScheme.primary))
                                 Text(if (selected) "残す" else "ゴミ箱へ", style = MaterialTheme.typography.labelMedium)

@@ -153,6 +153,8 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
       AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
 """
 
+data class HashRot(val hash: String, val rot: Int)
+
 data class AlbumWithCount(val id: Long, val name: String, val origin: String, val count: Int, val coverHash: String?,
                           val shared: Boolean = false)
 
@@ -215,6 +217,9 @@ interface MediaDao {
 
     @Upsert
     suspend fun upsertRemote(items: List<RemoteMedia>)
+
+    @Query("SELECT hash, rot FROM remote_media WHERE rot != 0")
+    fun rotations(): Flow<List<HashRot>>
 
     @Query("UPDATE remote_media SET rot = :rot WHERE hash = :hash")
     suspend fun setRot(hash: String, rot: Int)
