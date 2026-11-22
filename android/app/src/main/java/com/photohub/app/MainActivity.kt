@@ -108,6 +108,7 @@ private val tabs = listOf(
     Tab("shared", "共有", Icons.Default.FamilyRestroom),
     Tab("map", "地図", Icons.Default.Map),
     Tab("search", "検索", Icons.Default.Search),
+    Tab("account", "設定", Icons.Default.Settings),   // bottom right: backup, tidy-up, migration, app, account
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -136,6 +137,8 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
     LaunchedEffect(setupLink) { if (setupLink != null) nav.navigate("setup") }
     val open: (List<TimelineItem>, Int) -> Unit = { list, i -> UiState.viewerItems = list; nav.navigate("viewer/$i") }
     val fullScreen = route.startsWith("viewer") || route == "setup"
+    val upd by app.updater.state.collectAsState()
+    val updateWaiting = upd is com.photohub.app.data.Updater.State.Available || upd is com.photohub.app.data.Updater.State.Ready
     Scaffold(
         topBar = {
             if (!fullScreen) TopAppBar(
@@ -143,10 +146,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 navigationIcon = {
                     if (tabs.none { it.route == route }) IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る") }
                 },
-                actions = {
-                    // account / backup / tidy-up / settings all live behind the avatar (like Google Photos)
-                    if (route != "account" && tabs.any { it.route == route }) AccountButton(app) { nav.navigate("account") }
-                },
+
             )
         },
         bottomBar = {
@@ -155,7 +155,11 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                     NavigationBarItem(selected = route == t.route, onClick = {
                         if (route == t.route) UiState.scrollTop.tryEmit(Unit)
                         else nav.navigate(t.route) { popUpTo("timeline") { saveState = true }; launchSingleTop = true; restoreState = true }
-                    }, icon = { Icon(t.icon, t.label) }, label = { Text(t.label) })
+                    }, icon = {
+                        // a dot on 設定 when a new version of the app is waiting
+                        if (t.route == "account" && updateWaiting) androidx.compose.material3.BadgedBox(badge = { androidx.compose.material3.Badge() }) { Icon(t.icon, t.label) }
+                        else Icon(t.icon, t.label)
+                    }, label = { Text(t.label, maxLines = 1) })
                 }
             }
         },
@@ -218,28 +222,10 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
     }
 }
 
-/** Avatar in the top bar: the person's initial, a dot when an app update is waiting. */
-@Composable
-private fun AccountButton(app: PhotoHubApp, onClick: () -> Unit) {
-    val upd by app.updater.state.collectAsState()
-    val name by produceState("") { value = try { app.net.api()?.me()?.name ?: "" } catch (e: Exception) { "" } }
-    val dot = upd is com.photohub.app.data.Updater.State.Available || upd is com.photohub.app.data.Updater.State.Ready
-    IconButton(onClick) {
-        Box {
-            Box(Modifier.size(32.dp).background(androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer,
-                androidx.compose.foundation.shape.CircleShape), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                if (name.isNotBlank()) Text(name.take(1).uppercase(), color = androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer)
-                else Icon(Icons.Default.Person, "アカウントと設定")
-            }
-            if (dot) Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).size(10.dp)
-                .background(androidx.compose.material3.MaterialTheme.colorScheme.error, androidx.compose.foundation.shape.CircleShape))
-        }
-    }
-}
 
 private fun titleFor(route: String, name: String?) = when {
     route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
-    route == "account" -> "アカウントと設定"
+    route == "account" -> "設定"
     route.startsWith("suggest/") -> "消してもよさそうな写真"
     Dest.entries.any { it.route == route } -> Dest.entries.first { it.route == route }.title
     else -> tabs.firstOrNull { it.route == route }?.label ?: "PhotoHub"
