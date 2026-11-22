@@ -36,7 +36,7 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         var done = 0; var saved = 0; var failed = 0
         for (h in hashes) {
             if (isStopped) break
-            setProgress(workDataOf(KEY_DONE to done, KEY_TOTAL to hashes.size))
+            setProgress(workDataOf(KEY_DONE to done, KEY_TOTAL to hashes.size, KEY_FOLDER to folder))
             try { setForeground(info(applicationContext, folder, done, hashes.size)) } catch (_: Exception) {}
             done++
             val m = app.db.media().remote(h) ?: continue
@@ -56,7 +56,8 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         }
         list.delete()
         app.indexer.scan()
-        return Result.success(workDataOf("msg" to "${saved} 件を保存しました" + if (failed > 0) "（${failed} 件は失敗）" else ""))
+        return Result.success(workDataOf("msg" to "保存が終わりました：${saved} 件（${destLabel(dest, folder)}）" +
+            if (failed > 0) "・${failed} 件は失敗" else "", "at" to System.currentTimeMillis()))
     }
 
     companion object {

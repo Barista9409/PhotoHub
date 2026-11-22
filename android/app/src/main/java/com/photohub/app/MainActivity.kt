@@ -162,6 +162,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         Column(if (fullScreen) Modifier else Modifier.padding(pad)) {
             // loading bar above the content (never on top of it)
             if (!fullScreen) com.photohub.app.ui.NasListBanner()
+            if (!fullScreen) com.photohub.app.ui.DownloadBanner()
             if (tabs.any { it.route == route }) com.photohub.app.ui.UpdateBanner { nav.navigate(Dest.APP.route) }
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
