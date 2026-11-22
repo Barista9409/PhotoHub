@@ -202,7 +202,15 @@ fun GoogleCleanupScreen() {
                 "Googleフォトのアプリで該当する月を削除したら「削除した」を押してください。", style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(8.dp))
         }
-        if (rows.isEmpty()) item { Text("候補はまだありません", Modifier.padding(8.dp)) }
+        item {
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Text("注意：Googleフォトのアプリで写真を消すと、このスマホの中の写真も一緒に消えます（Googleフォトの仕様です）。" +
+                    "ここに出ている写真はSynologyに保存済みなので、消してもPhotoHubで見られます。スマホにも置きたい写真は、PhotoHubで選んで「このスマホに保存」で戻せます。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(12.dp))
+            }
+        }
+        if (rows.isEmpty()) item { Text("候補はまだありません（毎晩 5:10 に更新します）", Modifier.padding(8.dp)) }
         items(rows, key = { it.id }) { c ->
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(12.dp)) {
