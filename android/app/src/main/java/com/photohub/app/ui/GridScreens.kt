@@ -75,8 +75,12 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var pullMsg by remember { mutableStateOf<String?>(null) }
-    val mine = albums.filter { !it.shared }
+    // a phone folder is also kept as a Synology album (so other phones see it): show it once, as the folder
+    val localBuckets = remember(folders) { folders.map { it.bucket }.toSet() }
+    val folderAlbums = remember(albums) { albums.filter { it.origin == "device" }.associateBy { it.name } }
+    val mine = albums.filter { !it.shared && !(it.origin == "device" && it.name in localBuckets) }
     val family = albums.filter { it.shared }
+    val shownAlbums = mine + family
     var picked by remember { mutableStateOf(emptySet<Long>()) }
     var folderMenu by remember { mutableStateOf<String?>(null) }
     val phoneDelete = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -96,8 +100,8 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.IconButton({ picked = emptySet() }) { androidx.compose.material3.Icon(Icons.Default.Close, "選択をやめる") }
             Text("${picked.size} 件のアルバムを選択", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            val all = picked.size == albums.size
-            androidx.compose.material3.IconButton({ picked = if (all) emptySet() else albums.map { it.id }.toSet() }) {
+            val all = picked.size == shownAlbums.size
+            androidx.compose.material3.IconButton({ picked = if (all) emptySet() else shownAlbums.map { it.id }.toSet() }) {
                 androidx.compose.material3.Icon(if (all) Icons.Default.Deselect else Icons.Default.SelectAll, if (all) "すべて解除" else "すべて選択")
             }
             androidx.compose.material3.IconButton({ askDelete = true }) { androidx.compose.material3.Icon(Icons.Default.Delete, "アルバムを削除") }
@@ -141,7 +145,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                         contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 }
                 Text(f.bucket, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                Text("${f.count} 枚", style = MaterialTheme.typography.bodySmall)
+                Text("${f.count} 枚" + if (f.bucket in folderAlbums) "・Synologyにも保存" else "", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
