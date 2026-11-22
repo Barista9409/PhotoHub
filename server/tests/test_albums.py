@@ -79,3 +79,8 @@ def test_pull_synology_photos_albums(settings, db, monkeypatch):
     albums.pop()
     assert c.post("/api/albums/pull", headers=h).json().get("error") is None
     assert {a["name"] for a in c.get("/api/sync", headers=h).json()["albums"]} == {"家族旅行"}
+    # deleted in PhotoHub: stays deleted even though Synology Photos still lists it
+    fam = {a["name"]: a for a in c.get("/api/sync", headers=h).json()["albums"]}["家族旅行"]["id"]
+    assert c.delete(f"/api/albums/{fam}", headers=h).json()["ok"]
+    c.post("/api/albums/pull", headers=h)
+    assert c.get("/api/sync", headers=h).json()["albums"] == []

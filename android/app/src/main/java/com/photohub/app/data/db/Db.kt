@@ -196,10 +196,11 @@ interface MediaDao {
     @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space = 'shared'")
     fun sharedFolders(): Flow<List<FolderOf>>
 
-    @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(am.hash) AS count, a.shared AS shared,
-              (SELECT am2.hash FROM album_media am2 JOIN remote_media r ON r.hash = am2.hash
-               WHERE am2.albumId = a.id ORDER BY r.takenAt DESC LIMIT 1) AS coverHash
-              FROM album a LEFT JOIN album_media am ON am.albumId = a.id GROUP BY a.id ORDER BY a.name""")
+    @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(r.hash) AS count, a.shared AS shared,
+              (SELECT am2.hash FROM album_media am2 JOIN remote_media r2 ON r2.hash = am2.hash
+               WHERE am2.albumId = a.id ORDER BY r2.takenAt DESC LIMIT 1) AS coverHash
+              FROM album a LEFT JOIN album_media am ON am.albumId = a.id LEFT JOIN remote_media r ON r.hash = am.hash
+              GROUP BY a.id ORDER BY a.name""")
     fun albums(): Flow<List<AlbumWithCount>>
 
     @Query("SELECT * FROM remote_media WHERE hash = :hash")
@@ -247,6 +248,9 @@ interface MediaDao {
     @Query("DELETE FROM album WHERE id NOT IN (:keep)")
     suspend fun pruneAlbums(keep: List<Long>)
 
+    @Query("DELETE FROM album_media WHERE albumId NOT IN (SELECT id FROM album) OR hash NOT IN (SELECT hash FROM remote_media)")
+    suspend fun pruneAlbumLinks()
+
     @Query("DELETE FROM remote_alias")
     suspend fun clearAliases()
 
@@ -258,15 +262,15 @@ interface MediaDao {
 
     @Transaction
     suspend fun applySync(upserts: List<RemoteMedia>, deletes: List<String>, links: List<AlbumMedia>, albums: List<AlbumRow>) {
-        if (albums.isNotEmpty()) {
-            upsertAlbums(albums)
-            pruneAlbums(albums.map { it.id })
-        }
+        // the Synology sends the whole album list every time: an empty list means every album is gone
+        upsertAlbums(albums)
+        pruneAlbums(albums.map { it.id })
         val touched = upserts.map { it.hash } + deletes
         touched.chunked(500).forEach { clearAlbumLinks(it) }
         deletes.chunked(500).forEach { deleteRemote(it) }
         upsertRemote(upserts)
         insertAlbumLinks(links)
+        pruneAlbumLinks()
     }
 
     // --- phone folders (shown as "このスマホのフォルダ" and sent to the NAS as albums) ---

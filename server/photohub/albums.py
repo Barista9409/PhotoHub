@@ -79,6 +79,9 @@ def delete(db: Database, settings: Settings, user: User, album_id: int) -> None:
                 touch_media(s, m)
         s.flush()  # items first (foreign key)
         s.delete(a)
+        if syno:
+            # deleted here: never bring it back from Synology Photos, even if deleting it there fails
+            kv_set(s, f"albumgone:{user.id}:{syno}", "1")
     if syno:
         _synology(db, settings, user, lambda ses: ses.call("SYNO.Foto.Browse.Album", "delete", 1, id=[syno]))
 
@@ -218,6 +221,8 @@ def pull(db: Database, settings: Settings, user: User) -> dict:
                 if aid is None:
                     continue
                 seen_ids.add(aid)
+                if kv_get(s, f"albumgone:{user.id}:{aid}"):
+                    continue  # deleted in PhotoHub
                 shared = bool(alb.get("shared") or alb.get("is_shared") or alb.get("sharing_info"))
                 a = s.execute(select(Album).where(Album.synology_album_id == aid,
                                                   Album.owner_id.in_([user.id]) | Album.owner_id.is_(None))).scalars().first()
