@@ -36,7 +36,7 @@ class SyncEngine(private val app: PhotoHubApp) {
 
     data class Result(val changed: Int, val thumbs: Int, val previews: Int, val message: String)
 
-    suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }): Result =
+    suspend fun run(progress: suspend (String) -> Unit = {}, isStopped: () -> Boolean = { false }, listOnly: Boolean = false): Result =
         withContext(Dispatchers.IO) {
             val api = app.net.api(force = true) ?: return@withContext Result(0, 0, 0, "Synologyに接続できません")
             // phone folders -> albums on the NAS first, so the delta below already carries them
@@ -63,6 +63,10 @@ class SyncEngine(private val app: PhotoHubApp) {
                 prefs.setCursor(cursor)
                 progress("Synologyの写真の一覧を読み込み中 $changed 件")
                 if (!page.hasMore) break
+            }
+            if (listOnly) {   // mobile data without permission: the list only; thumbnails load when shown
+                try { api.deviceSync("{}".toRequestBody()) } catch (_: Exception) {}
+                return@withContext Result(changed, 0, 0, "更新しました")
             }
             // 2) thumbnails for everything, in packs of 300
             val missing = dao.allRemoteHashes().filterNot { files.hasThumb(it) }
@@ -119,7 +123,10 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         return try {
             app.indexer.scan()
             app.indexer.hashPending(limit = if (manual) 500 else 5000, isStopped = { isStopped })
-            val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }) { isStopped }
+            // one mobile-data setting for everything (send, receive, Google Drive)
+            val limited = app.net.isMetered() && !app.prefs.current().backupOnMobile
+            if (limited && !manual) return androidx.work.ListenableWorker.Result.success()
+            val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }, isStopped = { isStopped }, listOnly = limited)
             if (r.message == "更新しました") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
             // a run started by hand (or on opening the app) does not sit in a growing retry wait:
             // the next opening / button press / periodic run tries again

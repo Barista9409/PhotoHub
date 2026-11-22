@@ -397,7 +397,41 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     for j in s.execute(select(ImportJob).where(ImportJob.source == "takeout", ImportJob.user_id == user.id)
                                        .order_by(ImportJob.id.desc()).limit(10)).scalars()]
         cur = dict(PROGRESS.get(user.id) or {})
-        return {"apply": settings.apply, "sources": sources, "waiting": waiting, "current": cur or None, "jobs": jobs}
+        # ZIPs already deleted after an error-free import, and imported ones still lying around
+        from .db import KV
+        pre = f"takeout_deleted:{user.name}/"
+        with db.session() as s:
+            deleted = [{"name": k.key[len(pre):], "at": k.value} for k in
+                       s.execute(select(KV).where(KV.key.like(pre + "%")).order_by(KV.value.desc())).scalars()]
+            done_names = set()
+            for j in s.execute(select(ImportJob).where(ImportJob.source == "takeout", ImportJob.user_id == user.id,
+                                                       ImportJob.state == "done")).scalars():
+                done_names |= {n.strip() for n in (j.archive_name or "").split(",")}
+        leftover = [z for z in sources if z["name"] in done_names]
+        return {"apply": settings.apply, "sources": sources, "waiting": waiting, "current": cur or None, "jobs": jobs,
+                "deleted": deleted, "leftover": leftover}
+
+    @app.post("/api/me/takeout/cleanup")
+    def my_takeout_cleanup(user: User = Depends(auth)) -> dict:
+        """Delete Takeout ZIPs (in the person's Drive folder on the Synology) that were already imported
+        without errors. With a two-way Cloud Sync task this also frees the space in Google Drive."""
+        from .takeout import takeout_sources
+        with db.session() as s:
+            done_names = set()
+            for j in s.execute(select(ImportJob).where(ImportJob.source == "takeout", ImportJob.user_id == user.id,
+                                                       ImportJob.state == "done")).scalars():
+                done_names |= {n.strip() for n in (j.archive_name or "").split(",")}
+        n = 0
+        for p in takeout_sources(settings, user):
+            if p.name in done_names:
+                try:
+                    p.unlink()
+                    n += 1
+                    with db.session() as s:
+                        kv_set(s, f"takeout_deleted:{user.name}/{p.name}", utcnow().isoformat())
+                except OSError:
+                    pass
+        return {"deleted": n}
 
     # ---- 写真の整理 (organize.py) -------------------------------------------
     @app.post("/api/media/delete")

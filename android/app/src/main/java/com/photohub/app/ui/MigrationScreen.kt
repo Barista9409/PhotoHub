@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
@@ -43,8 +44,7 @@ fun MigrationScreen(open: (Dest) -> Unit = {}) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
         Text("Googleフォトの写真を、一度だけSynologyへ移します。スマホで送る必要はありません。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
-        SectionTitle("Takeoutの状況")
-        Group { TakeoutStatusCard(open) }
+
         SectionTitle("手順")
         Group {
             SettingRow(Icons.Default.Cloud, "1. TakeoutをGoogleドライブに作る",
@@ -71,6 +71,14 @@ fun MigrationScreen(open: (Dest) -> Unit = {}) {
 
 /** Live view of the migration: ZIPs found, waiting, the running import with a bar, and the results. */
 @Composable
+fun TakeoutStatusScreen(open: (Dest) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
+        SectionTitle("Takeoutの取り込み")
+        Group { TakeoutStatusCard(open) }
+    }
+}
+
+@Composable
 private fun TakeoutStatusCard(open: (Dest) -> Unit) {
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.photohub.app.PhotoHubApp
     var st by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<com.photohub.app.data.api.TakeoutStatus?>(null) }
@@ -84,6 +92,8 @@ private fun TakeoutStatusCard(open: (Dest) -> Unit) {
         }
     }
     val s = st
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var msg by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (s == null) { Text(err ?: "読み込み中…", style = MaterialTheme.typography.bodyMedium); return@Column }
         if (!s.apply) {
@@ -111,6 +121,21 @@ private fun TakeoutStatusCard(open: (Dest) -> Unit) {
                 Text("大きいZIPは、展開と整理だけで1時間以上かかることがあります", style = MaterialTheme.typography.bodySmall)
             }
         }
+        // the ZIPs themselves: deleted after an error-free import, or still lying around
+        Text("TakeoutのZIP", style = MaterialTheme.typography.titleSmall)
+        if (s.deleted.isNotEmpty()) Text("取り込み後に削除済み：${s.deleted.size} 個（最新 ${s.deleted.first().at.take(16).replace('T', ' ')}）",
+            style = MaterialTheme.typography.bodySmall)
+        if (s.leftover.isNotEmpty()) {
+            Text("取り込み済みなのに残っているZIP：${s.leftover.size} 個（${humanBytes(s.leftover.sumOf { it.bytes })}）",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            androidx.compose.material3.OutlinedButton({
+                scope.launch { msg = try { "${app.net.api()!!.takeoutCleanup()["deleted"] ?: 0} 個を削除しました" } catch (e: Exception) { "削除できませんでした" } }
+            }) { Text("取り込み済みのZIPを削除する") }
+        }
+        if (s.deleted.isEmpty() && s.leftover.isEmpty())
+            Text(if (s.apply) "取り込みがエラーなく終わったZIPは、自動で削除します" else "試運転中は削除しません（本番にすると、取り込み後に自動で削除します）",
+                style = MaterialTheme.typography.bodySmall)
+        msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         if (s.jobs.isNotEmpty()) {
             Text("結果", style = MaterialTheme.typography.titleSmall)
             s.jobs.take(5).forEach { j ->

@@ -315,6 +315,7 @@ def _archive_parts(db: Database, settings: Settings, group: ArchiveGroup) -> Non
         if p.exists():
             p.unlink()
         with db.session() as s:
+            kv_set(s, f"takeout_deleted:{group.user or ''}/{p.name}", utcnow().isoformat())
             log_event(s, "info", "takeout_cleanup", f"{group.user or ''}: {p.name} imported and deleted")
 
 

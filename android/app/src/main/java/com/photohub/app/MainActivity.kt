@@ -193,6 +193,8 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.PLACES.route) { com.photohub.app.ui.SynologyPlacesScreen() }
                 composable(Dest.ORGANIZE.route) { com.photohub.app.ui.OrganizeScreen(open = { r -> nav.navigate(r) }) }
                 composable(Dest.TRASH.route) { com.photohub.app.ui.TrashScreen() }
+                composable(Dest.FREE_UP.route) { com.photohub.app.ui.FreeUpScreen() }
+                composable(Dest.TAKEOUT.route) { com.photohub.app.ui.TakeoutStatusScreen(open = { d -> nav.navigate(d.route) }) }
                 composable(Dest.DUPLICATES.route) { com.photohub.app.ui.DuplicatesScreen() }
                 composable("suggest/{kind}") { com.photohub.app.ui.SuggestScreen(it.arguments!!.getString("kind")!!, open) }
                 composable("setup") {

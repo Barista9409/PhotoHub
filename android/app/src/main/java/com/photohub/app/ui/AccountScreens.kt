@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -92,14 +93,16 @@ val APP_DOWNLOAD_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/l
 /** Where the account hub's rows lead. */
 enum class Dest(val route: String, val title: String) {
     NAS_BACKUP("backup_nas", "Synologyと同期"),
-    DRIVE_BACKUP("backup_drive", "最近の写真と動画をGoogleドライブに保存"),
+    DRIVE_BACKUP("backup_drive", "Googleドライブに保存する範囲"),
     SIMILAR("similar", "似ている写真"),
     CLEANUP("cleanup", "Googleフォトから消してよい写真"),
-    MIGRATION("migration", "Googleフォトからの移行"),
+    MIGRATION("migration", "移行の手順"),
     IMPORT_LOG("import_log", "Synologyへの取り込み記録"),
     DEVICE("device", "このスマホ"),
     APP("app", "アプリ"),
     LIBRARY("library", "ライブラリの内訳"),
+    FREE_UP("free_up", "空き容量を増やす"),
+    TAKEOUT("takeout", "反映状況"),
     PLACES("places", "Synologyの保存場所"),
     ORGANIZE("organize", "写真の整理"),
     TRASH("trash", "ゴミ箱"),
@@ -189,42 +192,54 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         }
         SectionTitle("同期と保存")
         Group {
-            if (live.running) { BackupProgress(live); GroupDivider() }
-            SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(),
-                onClick = { open(Dest.LIBRARY) }) { Chevron() }
+            SwitchRow(Icons.Default.Dns, "Synologyと同期",
+                if (cur.backupNas) "撮った写真を送り、Synologyの写真を受け取ります" else "オフ（Synologyの写真を見るだけ）", cur.backupNas) {
+                scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
+            }
             GroupDivider()
-            SettingRow(Icons.Default.Dns, "Synologyと同期",
-                if (cur.backupNas) "オン・" + (if (last.first > 0) "最後 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}" else "まだ実行していません") else "オフ",
-                onClick = { open(Dest.NAS_BACKUP) }) { Chevron() }
+            DriveToggleRow(onOpen = { open(Dest.DRIVE_BACKUP) })
             GroupDivider()
-            SettingRow(Icons.Default.Cloud, "最近の写真と動画をGoogleドライブに保存",
-                if (cur.backupDrive) "オン・" + when (cur.driveMode) { "gb" -> "最大 ${cur.driveGb} GB"; "both" -> "直近 ${cur.driveMonths} か月・最大 ${cur.driveGb} GB"; else -> "直近 ${cur.driveMonths} か月" } else "オフ",
-                onClick = { open(Dest.DRIVE_BACKUP) }) { Chevron() }
+            SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも同期・保存する",
+                "オフなら、Wi-Fiのときだけ送ったり受け取ったりします（Synology・ドライブ共通）", cur.backupOnMobile) {
+                scope.launch { app.prefs.save(app.prefs.current().copy(backupOnMobile = it)) }
+            }
+            GroupDivider()
+            if (live.running) BackupProgress(live) else RunNowRow()
+            GroupDivider()
+            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeout・Googleの写真の置き場所",
+                onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        SectionTitle("写真の整理")
+        SectionTitle("ライブラリ")
         Group {
-            SettingRow(Icons.Default.CleaningServices, "写真の整理",
-                "スマホの空き容量・同じ写真・似ている写真・スクリーンショット・大きい動画・ぼやけた写真",
+            SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", "使う容量・外出先ですぐ開ける期間",
+                onClick = { open(Dest.DEVICE) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(), onClick = { open(Dest.LIBRARY) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.AutoAwesomeMosaic, "似ている写真",
+                status?.let { if (it.similarOpen > 0) "${it.similarOpen} 組。残す写真を選べます" else "今はありません（Synologyに新しい写真が入るたびに探します）" }
+                    ?: "連写や加工前後の写真を見つけます", onClick = { open(Dest.SIMILAR) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.DataSaverOn, "空き容量を増やす", "Synologyに保存済みの写真をスマホから消します",
+                onClick = { open(Dest.FREE_UP) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.CleaningServices, "写真の整理", "同じ写真・スクリーンショット・大きい動画・ぼやけた写真",
                 onClick = { open(Dest.ORGANIZE) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.Delete, "ゴミ箱", "消した写真は30日間ここから戻せます",
-                onClick = { open(Dest.TRASH) }) { Chevron() }
+            SettingRow(Icons.Default.Delete, "ゴミ箱", "消した写真は30日間ここから戻せます", onClick = { open(Dest.TRASH) }) { Chevron() }
         }
 
         SectionTitle("Googleフォトからの移行")
         Group {
-            SettingRow(Icons.Default.PhotoLibrary, "Googleフォトからの移行", "Takeoutの作り方・取り込みの様子・Googleフォトを空にする",
+            SettingRow(Icons.Default.PhotoLibrary, "移行の手順", "Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "Synologyへの取り込み記録", "Takeout・スマホ・ドライブから入った件数と結果",
-                onClick = { open(Dest.IMPORT_LOG) }) { Chevron() }
-        }
-
-        SectionTitle("このスマホ")
-        Group {
-            SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", "一覧の更新・使う容量・外出先ですぐ開ける期間",
-                onClick = { open(Dest.DEVICE) }) { Chevron() }
+            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "反映状況", "取り込みの進み具合・結果・TakeoutのZIPの削除",
+                onClick = { open(Dest.TAKEOUT) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.TaskAlt, "Googleフォトを空にする", "Synologyに保存済みの写真を月ごとに案内します",
+                onClick = { open(Dest.CLEANUP) }) { Chevron() }
         }
 
         SectionTitle("アプリ")
@@ -236,9 +251,6 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
 
         SectionTitle("アカウント")
         Group {
-            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真の保存先・Googleドライブのフォルダ・Googleの写真の保存先",
-                onClick = { open(Dest.PLACES) }) { Chevron() }
-            GroupDivider()
             SettingRow(Icons.AutoMirrored.Filled.Logout, "ログアウト", "別の家族がこのスマホを使うとき", onClick = { confirmLogout = true })
         }
     }
@@ -300,23 +312,7 @@ fun DriveBackupScreen() {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
         Text("最近の写真だけを、自分のGoogleドライブ（フォルダ「PhotoHub」）にも置きます。範囲を過ぎてSynologyに入った写真は、ドライブから自動で片付けるので溜まりません。外出先ではVPNなしでもここから見られます。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
-        SectionTitle("設定")
-        Group {
-            SwitchRow(Icons.Default.Cloud, "Googleドライブに保存", note ?: if (cur.backupDrive) "オン" else "オフ", cur.backupDrive) { on ->
-                if (!on) save(cur.copy(backupDrive = false))
-                else scope.launch {
-                    try {
-                        val r = app.drive.authorize(ctx as Activity)
-                        if (r.hasResolution()) consent.launch(IntentSenderRequest.Builder(r.pendingIntent!!.intentSender).build())
-                        else save(cur.copy(backupDrive = true), true)
-                    } catch (e: Exception) { note = "接続できませんでした: ${e.message}" }
-                }
-            }
-            GroupDivider()
-            SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも送る", "オフならWi-Fiのときだけ", cur.backupOnMobile) {
-                save(cur.copy(backupOnMobile = it))
-            }
-        }
+        Group { DriveToggleRow(onOpen = {}) }
         SectionTitle("ドライブに置いておく範囲")
         Group {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -335,7 +331,7 @@ fun DriveBackupScreen() {
             }
         }
         SectionTitle("状況")
-        Group { BackupNowRow(only = "drive", title = "今すぐ保存") }
+        Group { if (rememberBackupLive().running) BackupProgress(rememberBackupLive(), only = "drive") else RunNowRow() }
     }
 }
 
@@ -584,4 +580,51 @@ fun NasListBanner(modifier: Modifier = Modifier) {
         Text(w.progress.getString("msg") ?: "Synologyの写真の一覧を確認中…", style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
     }
+}
+
+
+/** Google Drive on/off right on the settings page (asks Google once when turned on); the row opens the range. */
+@Composable
+fun DriveToggleRow(onOpen: () -> Unit) {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = rememberCoroutineScope()
+    val s by app.prefs.settings.collectAsState(initial = null)
+    val cur = s ?: return
+    var note by remember { mutableStateOf<String?>(null) }
+    fun turnOn() = scope.launch { app.prefs.save(app.prefs.current().copy(backupDrive = true)); BackupWorker.runNow(ctx); note = null }
+    val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        scope.launch { if (r.resultCode == Activity.RESULT_OK && app.drive.token() != null) turnOn() else note = "Googleドライブに接続できませんでした" }
+    }
+    val range = when (cur.driveMode) { "gb" -> "最大 ${cur.driveGb} GB"; "both" -> "直近 ${cur.driveMonths} か月・最大 ${cur.driveGb} GB"; else -> "直近 ${cur.driveMonths} か月" }
+    SettingRow(Icons.Default.Cloud, "最近の写真と動画をGoogleドライブに保存",
+        note ?: if (cur.backupDrive) "$range（押して変更）。古いものは自動で片付けます" else "オフ（押すと範囲を設定できます）",
+        onClick = onOpen) {
+        androidx.compose.material3.Switch(cur.backupDrive, { on ->
+            if (!on) scope.launch { app.prefs.save(app.prefs.current().copy(backupDrive = false)) }
+            else scope.launch {
+                try {
+                    val r = app.drive.authorize(ctx as Activity)
+                    if (r.hasResolution()) consent.launch(IntentSenderRequest.Builder(r.pendingIntent!!.intentSender).build()) else turnOn()
+                } catch (e: Exception) { note = "接続できませんでした: ${e.message}" }
+            }
+        })
+    }
+}
+
+/** One button for everything that is on: send to / receive from the Synology and save to Drive. */
+@Composable
+fun RunNowRow() {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
+    val s by app.prefs.settings.collectAsState(initial = null)
+    val cur = s ?: return
+    val what = listOfNotNull(if (cur.backupNas) "Synologyと同期" else null, if (cur.backupDrive) "ドライブに保存" else null)
+    SettingRow(Icons.Default.CloudUpload, "今すぐ同期・保存",
+        when {
+            what.isEmpty() -> "Synologyの写真の一覧だけを受け取ります"
+            last.first > 0 -> "前回 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}　${last.second}"
+            else -> what.joinToString("・") + "を今すぐ行います"
+        }, onClick = { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) })
 }

@@ -201,3 +201,26 @@ def test_takeout_status_for_the_app(settings, db):
     st = c.get("/api/me/takeout", headers=h).json()
     assert st["current"]["finished"] and st["current"]["done"] == 5 and st["current"]["dry_run"]
     assert st["jobs"][0]["state"] == "dry_run" and st["jobs"][0]["new"] == 5
+
+
+def test_takeout_leftovers_can_be_deleted(settings, db):
+    """A ZIP that was imported without errors but is still in the Drive folder: listed and deletable."""
+    from fastapi.testclient import TestClient
+    from photohub.api import create_app
+    from photohub.db import ImportJob
+    from photohub.users import add_user
+    u, token = add_user(db, settings, "reo")
+    h = {"Authorization": f"Bearer {token}"}
+    src = settings.homes_root / "reo" / "Takeout"
+    src.mkdir(parents=True)
+    (src / "takeout-9-001.zip").write_bytes(b"x")
+    (src / "takeout-9-002.zip").write_bytes(b"y")
+    with db.session() as s:
+        s.add(ImportJob(source="takeout", archive_name="takeout-9-001.zip", user_id=u.id, state="done"))
+    c = TestClient(create_app(settings, db))
+    st = c.get("/api/me/takeout", headers=h).json()
+    assert [z["name"] for z in st["leftover"]] == ["takeout-9-001.zip"]
+    assert c.post("/api/me/takeout/cleanup", headers=h).json()["deleted"] == 1
+    st = c.get("/api/me/takeout", headers=h).json()
+    assert [d["name"] for d in st["deleted"]] == ["takeout-9-001.zip"] and st["leftover"] == []
+    assert (src / "takeout-9-002.zip").exists()

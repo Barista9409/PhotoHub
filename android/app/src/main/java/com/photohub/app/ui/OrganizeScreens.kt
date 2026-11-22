@@ -125,6 +125,15 @@ fun OrganizeScreen(open: (String) -> Unit) {
 
 /** Free up phone space: photos already on the Synology, older than the chosen period. */
 @Composable
+fun FreeUpScreen() {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 8.dp)) {
+        Text("Synologyに保存済みの写真だけを、このスマホから消します。消してもこのアプリで見られます（自宅ではSynologyから、外出先ではTailscale経由、ドライブにある分はそこから）。",
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 8.dp))
+        Group { FreeUpCard() }
+    }
+}
+
+@Composable
 private fun FreeUpCard() {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp

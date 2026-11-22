@@ -108,7 +108,11 @@ data class TakeoutJob(val id: Long = 0, val state: String = "", val archive: Str
 
 @Serializable
 data class TakeoutStatus(val apply: Boolean = false, val sources: List<ZipInfo> = emptyList(), val waiting: List<ZipInfo> = emptyList(),
-                         val current: TakeoutProgress? = null, val jobs: List<TakeoutJob> = emptyList())
+                         val current: TakeoutProgress? = null, val jobs: List<TakeoutJob> = emptyList(),
+                         val deleted: List<DeletedZip> = emptyList(), val leftover: List<ZipInfo> = emptyList())
+
+@Serializable
+data class DeletedZip(val name: String = "", val at: String = "")
 
 @Serializable
 data class BrowseResult(val path: String = "", val folders: List<String> = emptyList(), val zips: Int = 0)
@@ -233,6 +237,7 @@ interface PhotoHubApi {
     @GET("api/status") suspend fun status(): Status
     @GET("api/me/folders") suspend fun myFolders(): MyFolders
     @GET("api/me/takeout") suspend fun takeoutStatus(): TakeoutStatus
+    @POST("api/me/takeout/cleanup") suspend fun takeoutCleanup(): Map<String, Int>
     @POST("api/media/delete") suspend fun deleteMedia(@Body body: HashesBody): Map<String, Int>
     @POST("api/albums") suspend fun createAlbum(@Body body: AlbumNewBody): Map<String, Long>
     @retrofit2.http.PUT("api/albums/{id}") suspend fun renameAlbum(@retrofit2.http.Path("id") id: Long, @Body body: AlbumNameBody): Map<String, Boolean>
