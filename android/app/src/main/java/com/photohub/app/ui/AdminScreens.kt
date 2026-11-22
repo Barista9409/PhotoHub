@@ -114,6 +114,37 @@ fun SimilarScreen() {
     val (groups, err) = remote<List<SimilarGroup>>(refresh) { it.similar() }
     val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<String?>(null) }
+    var bulk by remember { mutableStateOf<com.photohub.app.data.api.BulkStatus?>(null) }
+    var askBulk by remember { mutableStateOf(false) }
+    LaunchedEffect(refresh) { bulk = try { app.net.api()?.resolveAllStatus() } catch (_: Exception) { null } }
+    LaunchedEffect(bulk?.running) {
+        while (bulk?.running == true) {
+            kotlinx.coroutines.delay(1500)
+            bulk = try { app.net.api()?.resolveAllStatus() } catch (_: Exception) { bulk }
+            if (bulk?.running == false) {
+                val b = bulk!!
+                info = if (!b.applied) "試運転中のため、まだ実行していません（Synologyの設定で本番にすると処理します）"
+                       else "${b.done} 組を処理し、${b.trashed} 枚をゴミ箱に入れました" + (if (b.failed > 0) "（${b.failed} 組はできませんでした）" else "")
+                com.photohub.app.data.SyncWorker.runNow(ctx)
+                refresh++
+            }
+        }
+    }
+    if (askBulk) AlertDialog(onDismissRequest = { askBulk = false },
+        title = { Text("すべておすすめで処理しますか？") },
+        text = { Text("似ている写真 ${bulk?.open ?: 0} 組すべてで、おすすめ（いちばん大きい写真）だけを残し、ほかはゴミ箱に入れます。" +
+            "この画面に出ていない組も含みます。30日間は「ゴミ箱」から戻せます。") },
+        confirmButton = { TextButton({
+            askBulk = false
+            scope.launch { bulk = try { app.net.api()!!.resolveAll() } catch (e: Exception) { info = "始められませんでした（${e.message}）"; null } }
+        }) { Text("処理する") } },
+        dismissButton = { TextButton({ askBulk = false }) { Text("やめる") } })
+    val allButton: @Composable () -> Unit = {
+        val b = bulk
+        if (b != null && (b.running || b.open > 0)) Button(enabled = !b.running, onClick = { askBulk = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (b.running) "処理中… ${b.done} / ${b.total} 組" else "すべておすすめで処理（全 ${b.open} 組）")
+        }
+    }
     if (groups == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     if (groups.isEmpty()) { Text("似ている写真はありません（Synologyに新しい写真が入るたびに探します）", Modifier.padding(16.dp)); return }
     // what to keep in each group: the recommended one (largest picture) unless changed
@@ -128,11 +159,12 @@ fun SimilarScreen() {
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
         item {
             Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                allButton()
                 Text("枠で囲まれた写真を残します（おすすめ＝いちばん大きい写真を選んであります）。写真をタップすると、残す・残さないを変えられます。" +
                     "残さない写真はゴミ箱に入り、30日間は「ゴミ箱」から戻せます。", style = MaterialTheme.typography.bodySmall)
                 Button(enabled = progress == null && drop > 0 && groups.all { (keeps[it.id] ?: emptySet()).isNotEmpty() },
                     onClick = { confirmAll = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(progress ?: "まとめて処理：${groups.size} 組の選んだ写真を残し、ほかの $drop 枚をゴミ箱へ")
+                    Text(progress ?: "この画面の ${groups.size} 組：選んだ写真を残し、ほかの $drop 枚をゴミ箱へ")
                 }
             }
         }

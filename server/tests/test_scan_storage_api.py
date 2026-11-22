@@ -203,3 +203,28 @@ def test_restart_marks_cut_off_runs_interrupted(settings, db):
     with db.session() as s:
         states = {j.source: j.state for j in s.execute(select(ImportJob)).scalars()}
     assert states == {"phone_scan": "interrupted", "takeout": "running"}
+
+
+def test_resolve_all_keeps_the_biggest(settings, db):
+    import time
+    from photohub.users import add_user
+    a = _put(settings, "2020/2020-01/A.jpg", seed=10, quality=95)
+    b = settings.library / "2020/2020-01/A_small.jpg"
+    with Image.open(a) as img:
+        img.resize((320, 240)).save(b, "JPEG", quality=60)
+    scan(db, settings, [settings.library], apply=True)
+    assert similar.refresh(db, settings) == 1
+    _, token = add_user(db, settings, "reo")
+    import dataclasses
+    settings = dataclasses.replace(settings, apply=True) if dataclasses.is_dataclass(settings) else settings.model_copy(update={"apply": True})
+    c = TestClient(create_app(settings, db))
+    h = {"Authorization": f"Bearer {token}"}
+    assert c.get("/api/similar/resolve-all", headers=h).json()["open"] == 1
+    assert c.post("/api/similar/resolve-all", headers=h).json()["total"] == 1
+    for _ in range(50):
+        st = c.get("/api/similar/resolve-all", headers=h).json()
+        if not st["running"]:
+            break
+        time.sleep(0.1)
+    assert st["done"] == 1 and st["failed"] == 0 and st["open"] == 0
+    assert a.exists() and not b.exists()

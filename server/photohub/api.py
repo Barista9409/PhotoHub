@@ -816,6 +816,52 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     for sm, m in mem]})
         return out
 
+    bulk: dict[int, dict] = {}  # user id -> progress of "resolve all with the recommendation"
+
+    @app.post("/api/similar/resolve-all")
+    def similar_resolve_all(user: User = Depends(auth)) -> dict:
+        """Every open group the person may organise: keep the recommended photo (the biggest picture,
+        then the biggest file), the rest go to the trash. Runs in the background; poll GET."""
+        import threading
+        cur = bulk.get(user.id)
+        if cur and cur.get("running"):
+            return cur
+        with db.session() as s:
+            ids = list(s.execute(select(SimilarGroup.id).where(SimilarGroup.status == "open", _group_scope(user))
+                                 .order_by(SimilarGroup.id)).scalars())
+        st = bulk[user.id] = {"running": True, "total": len(ids), "done": 0, "trashed": 0, "failed": 0, "applied": settings.apply}
+
+        def work() -> None:
+            try:
+                for gid in ids:
+                    try:
+                        with db.session() as s:
+                            mem = s.execute(select(SimilarMember.media_id, Media.width, Media.height, Media.bytes)
+                                            .join(Media, Media.id == SimilarMember.media_id)
+                                            .where(SimilarMember.group_id == gid)).all()
+                        if not mem:
+                            st["failed"] += 1
+                            continue
+                        best = max(mem, key=lambda r: ((r.width or 0) * (r.height or 0), r.bytes or 0)).media_id
+                        acts = similar.resolve(db, settings, gid, {best}, apply=settings.apply, user=user)
+                        st["trashed"] += len(acts)
+                    except Exception:  # noqa: BLE001 - one bad group must not stop the rest
+                        st["failed"] += 1
+                    st["done"] += 1
+            finally:
+                st["running"] = False
+
+        threading.Thread(target=work, name="similar-all", daemon=True).start()
+        return st
+
+    @app.get("/api/similar/resolve-all")
+    def similar_resolve_all_status(user: User = Depends(auth)) -> dict:
+        with db.session() as s:
+            open_n = s.execute(select(func.count()).select_from(SimilarGroup)
+                               .where(SimilarGroup.status == "open", _group_scope(user))).scalar_one()
+        return {**bulk.get(user.id, {"running": False, "total": 0, "done": 0, "trashed": 0, "failed": 0,
+                                     "applied": settings.apply}), "open": open_n}
+
     @app.post("/api/similar/{group_id}/resolve")
     def similar_resolve(group_id: int, body: Keep, user: User = Depends(auth)) -> dict:
         try:
