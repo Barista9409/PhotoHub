@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Circle
@@ -130,6 +131,8 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     var selected by remember { mutableStateOf(setOf<String>()) }
     val selecting = selected.isNotEmpty()
     var confirmDelete by remember { mutableStateOf<List<TimelineItem>?>(null) }
+    var moveOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
+    var toast by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
 
     if (allItems.isEmpty() && header == null) {
@@ -292,8 +295,11 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                         scope.launch { items.filter { it.itemKey in selected && it.hash != null }.forEach { app.prefs.toggleFavorite(it.hash!!) } }
                         selected = emptySet()
                     }) { Icon(Icons.Default.Favorite, "お気に入り") }
-                    IconButton({ confirmDelete = items.filter { it.itemKey in selected && it.localUri != null } }) {
-                        Icon(Icons.Default.Delete, "スマホから削除")
+                    IconButton({ moveOf = items.filter { it.itemKey in selected && it.hash != null } }) {
+                        Icon(Icons.Default.FamilyRestroom, "自分だけ／家族で共有へ移す")
+                    }
+                    IconButton({ confirmDelete = items.filter { it.itemKey in selected } }) {
+                        Icon(Icons.Default.Delete, "削除")
                     }
                 }
             }
@@ -303,22 +309,73 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     }
 
     confirmDelete?.let { list ->
-        val unsafe = list.count { "nas" !in it.stores && "drive" !in it.stores }
+        val phoneOnly = list.count { it.hash == null && it.driveId == null }
+        val onPhone = list.filter { it.localUri != null }
         AlertDialog(onDismissRequest = { confirmDelete = null },
-            title = { Text("スマホから ${list.size} 件を削除") },
+            title = { Text("${list.size} 件を削除") },
             text = {
-                Text(if (list.isEmpty()) "スマホにある写真が選ばれていません。"
-                else if (unsafe > 0) "うち $unsafe 件はまだSynologyにもドライブにもありません。削除すると元に戻せません。"
-                else "Synologyやドライブにある写真なので、削除してもこのアプリで見られます。")
+                Text("Synology・Googleドライブ・このスマホの、すべてから消します。Synologyの写真は30日間ゴミ箱に残るので、「写真の整理」→「ゴミ箱」から戻せます。" +
+                    (if (phoneOnly > 0) "\n\nうち $phoneOnly 件はこのスマホにしかありません。ゴミ箱に入らず、元に戻せません。" else ""))
             },
             confirmButton = {
-                TextButton(enabled = list.isNotEmpty() && Build.VERSION.SDK_INT >= 30, onClick = {
+                TextButton(onClick = {
                     confirmDelete = null
-                    val pi = MediaStore.createDeleteRequest(ctx.contentResolver, list.map { android.net.Uri.parse(it.localUri) })
-                    deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                }) { Text("削除") }
+                    selected = emptySet()
+                    scope.launch {
+                        busy = "削除しています…"
+                        val o = com.photohub.app.data.Deleter.everywhere(app, list)
+                        busy = null
+                        toast = o.error ?: "ゴミ箱に ${o.trashed} 件" + (if (o.fromDrive > 0) "・ドライブから ${o.fromDrive} 件" else "")
+                        if (o.phoneUris.isNotEmpty() && Build.VERSION.SDK_INT >= 30) {
+                            val pi = MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
+                            deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                        }
+                        com.photohub.app.data.SyncWorker.runNow(ctx)
+                    }
+                }) { Text("すべてから削除") }
             },
-            dismissButton = { TextButton({ confirmDelete = null }) { Text("やめる") } })
+            dismissButton = {
+                Row {
+                    if (onPhone.isNotEmpty() && Build.VERSION.SDK_INT >= 30) TextButton({
+                        confirmDelete = null
+                        val pi = MediaStore.createDeleteRequest(ctx.contentResolver, onPhone.map { android.net.Uri.parse(it.localUri) })
+                        deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                    }) { Text("スマホからだけ") }
+                    TextButton({ confirmDelete = null }) { Text("やめる") }
+                }
+            })
+    }
+    moveOf?.let { list ->
+        AlertDialog(onDismissRequest = { moveOf = null },
+            title = { Text("${list.size} 件の置き場所") },
+            text = { Text(if (list.isEmpty()) "Synologyにある写真が選ばれていません（スマホにしかない写真は、同期したあとで移せます）。"
+                          else "家族で共有：家族みんなが見られる photo フォルダへ。\n自分だけ：自分の Photos フォルダへ。") },
+            confirmButton = {
+                if (list.isNotEmpty()) TextButton({
+                    moveOf = null; selected = emptySet()
+                    scope.launch {
+                        toast = try { "家族で共有へ ${app.net.api()!!.moveMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, "shared"))["moved"] ?: 0} 件移しました" }
+                                catch (e: Exception) { "移せませんでした（${e.message}）" }
+                        com.photohub.app.data.SyncWorker.runNow(ctx)
+                    }
+                }) { Text("家族で共有へ") }
+            },
+            dismissButton = {
+                Row {
+                    if (list.isNotEmpty()) TextButton({
+                        moveOf = null; selected = emptySet()
+                        scope.launch {
+                            toast = try { "自分だけへ ${app.net.api()!!.moveMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, "mine"))["moved"] ?: 0} 件移しました" }
+                                    catch (e: Exception) { "移せませんでした（${e.message}）" }
+                            com.photohub.app.data.SyncWorker.runNow(ctx)
+                        }
+                    }) { Text("自分だけへ") }
+                    TextButton({ moveOf = null }) { Text("やめる") }
+                }
+            })
+    }
+    toast?.let { t ->
+        androidx.compose.runtime.LaunchedEffect(t) { android.widget.Toast.makeText(ctx, t, android.widget.Toast.LENGTH_LONG).show(); toast = null }
     }
 }
 

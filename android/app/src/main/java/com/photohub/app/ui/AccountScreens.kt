@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Share
@@ -100,6 +101,9 @@ enum class Dest(val route: String, val title: String) {
     APP("app", "アプリ"),
     LIBRARY("library", "ライブラリの内訳"),
     PLACES("places", "Synologyの保存場所"),
+    ORGANIZE("organize", "写真の整理"),
+    TRASH("trash", "ゴミ箱"),
+    DUPLICATES("duplicates", "まったく同じ写真"),
 }
 
 @Composable
@@ -200,11 +204,12 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
 
         SectionTitle("写真の整理")
         Group {
-            SettingRow(Icons.Default.AutoAwesomeMosaic, "似ている写真",
-                status?.let { if (it.similarOpen > 0) "${it.similarOpen} 組。残す写真を選べます" else "ありません" } ?: "連写や加工前後の写真を見つけます",
-                onClick = { open(Dest.SIMILAR) }) { Chevron() }
+            SettingRow(Icons.Default.CleaningServices, "写真の整理",
+                "スマホの空き容量・同じ写真・似ている写真・スクリーンショット・大きい動画・ぼやけた写真",
+                onClick = { open(Dest.ORGANIZE) }) { Chevron() }
             GroupDivider()
-            FreeUpSpaceRow()
+            SettingRow(Icons.Default.Delete, "ゴミ箱", "消した写真は30日間ここから戻せます",
+                onClick = { open(Dest.TRASH) }) { Chevron() }
         }
 
         SectionTitle("Googleフォトからの移行")
@@ -462,12 +467,13 @@ fun ReceiveRow() {
     val s by app.prefs.settings.collectAsState(initial = null)
     val work by WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(SyncWorker.ONCE).collectAsState(initial = emptyList())
     val w = work.firstOrNull()
-    val running = w?.state == WorkInfo.State.RUNNING || w?.state == WorkInfo.State.ENQUEUED
+    val running = w?.state == WorkInfo.State.RUNNING
     val last = s?.lastSyncAt ?: 0L
     SettingRow(Icons.Default.Refresh, "Synologyの写真の一覧と縮小画像を受け取る",
         when {
             w?.state == WorkInfo.State.RUNNING -> "受け取り中… ${w.progress.getString("msg") ?: ""}"
-            w?.state == WorkInfo.State.ENQUEUED -> "Synologyにつながるのを待っています"
+            w?.state == WorkInfo.State.ENQUEUED -> "Wi-Fiなどにつながるのを待っています。押すとすぐ始めます"
+            w?.state == WorkInfo.State.FAILED -> "前回は ${w.outputData.getString("msg") ?: "うまくいきませんでした"}。押すともう一度受け取ります"
             last > 0 -> "最後に受け取った日時 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last))}・アプリを開くたびに自動で受け取ります"
             else -> "まだ受け取っていません"
         }, enabled = !running, onClick = { SyncWorker.runNow(ctx) })

@@ -191,6 +191,10 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.APP.route) { com.photohub.app.ui.AppScreen() }
                 composable(Dest.LIBRARY.route) { com.photohub.app.ui.LibraryScreen() }
                 composable(Dest.PLACES.route) { com.photohub.app.ui.SynologyPlacesScreen() }
+                composable(Dest.ORGANIZE.route) { com.photohub.app.ui.OrganizeScreen(open = { r -> nav.navigate(r) }) }
+                composable(Dest.TRASH.route) { com.photohub.app.ui.TrashScreen() }
+                composable(Dest.DUPLICATES.route) { com.photohub.app.ui.DuplicatesScreen() }
+                composable("suggest/{kind}") { com.photohub.app.ui.SuggestScreen(it.arguments!!.getString("kind")!!, open) }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {
                         nav.navigate("timeline") { popUpTo("timeline") { inclusive = true } }
@@ -226,6 +230,7 @@ private fun AccountButton(app: PhotoHubApp, onClick: () -> Unit) {
 private fun titleFor(route: String, name: String?) = when {
     route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
     route == "account" -> "アカウントと設定"
+    route.startsWith("suggest/") -> "消してもよさそうな写真"
     Dest.entries.any { it.route == route } -> Dest.entries.first { it.route == route }.title
     else -> tabs.firstOrNull { it.route == route }?.label ?: "PhotoHub"
 }

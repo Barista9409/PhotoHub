@@ -318,7 +318,7 @@ interface MediaDao {
     suspend fun clearDrive()
 
     /** Phone photos that are safely on the NAS (candidates for freeing up space). */
-    @Query("""SELECT l.* FROM local_media l WHERE l.fileHash IN (SELECT fileHash FROM remote_media)
+    @Query("""SELECT l.* FROM local_media l WHERE (l.onNas OR l.fileHash IN (SELECT fileHash FROM remote_media))
               AND l.takenAt < :before ORDER BY l.takenAt""")
     suspend fun localOnNas(before: Long): List<LocalMedia>
 

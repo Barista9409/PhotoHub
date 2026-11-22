@@ -233,7 +233,8 @@ class BackupEngine(private val app: PhotoHubApp) {
         for (chunk in unknown.chunked(500)) {
             val have = try { api.have(HashesBody(chunk.map { it.fileHash!! })) } catch (e: Exception) { emptyMap() }
             // "queued" = it already received it and is filing it away
-            if (have.isNotEmpty()) app.db.media().markOnNas(have.keys.toList())
+            val there = have.filterValues { it == "nas" || it == "queued" }.keys.toList()
+            if (there.isNotEmpty()) app.db.media().markOnNas(there)   // ("deleted" = deleted on purpose: not sent again)
             toSend += chunk.filter { have[it.fileHash] == null }
         }
         val already = local.size - toSend.size
@@ -386,9 +387,14 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, req)
         }
         fun runNow(ctx: Context) {
+            val wm = WorkManager.getInstance(ctx)
             val req = OneTimeWorkRequestBuilder<BackupWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-            WorkManager.getInstance(ctx).enqueueUniqueWork(ONCE, ExistingWorkPolicy.KEEP, req)
+            // keep one that is running; replace one that is only waiting for a retry
+            val running = try {
+                wm.getWorkInfosForUniqueWork(ONCE).get().any { it.state == androidx.work.WorkInfo.State.RUNNING }
+            } catch (_: Exception) { false }
+            wm.enqueueUniqueWork(ONCE, if (running) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE, req)
         }
     }
 }

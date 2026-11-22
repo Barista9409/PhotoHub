@@ -61,6 +61,31 @@ data class MySettings(
 )
 
 @Serializable
+data class MoveBody(val hashes: List<String>, val to: String)
+
+@Serializable
+data class PathsBody(val paths: List<String>)
+
+@Serializable
+data class TrashItem(val hash: String, val name: String = "", val kind: String = "photo", @SerialName("taken_at") val takenAt: Long? = null,
+                     val by: String? = null, @SerialName("days_left") val daysLeft: Int = 30, val space: String = "mine")
+
+@Serializable
+data class TrashList(val days: Int = 30, val items: List<TrashItem> = emptyList())
+
+@Serializable
+data class DuplicateFile(val path: String, val hash: String, val keep: String = "", val bytes: Long = 0)
+
+@Serializable
+data class DuplicateList(val items: List<DuplicateFile> = emptyList())
+
+@Serializable
+data class HashScore(val hash: String, val sharpness: Double = 0.0)
+
+@Serializable
+data class HashScores(val items: List<HashScore> = emptyList())
+
+@Serializable
 data class ZipInfo(val name: String = "", val bytes: Long = 0)
 
 @Serializable
@@ -201,6 +226,14 @@ interface PhotoHubApi {
     @GET("api/status") suspend fun status(): Status
     @GET("api/me/folders") suspend fun myFolders(): MyFolders
     @GET("api/me/takeout") suspend fun takeoutStatus(): TakeoutStatus
+    @POST("api/media/delete") suspend fun deleteMedia(@Body body: HashesBody): Map<String, Int>
+    @POST("api/media/move") suspend fun moveMedia(@Body body: MoveBody): Map<String, Int>
+    @GET("api/trash") suspend fun trash(): TrashList
+    @POST("api/trash/restore") suspend fun restore(@Body body: HashesBody): Map<String, Int>
+    @POST("api/trash/empty") suspend fun emptyTrash(@Body body: HashesBody): Map<String, Int>
+    @GET("api/duplicates") suspend fun duplicates(): DuplicateList
+    @POST("api/duplicates/remove") suspend fun removeDuplicates(@Body body: PathsBody): Map<String, Int>
+    @GET("api/suggestions/blurry") suspend fun blurry(): HashScores
     @GET("api/me/browse") suspend fun browse(@retrofit2.http.Query("base") base: String, @retrofit2.http.Query("path") path: String): BrowseResult
     @POST("api/me/synology-probe") suspend fun synologyProbe(): ProbeResult
     @retrofit2.http.DELETE("api/me/synology-link") suspend fun synologyUnlink(): Map<String, Boolean>

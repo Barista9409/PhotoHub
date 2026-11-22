@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
@@ -77,6 +78,11 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     val pager = rememberPagerState(initialPage = start.coerceIn(0, items.lastIndex)) { items.size }
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf<Confirm?>(null) }
+    val phoneDelete = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) {
+        scope.launch { app.indexer.scan() }
+        onBack()
+    }
     var playing by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var barsVisible by remember { mutableStateOf(true) }
@@ -139,6 +145,23 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                         }
                     }
                 }) { Icon(Icons.Default.Share, "共有", tint = Color.White) }
+                IconButton(onClick = {
+                    val item = cur
+                    confirm = Confirm("削除しますか？",
+                        if (item.hash == null && item.driveId == null) "この写真はこのスマホにしかありません。消すと元に戻せません。"
+                        else "Synology・Googleドライブ・このスマホのすべてから消します。30日間は「写真の整理」→「ゴミ箱」から戻せます。") {
+                        scope.launch {
+                            val o = com.photohub.app.data.Deleter.everywhere(app, listOf(item))
+                            if (o.phoneUris.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
+                                val pi = android.provider.MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
+                                phoneDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+                            }
+                            message = o.error
+                            com.photohub.app.data.SyncWorker.runNow(ctx)
+                            if (o.error == null && o.phoneUris.isEmpty()) onBack()
+                        }
+                    }
+                }) { Icon(Icons.Default.Delete, "削除", tint = Color.White) }
                 IconButton(onClick = { showInfo = true }) { Icon(Icons.Default.Info, "情報", tint = Color.White) }
             }
             message?.let { Text(it, color = Color.White, modifier = Modifier.padding(8.dp)) }

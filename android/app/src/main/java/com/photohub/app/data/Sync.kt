@@ -121,9 +121,13 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             app.indexer.hashPending(limit = if (manual) 500 else 5000, isStopped = { isStopped })
             val r = SyncEngine(app).run(progress = { setProgress(workDataOf("msg" to it)) }) { isStopped }
             if (r.message == "更新しました") androidx.work.ListenableWorker.Result.success(workDataOf("msg" to r.message))
+            // a run started by hand (or on opening the app) does not sit in a growing retry wait:
+            // the next opening / button press / periodic run tries again
+            else if (manual) androidx.work.ListenableWorker.Result.failure(workDataOf("msg" to r.message))
             else androidx.work.ListenableWorker.Result.retry()
         } catch (e: Exception) {
-            androidx.work.ListenableWorker.Result.retry()
+            if (manual) androidx.work.ListenableWorker.Result.failure(workDataOf("msg" to "Synologyにつながりませんでした"))
+            else androidx.work.ListenableWorker.Result.retry()
         }
     }
 
@@ -145,11 +149,16 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         }
 
         fun runNow(ctx: Context) {
+            val wm = WorkManager.getInstance(ctx)
             val req = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setInputData(workDataOf(KEY_MANUAL to true))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-            WorkManager.getInstance(ctx).enqueueUniqueWork(ONCE, ExistingWorkPolicy.KEEP, req)
+            // keep one that is running; replace one that is only waiting (e.g. a retry after a failure)
+            val running = try {
+                wm.getWorkInfosForUniqueWork(ONCE).get().any { it.state == androidx.work.WorkInfo.State.RUNNING }
+            } catch (_: Exception) { false }
+            wm.enqueueUniqueWork(ONCE, if (running) ExistingWorkPolicy.KEEP else ExistingWorkPolicy.REPLACE, req)
         }
     }
 }
