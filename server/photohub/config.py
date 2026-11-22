@@ -42,7 +42,7 @@ class Settings:
     similar_threshold: int = 6
     google_keep_months: int = 12
     trash_days: int = 30
-    playable_max_gb: float = 50.0   # room for phone-friendly video copies made ahead of time
+    playable_max_gb: float = 100.0   # room for phone-friendly video copies made ahead of time
     min_free_gb: int = 200
     amazon_stale_days: int = 7
     # Amazon Photos backup through a PC app. Without a PC set false: photos are then not
@@ -148,7 +148,7 @@ class Settings:
             similar_threshold=_int("PHOTOHUB_SIMILAR_THRESHOLD", 6),
             google_keep_months=_int("PHOTOHUB_GOOGLE_KEEP_MONTHS", 12),
             trash_days=_int("PHOTOHUB_TRASH_DAYS", 30),
-            playable_max_gb=float(os.environ.get("PHOTOHUB_PLAYABLE_MAX_GB", "50") or 50),
+            playable_max_gb=float(os.environ.get("PHOTOHUB_PLAYABLE_MAX_GB", "100") or 100),
             min_free_gb=_int("PHOTOHUB_MIN_FREE_GB", 200),
             amazon_stale_days=_int("PHOTOHUB_AMAZON_STALE_DAYS", 7),
             amazon_backup=_bool("PHOTOHUB_AMAZON_BACKUP", True),

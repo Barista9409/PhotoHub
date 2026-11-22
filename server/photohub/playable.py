@@ -107,7 +107,7 @@ def wants_copy(m: Media) -> bool:
     return suffix in NEEDS or (suffix in MP4_LIKE and not is_faststart(p))
 
 
-def prepare_all(db, settings: Settings, budget_gb: float = 50.0, minutes: int = 50) -> dict:  # noqa: ANN001
+def prepare_all(db, settings: Settings, budget_gb: float = 100.0, minutes: int = 50) -> dict:  # noqa: ANN001
     """Make the phone-friendly copies ahead of time, newest videos first, so they play at once.
     Stops at the time limit (the next run goes on) and keeps the copies under `budget_gb`
     (older copies are not made once it is full). Copies of videos that are gone are removed."""

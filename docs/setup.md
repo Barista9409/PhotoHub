@@ -389,4 +389,4 @@ photohub scan                          # NASの写真の索引を、確認だけ
 | `PHOTOHUB_WORKERS` | `2` | 同時に処理する数 |
 | `PHOTOHUB_SCAN_EXTRA` | なし | ほかに索引するフォルダ（コンテナ内のパス、`:` 区切り） |
 | `SYNOLOGY_API_ENABLED` | `false` | Synology Photosにアルバムを作る（`photohub synology probe` で確認してから） |
-| `PHOTOHUB_PLAYABLE_MAX_GB` | `50` | 動画を「スマホですぐ再生できる形」にしたコピーを、前もって作っておく容量の上限（GB）。新しい動画から順に作ります |
+| `PHOTOHUB_PLAYABLE_MAX_GB` | `100` | 動画を「スマホですぐ再生できる形」にしたコピーを、前もって作っておく容量の上限（GB）。新しい動画から順に作ります |
