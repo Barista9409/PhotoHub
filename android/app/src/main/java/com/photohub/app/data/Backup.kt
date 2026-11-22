@@ -212,18 +212,19 @@ class BackupEngine(private val app: PhotoHubApp) {
             val message = when {
                 stopped -> "途中で止めました"
                 d.error != null -> d.error
+                n.unreachable -> "Synologyにつながらないため送れませんでした"
                 n.failed > 0 -> "一部送れませんでした"
                 else -> "完了"
             }
             Result(n.sent, d.sent, d.removed, message, local.size, n.already, n.failed)
         }
 
-    private data class NasOut(val sent: Int = 0, val already: Int = 0, val failed: Int = 0)
+    private data class NasOut(val sent: Int = 0, val already: Int = 0, val failed: Int = 0, val unreachable: Boolean = false)
     private data class DriveOut(val sent: Int = 0, val removed: Int = 0, val error: String? = null)
 
     private suspend fun nasPart(local: List<LocalMedia>, api: com.photohub.app.data.api.PhotoHubApi?, on: Boolean,
                                 progress: suspend (BackupStep) -> Unit, isStopped: () -> Boolean): NasOut {
-        if (api == null) return NasOut()
+        if (api == null) return NasOut(unreachable = on)
         val label = "Synologyへ送信中"
         if (on) progress(BackupStep(BackupStep.NAS, "Synologyにある写真を確認中", 0, 0))
         val onNas = HashSet<String>(app.db.media().remoteFileHashes())

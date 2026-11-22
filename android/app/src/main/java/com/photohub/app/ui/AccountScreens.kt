@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
@@ -153,6 +154,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             }
             Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
                 when {
+                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「アカウント」）", false)
                     base == null -> StatusPill("Synologyにつながりません", false)
                     base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
                     else -> StatusPill("外出先からつながっています", true)
@@ -251,6 +253,8 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
 
         SectionTitle("アカウント")
         Group {
+            RemoteAddressRow()
+            GroupDivider()
             SettingRow(Icons.AutoMirrored.Filled.Logout, "ログアウト", "別の家族がこのスマホを使うとき", onClick = { confirmLogout = true })
         }
     }
@@ -627,4 +631,62 @@ fun RunNowRow() {
             last.first > 0 -> "前回 ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(last.first))}　${last.second}"
             else -> what.joinToString("・") + "を今すぐ行います"
         }, onClick = { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) })
+}
+
+
+/** Where the app reaches the Synology away from home (Tailscale). Synology's Tailscale package usually
+ *  hides its address from PhotoHub, so it can be typed in here (from the Tailscale app's device list). */
+@Composable
+fun RemoteAddressRow() {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = rememberCoroutineScope()
+    val s by app.prefs.settings.collectAsState(initial = null)
+    val cur = s ?: return
+    var edit by remember { mutableStateOf<String?>(null) }
+    var result by remember { mutableStateOf<String?>(null) }
+    SettingRow(Icons.Default.VpnKey, "外出先からの接続（Tailscale）",
+        if (cur.remoteUrl.isBlank()) "未設定のため、外出先ではつながりません。押してSynologyのTailscaleのアドレスを入れてください"
+        else cur.remoteUrl.removePrefix("http://"),
+        onClick = { edit = cur.remoteUrl.removePrefix("http://").substringBefore(":"); result = null }) { Chevron() }
+    edit?.let { v0 ->
+        var v by remember { mutableStateOf(v0) }
+        var busy by remember { mutableStateOf(false) }
+        AlertDialog(onDismissRequest = { edit = null }, title = { Text("外出先からの接続") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("スマホのTailscaleアプリを開き、デバイスの一覧でSynologyを押すと「100.」で始まるアドレスが出ます。それを入れてください。",
+                        style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.material3.OutlinedTextField(v, { v = it.trim() }, singleLine = true,
+                        label = { Text("例：100.101.102.103") })
+                    result?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                        color = if (it.startsWith("つながりました")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+                    Text("確かめるときは、スマホのTailscaleをオンにしてください（自宅のWi-Fiでも確かめられます）。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = v.isNotBlank() && !busy, onClick = {
+                    val host = v.removePrefix("http://").removePrefix("https://").trimEnd('/')
+                    val url = "http://" + (if (host.contains(":")) host else "$host:8765")
+                    busy = true
+                    scope.launch {
+                        val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                okhttp3.OkHttpClient.Builder().connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                                    .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS).build()
+                                    .newCall(okhttp3.Request.Builder().url("$url/api/health").build()).execute()
+                                    .use { it.isSuccessful && it.body?.string()?.contains("photohub") == true }
+                            } catch (e: Exception) { false }
+                        }
+                        app.prefs.save(app.prefs.current().copy(remoteUrl = url))
+                        UiState.refreshBase(app, true)
+                        busy = false
+                        if (ok) { result = null; edit = null; android.widget.Toast.makeText(ctx, "つながりました。外出先でも使えます", android.widget.Toast.LENGTH_LONG).show() }
+                        else result = "保存しましたが、今はつながりませんでした。Tailscaleがオンか、アドレスが合っているか確かめてください"
+                    }
+                }) { Text(if (busy) "確かめています…" else "保存して確かめる") }
+            },
+            dismissButton = { TextButton({ edit = null }) { Text("閉じる") } })
+    }
 }

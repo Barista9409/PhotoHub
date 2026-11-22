@@ -94,6 +94,9 @@ docker image prune -f
 
 5. すぐ試すには、一覧で `PhotoHub自動更新` を選んで「実行」。少し待ってアプリの「Synology側の版」が新しい日付になれば成功です
 
+
+> **外出先でつながらないとき**：Synology用のTailscaleは、PhotoHubから自分のTailscaleのアドレスが見えないことがあります。アプリの右上のアイコン →「アカウント」→「外出先からの接続（Tailscale）」に、スマホのTailscaleアプリのデバイス一覧に出るSynologyのアドレス（`100.` で始まる）を入れてください。
+
 ## 3. アプリを入れてログイン（家族それぞれ）
 
 1. スマホのブラウザで **https://github.com/Barista9409/PhotoHub/releases/latest/download/PhotoHub.apk** を開いてダウンロードし、開く（いつも最新版が落ちてくるリンクです。すでに使っている人は、右上のアイコン →「更新と共有」→「アプリを家族に送る」でLINEなどに送れます）
