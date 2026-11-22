@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
@@ -123,7 +124,7 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
 @OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
-              zoomBar: Boolean = false, albumId: Long? = null) {
+              zoomBar: Boolean = false, albumId: Long? = null, legend: Boolean = true) {
     var kindFilter by rememberSaveable { mutableStateOf("") }   // "" / photo / video
     val items = remember(allItems, kindFilter) { if (kindFilter == "") allItems else allItems.filter { it.kind == kindFilter } }
     val ctx = LocalContext.current
@@ -172,7 +173,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         out
     }
     val grid = rememberLazyGridState()
-    val headerOffset = if (header != null) 1 else 0
+    val headerOffset = 1   // the legend of the marks (and the screen's own header)
     androidx.compose.runtime.LaunchedEffect(rows) {
         jumpTo?.let { target ->
             val r = rows.indexOfFirst { it == target || (it is Header && it.first == target) }
@@ -224,7 +225,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
             verticalArrangement = Arrangement.spacedBy(if (cols >= 6) 1.dp else 2.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
         ) {
-            if (header != null) item(span = { GridItemSpan(maxLineSpan) }) { header() }
+            item(span = { GridItemSpan(maxLineSpan) }) { Column { if (legend) MarksLegend(); header?.invoke() } }
             items(rows, key = { r -> if (r is Header) "h:${r.key}" else items[r as Int].itemKey },
                 span = { r -> if (r is Header) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { r ->
                 if (r is Header) {
@@ -281,22 +282,25 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         // selection bar
         androidx.compose.animation.AnimatedVisibility(visible = selecting, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                var more by remember { mutableStateOf(false) }
+                fun chosen() = items.filter { it.itemKey in selected }
+                fun onSyno() = chosen().filter { it.hash != null }
+                Row(Modifier.padding(horizontal = 4.dp).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ selected = emptySet() }) { Icon(Icons.Default.Close, "選択をやめる") }
-                    Text("${selected.size} 件を選択", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Text("${selected.size} 件", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 1)
                     val all = items.size == selected.size
-                    IconButton({ selected = if (all) emptySet() else items.map { it.itemKey }.toSet() }) {
-                        Icon(if (all) Icons.Default.Deselect else Icons.Default.SelectAll, if (all) "すべて解除" else "すべて選択")
+                    androidx.compose.material3.TextButton({ selected = if (all) emptySet() else items.map { it.itemKey }.toSet() }) {
+                        Text(if (all) "すべて解除" else "すべて選択", maxLines = 1)
                     }
                     IconButton({
-                        val chosen = items.filter { it.itemKey in selected }
+                        val list = chosen()
                         scope.launch {
                             busy = "準備中…"
-                            val uris = chosen.mapNotNull { fetchOriginal(ctx, app, it, base) }
+                            val uris = list.mapNotNull { fetchOriginal(ctx, app, it, base) }
                             busy = null
                             if (uris.isNotEmpty()) {
                                 val send = Intent(if (uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
-                                    type = if (chosen.all { it.kind == "photo" }) "image/*" else "*/*"
+                                    type = if (list.all { it.kind == "photo" }) "image/*" else "*/*"
                                     if (uris.size == 1) putExtra(Intent.EXTRA_STREAM, uris[0])
                                     else putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -305,34 +309,38 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                             }
                         }
                     }) { Icon(Icons.Default.Share, "共有") }
-                    IconButton({
-                        scope.launch { items.filter { it.itemKey in selected && it.hash != null }.forEach { app.prefs.toggleFavorite(it.hash!!) } }
-                        selected = emptySet()
-                    }) { Icon(Icons.Default.Favorite, "お気に入り") }
-                    IconButton({ downloadOf = items.filter { it.itemKey in selected } }) { Icon(Icons.Default.Download, "このスマホに保存") }
-                    IconButton({ dateOf = items.filter { it.itemKey in selected && it.hash != null } }) { Icon(Icons.Default.Event, "日付を変更") }
-                    IconButton({
-                        val list = items.filter { it.itemKey in selected && it.hash != null && it.kind == "photo" }.map { it.hash!! }
-                        selected = emptySet()
-                        scope.launch { toast = if (list.isEmpty()) "Synologyにある写真を選んでください" else rotatePhotos(app, list, 90) }
-                    }) { Icon(Icons.Default.Rotate90DegreesCw, "右に回転") }
-                    IconButton({ albumOf = items.filter { it.itemKey in selected && it.hash != null } }) {
-                        Icon(Icons.Default.PhotoAlbum, "アルバムに追加")
-                    }
-                    if (albumId != null) IconButton({
-                        val chosen = items.filter { it.itemKey in selected && it.hash != null }.map { it.hash!! }
-                        selected = emptySet()
-                        scope.launch {
-                            toast = try { app.net.api()!!.removeFromAlbum(albumId, com.photohub.app.data.api.HashesBody(chosen)); "アルバムから外しました" }
-                                    catch (e: Exception) { "外せませんでした（${e.message}）" }
-                            com.photohub.app.data.SyncWorker.runNow(ctx)
+                    IconButton({ confirmDelete = chosen() }) { Icon(Icons.Default.Delete, "削除", tint = MaterialTheme.colorScheme.error) }
+                    Box {
+                        IconButton({ more = true }) { Icon(Icons.Default.MoreVert, "ほかの操作") }
+                        androidx.compose.material3.DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                            @Composable fun entry(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, action: () -> Unit) =
+                                androidx.compose.material3.DropdownMenuItem(text = { Text(label) }, leadingIcon = { Icon(icon, null) },
+                                    onClick = { more = false; action() })
+                            entry(Icons.Default.Delete, "削除") { confirmDelete = chosen() }
+                            entry(Icons.Default.Download, "このスマホに保存") { downloadOf = chosen() }
+                            entry(Icons.Default.PhotoAlbum, "アルバムに追加") { albumOf = onSyno() }
+                            if (albumId != null) entry(Icons.Default.RemoveCircleOutline, "このアルバムから外す") {
+                                val hs = onSyno().map { it.hash!! }
+                                selected = emptySet()
+                                scope.launch {
+                                    toast = try { app.net.api()!!.removeFromAlbum(albumId, com.photohub.app.data.api.HashesBody(hs)); "アルバムから外しました" }
+                                            catch (e: Exception) { "外せませんでした（${e.message}）" }
+                                    com.photohub.app.data.SyncWorker.runNow(ctx)
+                                }
+                            }
+                            entry(Icons.Default.Favorite, "お気に入りにする") {
+                                val list = onSyno()
+                                scope.launch { list.forEach { app.prefs.toggleFavorite(it.hash!!) } }
+                                selected = emptySet()
+                            }
+                            entry(Icons.Default.Rotate90DegreesCw, "右に回転") {
+                                val list = onSyno().filter { it.kind == "photo" }.map { it.hash!! }
+                                selected = emptySet()
+                                scope.launch { toast = if (list.isEmpty()) "Synologyにある写真を選んでください" else rotatePhotos(app, list, 90) }
+                            }
+                            entry(Icons.Default.Event, "撮影日を変更") { dateOf = onSyno() }
+                            entry(Icons.Default.FamilyRestroom, "自分だけ／家族で共有へ移す") { moveOf = onSyno() }
                         }
-                    }) { Icon(Icons.Default.RemoveCircleOutline, "アルバムから外す") }
-                    IconButton({ moveOf = items.filter { it.itemKey in selected && it.hash != null } }) {
-                        Icon(Icons.Default.FamilyRestroom, "自分だけ／家族で共有へ移す")
-                    }
-                    IconButton({ confirmDelete = items.filter { it.itemKey in selected } }) {
-                        Icon(Icons.Default.Delete, "削除")
                     }
                 }
             }
@@ -483,7 +491,7 @@ fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
         items.filter { val d = localDate(it); d.monthValue == today.monthValue && d.dayOfMonth == today.dayOfMonth && d.year < today.year }
             .groupBy { today.year - localDate(it).year }.toSortedMap()
     }
-    MediaGrid(items, onOpen, zoomBar = true, header = {
+    MediaGrid(items, onOpen, zoomBar = true, legend = false, header = {
       Column {
         MarksLegend()
         if (memories.isNotEmpty()) LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
