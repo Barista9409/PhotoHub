@@ -192,7 +192,7 @@ interface MediaDao {
     @Query("SELECT * FROM remote_media WHERE hash IN (:hashes)")
     suspend fun remoteByHashes(hashes: List<String>): List<RemoteMedia>
 
-    @Query("SELECT hash FROM remote_media")
+    @Query("SELECT hash FROM remote_media ORDER BY takenAt DESC")  // newest first: what people look at
     suspend fun allRemoteHashes(): List<String>
 
     @Query("SELECT COUNT(*) FROM remote_media")

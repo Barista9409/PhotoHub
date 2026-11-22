@@ -86,7 +86,11 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
 
     /** Coil: adds the NAS token to remote image/preview requests. */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
+        // many small pictures at once (OkHttp allows only 5 per server by default: the grid waited in line)
+        val dispatcher = okhttp3.Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 24 }
         val client = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectionPool(okhttp3.ConnectionPool(24, 5, TimeUnit.MINUTES))
             .connectTimeout(8, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val req = chain.request()

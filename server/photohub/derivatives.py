@@ -25,11 +25,20 @@ def path_for(settings: Settings, kind: str, content_hash: str) -> Path:
     return settings.cache / kind / safe[:2] / f"{safe}.webp"
 
 
-def synology_thumb(original: Path) -> Path | None:
+def synology_thumb(original: Path, want: int = 1600) -> Path | None:
+    """Synology Photos' own thumbnails (already made, already rotated). For a small thumbnail the
+    small ones are enough, which is far quicker than decoding the original photo."""
     d = original.parent / "@eaDir" / original.name
-    for name in ("SYNOPHOTO_THUMB_XL.jpg", "SYNOPHOTO_THUMB_L.jpg"):
-        if (d / name).exists():
-            return d / name
+    names = ["SYNOPHOTO_THUMB_M.jpg", "SYNOPHOTO_THUMB_B.jpg"] if want <= 640 else []
+    for name in names + ["SYNOPHOTO_THUMB_XL.jpg", "SYNOPHOTO_THUMB_L.jpg"]:
+        p = d / name
+        if p.exists():
+            try:
+                with Image.open(p) as im:
+                    if max(im.size) >= want:
+                        return p
+            except OSError:
+                continue
     return None
 
 
@@ -52,18 +61,17 @@ def _source_image(settings: Settings, m: Media, want: int) -> Image.Image | None
         return None
     if m.kind == "video":
         return _video_frame(settings, p)
-    syn = synology_thumb(p)
+    syn = synology_thumb(p, want)
     if syn is not None:
-        img = Image.open(syn)
-        if max(img.size) >= want:  # Synology's thumb is already rotated
-            return img
+        return Image.open(syn)  # Synology's thumb is already rotated and big enough
     img = Image.open(p)
     img.draft("RGB", (want * 2, want * 2))
     return ImageOps.exif_transpose(img)
 
 
-def make(settings: Settings, m: Media, force: bool = False) -> bool:
-    todo = [k for k in SIZES if force or not path_for(settings, k, m.content_hash).exists()]
+def make(settings: Settings, m: Media, force: bool = False, kinds: tuple[str, ...] | None = None) -> bool:
+    """kinds=("thumb",) makes only the small one (what the photo grid needs, quickly)."""
+    todo = [k for k in (kinds or tuple(SIZES)) if force or not path_for(settings, k, m.content_hash).exists()]
     if not todo:
         return False
     img = None
@@ -84,17 +92,19 @@ def make(settings: Settings, m: Media, force: bool = False) -> bool:
     return True
 
 
-def build_all(db: Database, settings: Settings, limit: int | None = None) -> tuple[int, int]:
+def build_all(db: Database, settings: Settings, limit: int | None = None,
+              kinds: tuple[str, ...] | None = None) -> tuple[int, int]:
     with db.session() as s:
-        media = list(s.execute(select(Media).where(Media.status == "active")).scalars())
-    media = [m for m in media if not all(path_for(settings, k, m.content_hash).exists() for k in SIZES)]
+        media = list(s.execute(select(Media).where(Media.status == "active").order_by(Media.taken_at.desc())).scalars())
+    want = kinds or tuple(SIZES)
+    media = [m for m in media if not all(path_for(settings, k, m.content_hash).exists() for k in want)]
     if limit:
         media = media[:limit]
     ok = fail = 0
 
     def one(m: Media) -> bool:
         try:
-            return make(settings, m)
+            return make(settings, m, kinds=kinds)
         except Exception:
             return False
 

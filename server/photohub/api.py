@@ -658,7 +658,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 continue
             if not p.exists():
                 try:
-                    derivatives.make(settings, ms[h])
+                    derivatives.make(settings, ms[h], kinds=("thumb",))
                 except Exception:
                     pass
             data = p.read_bytes() if p.exists() else b""
@@ -671,7 +671,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         with db.session() as s:
             m = media_or_404(s, content_hash, user)
         if not p.exists():
-            derivatives.make(settings, m)
+            derivatives.make(settings, m, kinds=(kind,))  # only the size asked for: a thumbnail stays quick
         if not p.exists():
             raise HTTPException(404)
         return FileResponse(p, media_type="image/webp", headers=IMMUTABLE)

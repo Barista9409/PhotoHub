@@ -96,6 +96,10 @@ class Service:
         from . import albums
         albums.pull_all(self.db, self.s)
 
+    def job_thumbs(self) -> None:
+        """Make the small pictures ahead of time (newest first), so phones never wait for them."""
+        derivatives.build_all(self.db, self.s, limit=4000, kinds=("thumb",))
+
     def job_places(self) -> None:
         from . import places
         places.assign(self.db)
@@ -138,6 +142,8 @@ class Service:
                     next_run_time=datetime.now())
         sch.add_job(lambda: self._guard("backup", self.job_backup, heavy=False), "cron", hour=4, minute=0, id="backup")
         sch.add_job(lambda: self._guard("trash", self.job_trash, heavy=False), "cron", hour=4, minute=30, id="trash")
+        sch.add_job(lambda: self._guard("thumbs", self.job_thumbs), "interval", minutes=20, id="thumbs",
+                    next_run_time=datetime.now() + timedelta(minutes=4))
         sch.add_job(lambda: self._guard("albums", self.job_albums, heavy=False), "interval", minutes=15, id="albums",
                     next_run_time=datetime.now() + timedelta(minutes=3))
         sch.add_job(lambda: self._guard("places", self.job_places, heavy=False), "interval", hours=1, id="places",
