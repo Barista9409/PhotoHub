@@ -257,7 +257,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         // closed, the summary still says when an update is waiting
         CollapsibleGroup("app", "アプリ",
             (if (updater is Updater.State.Available || updater is Updater.State.Ready) "新しい版があります・" else "") +
-                "更新・Synology側の版・家族に送る・使い方・エラーの記録", openByDefault = false) {
+                "更新・Synology側の版・アプリを共有・使い方・エラーの記録", openByDefault = false) {
             UpdateRow()
             GroupDivider()
             SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "新しい版をWi-Fiで取り込んで入れます", cur.autoUpdate) {
@@ -535,16 +535,10 @@ fun WhatsNewOnce() {
 @Composable
 fun ShareAppRows() {
     val ctx = LocalContext.current
-    SettingRow(Icons.Default.Share, "アプリを家族に送る", "LINEやメールで、最新版のダウンロードリンクを送ります", onClick = {
-        val text = "PhotoHub（家族の写真アプリ）のダウンロードはこちら：\n$APP_DOWNLOAD_URL\n" +
-            "開いたら「この提供元のアプリを許可」をオンにしてインストールし、自宅のWi-FiでSynologyのユーザー名とパスワードでログインしてください。"
+    // just the link (the share sheet offers copy too)
+    SettingRow(Icons.Default.Share, "アプリを共有", "最新版のダウンロードリンクを送ります", onClick = {
         ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
-            .putExtra(Intent.EXTRA_TEXT, text), "アプリを送る"))
-    })
-    GroupDivider()
-    SettingRow(Icons.Default.ContentCopy, "ダウンロードリンクをコピー", APP_DOWNLOAD_URL, onClick = {
-        ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("PhotoHub", APP_DOWNLOAD_URL))
-        if (Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "コピーしました", Toast.LENGTH_SHORT).show()
+            .putExtra(Intent.EXTRA_TEXT, APP_DOWNLOAD_URL), "アプリを共有"))
     })
 }
 

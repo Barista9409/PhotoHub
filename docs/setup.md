@@ -226,7 +226,7 @@ tail -n 400 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
 
 ## 3. アプリを入れてログイン（家族それぞれ）
 
-1. スマホのブラウザで **https://github.com/Barista9409/PhotoHub/releases/latest/download/PhotoHub.apk** を開いてダウンロードし、開く（いつも最新版が落ちてくるリンクです。すでに使っている人は、右下の「設定」→「アプリ」→「アプリを家族に送る」でLINEなどに送れます）
+1. スマホのブラウザで **https://github.com/Barista9409/PhotoHub/releases/latest/download/PhotoHub.apk** を開いてダウンロードし、開く（いつも最新版が落ちてくるリンクです。すでに使っている人は、右下の「設定」→「アプリ」→「アプリを共有」でLINEなどにリンクを送れます）
    - 「この提供元のアプリを許可」を聞かれたら許可（アプリの自動更新にも必要です）
    - 以前に 0.2.0 以前を入れていた場合は、先にアンインストール
 2. **自宅のWi-Fiにつないだまま**アプリを開く → NASが自動で見つかる
