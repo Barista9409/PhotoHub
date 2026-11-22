@@ -70,6 +70,10 @@ class SyncEngine(private val app: PhotoHubApp) {
             }
             // photos the Synology dated "the day they arrived": tell it the phone's real date
             try {
+                // the Drive copies carry the phone's date: read the Drive list once if this phone has none yet
+                if (dao.driveFiles().isEmpty()) app.drive.token()?.let { t -> dao.upsertDrive(app.drive.list(t)) }
+            } catch (_: Exception) {}
+            try {
                 val fixes = dao.datesToFix()
                 for (chunk in fixes.chunked(500))
                     api.fixDates(com.photohub.app.data.api.DateFixBody(chunk.map { com.photohub.app.data.api.DateFixItem(it.fileHash, it.takenAt) }))

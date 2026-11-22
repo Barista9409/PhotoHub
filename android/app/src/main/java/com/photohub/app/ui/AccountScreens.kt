@@ -376,7 +376,7 @@ fun DeviceScreen() {
                     scope.launch {
                         val msg = try {
                             val r = app.net.api()!!.repairDates()
-                            "ファイル名から ${r["from_name"] ?: 0} 枚・ファイルの日付から ${r["from_file"] ?: 0} 枚を直しました。手がかりなし ${r["no_clue"] ?: 0} 枚"
+                            "ファイル名から ${r["from_name"] ?: 0} 枚・ファイルの中の日付から ${r["from_inside"] ?: 0} 枚・ファイルの日付から ${r["from_file"] ?: 0} 枚を直しました。手がかりなし ${r["no_clue"] ?: 0} 枚（Googleドライブに残っている日付からも、同期のたびに直します）"
                         } catch (e: Exception) { "直せませんでした（${e.message}）" }
                         SyncWorker.runNow(ctx)
                         Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()

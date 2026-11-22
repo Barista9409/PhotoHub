@@ -48,7 +48,7 @@ def test_repair_and_set_by_hand(settings, db):
     c = TestClient(create_app(settings, db))
     h = {"Authorization": f"Bearer {token}"}
     r = c.post("/api/media/repair-dates", headers=h).json()
-    assert r == {"from_name": 1, "from_file": 1, "no_clue": 1}
+    assert r == {"from_name": 1, "from_inside": 0, "from_file": 1, "no_clue": 1}
     with db.session() as s:
         by = {Path(m.nas_path).name: m for m in s.execute(select(Media)).scalars()}
         assert by["Screenshot_20240812-153012.png"].taken_at == datetime(2024, 8, 12, 6, 30, 12)  # 15:30 JST
@@ -57,3 +57,18 @@ def test_repair_and_set_by_hand(settings, db):
     assert c.post("/api/media/set-date", json={"hashes": [hash_nodate], "date": "2016-07-20"}, headers=h).json()["changed"] == 1
     with db.session() as s:
         assert s.execute(select(Media).where(Media.content_hash == hash_nodate)).scalar_one().taken_at == datetime(2016, 7, 20, 3, 0)
+
+
+def test_date_inside_png(settings, tmp_path):
+    """A PNG with a creation time written inside (no EXIF date)."""
+    import shutil
+    import subprocess
+    import pytest
+    from PIL import Image
+    from photohub.dates import date_inside
+    if not shutil.which(settings.exiftool_bin):
+        pytest.skip("exiftool not installed")
+    p = tmp_path / "x.png"
+    Image.new("RGB", (10, 10)).save(p)
+    subprocess.run([settings.exiftool_bin, "-q", "-overwrite_original", "-PNG:CreationTime=2019:06:07 08:09:10", str(p)], check=True)
+    assert date_inside(settings, p) == datetime(2019, 6, 7, 8, 9, 10)

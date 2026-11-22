@@ -118,6 +118,7 @@ private const val REMOTE_PART = """
            r.kind AS kind,
            -- a photo dated the day it reached the Synology (no date inside the file): the phone's date is the real one
            COALESCE((SELECT MIN(l.takenAt) FROM local_media l WHERE l.fileHash = r.fileHash AND l.takenAt < r.takenAt - 86400000),
+                    (SELECT MIN(d.takenAt) FROM drive_file d WHERE d.fileHash = r.fileHash AND d.takenAt > 0 AND d.takenAt < r.takenAt - 86400000),
                     r.takenAt) AS takenAt,
            r.tz AS tz, r.name AS name,
            r.stores
@@ -280,8 +281,14 @@ interface MediaDao {
     suspend fun countUnhashed(): Int
 
     /** Synology copies dated later than the phone's own date by more than a day (see TIMELINE_SELECT). */
-    @Query("""SELECT r.fileHash AS fileHash, MIN(l.takenAt) AS takenAt FROM remote_media r JOIN local_media l ON l.fileHash = r.fileHash
-              WHERE l.takenAt > 0 AND l.takenAt < r.takenAt - 86400000 GROUP BY r.fileHash LIMIT 2000""")
+    @Query("""SELECT fileHash, MIN(takenAt) AS takenAt FROM (
+                SELECT r.fileHash AS fileHash, l.takenAt AS takenAt FROM remote_media r JOIN local_media l ON l.fileHash = r.fileHash
+                WHERE l.takenAt > 0 AND l.takenAt < r.takenAt - 86400000
+                UNION ALL
+                -- the phone's date kept with each Google Drive copy (still there after the phone copy is gone)
+                SELECT r.fileHash, d.takenAt FROM remote_media r JOIN drive_file d ON d.fileHash = r.fileHash
+                WHERE d.takenAt > 0 AND d.takenAt < r.takenAt - 86400000)
+              GROUP BY fileHash LIMIT 2000""")
     suspend fun datesToFix(): List<DateToFix>
 
     @Query("UPDATE local_media SET onNas = 1 WHERE fileHash IN (:hashes)")
