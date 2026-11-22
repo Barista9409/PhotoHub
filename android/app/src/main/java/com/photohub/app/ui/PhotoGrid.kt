@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.PhotoAlbum
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Share
@@ -116,7 +118,7 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
-              zoomBar: Boolean = false) {
+              zoomBar: Boolean = false, albumId: Long? = null) {
     var kindFilter by rememberSaveable { mutableStateOf("") }   // "" / photo / video
     val items = remember(allItems, kindFilter) { if (kindFilter == "") allItems else allItems.filter { it.kind == kindFilter } }
     val ctx = LocalContext.current
@@ -132,6 +134,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     val selecting = selected.isNotEmpty()
     var confirmDelete by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var moveOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
+    var albumOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
 
@@ -295,6 +298,18 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                         scope.launch { items.filter { it.itemKey in selected && it.hash != null }.forEach { app.prefs.toggleFavorite(it.hash!!) } }
                         selected = emptySet()
                     }) { Icon(Icons.Default.Favorite, "お気に入り") }
+                    IconButton({ albumOf = items.filter { it.itemKey in selected && it.hash != null } }) {
+                        Icon(Icons.Default.PhotoAlbum, "アルバムに追加")
+                    }
+                    if (albumId != null) IconButton({
+                        val chosen = items.filter { it.itemKey in selected && it.hash != null }.map { it.hash!! }
+                        selected = emptySet()
+                        scope.launch {
+                            toast = try { app.net.api()!!.removeFromAlbum(albumId, com.photohub.app.data.api.HashesBody(chosen)); "アルバムから外しました" }
+                                    catch (e: Exception) { "外せませんでした（${e.message}）" }
+                            com.photohub.app.data.SyncWorker.runNow(ctx)
+                        }
+                    }) { Icon(Icons.Default.RemoveCircleOutline, "アルバムから外す") }
                     IconButton({ moveOf = items.filter { it.itemKey in selected && it.hash != null } }) {
                         Icon(Icons.Default.FamilyRestroom, "自分だけ／家族で共有へ移す")
                     }
@@ -373,6 +388,9 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                     TextButton({ moveOf = null }) { Text("やめる") }
                 }
             })
+    }
+    albumOf?.let { list ->
+        AddToAlbumDialog(list, onDone = { msg -> albumOf = null; selected = emptySet(); toast = msg })
     }
     toast?.let { t ->
         androidx.compose.runtime.LaunchedEffect(t) { android.widget.Toast.makeText(ctx, t, android.widget.Toast.LENGTH_LONG).show(); toast = null }

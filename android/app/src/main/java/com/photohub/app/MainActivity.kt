@@ -170,7 +170,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                     com.photohub.app.ui.FolderScreen(URLDecoder.decode(it.arguments!!.getString("name")!!, "UTF-8"), open)
                 }
                 composable("album/{id}/{name}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
-                    AlbumScreen(it.arguments!!.getLong("id"), open)
+                    AlbumScreen(it.arguments!!.getLong("id"), open, onDeleted = { nav.popBackStack() })
                 }
                 composable("map") { MapScreen(open) }
                 composable("search") { SearchScreen(open) { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") } }

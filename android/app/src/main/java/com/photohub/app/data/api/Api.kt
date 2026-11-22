@@ -62,6 +62,12 @@ data class MySettings(
 )
 
 @Serializable
+data class AlbumNewBody(val name: String, val hashes: List<String> = emptyList(), val shared: Boolean = false)
+
+@Serializable
+data class AlbumNameBody(val name: String)
+
+@Serializable
 data class MoveBody(val hashes: List<String>, val to: String)
 
 @Serializable
@@ -228,6 +234,12 @@ interface PhotoHubApi {
     @GET("api/me/folders") suspend fun myFolders(): MyFolders
     @GET("api/me/takeout") suspend fun takeoutStatus(): TakeoutStatus
     @POST("api/media/delete") suspend fun deleteMedia(@Body body: HashesBody): Map<String, Int>
+    @POST("api/albums") suspend fun createAlbum(@Body body: AlbumNewBody): Map<String, Long>
+    @retrofit2.http.PUT("api/albums/{id}") suspend fun renameAlbum(@retrofit2.http.Path("id") id: Long, @Body body: AlbumNameBody): Map<String, Boolean>
+    @retrofit2.http.DELETE("api/albums/{id}") suspend fun deleteAlbum(@retrofit2.http.Path("id") id: Long): Map<String, Boolean>
+    @POST("api/albums/{id}/add") suspend fun addToAlbum(@retrofit2.http.Path("id") id: Long, @Body body: HashesBody): Map<String, Int>
+    @POST("api/albums/{id}/remove") suspend fun removeFromAlbum(@retrofit2.http.Path("id") id: Long, @Body body: HashesBody): Map<String, Int>
+    @POST("api/albums/pull") suspend fun pullAlbums(): Map<String, kotlinx.serialization.json.JsonElement>
     @POST("api/media/move") suspend fun moveMedia(@Body body: MoveBody): Map<String, Int>
     @GET("api/trash") suspend fun trash(): TrashList
     @POST("api/trash/restore") suspend fun restore(@Body body: HashesBody): Map<String, Int>

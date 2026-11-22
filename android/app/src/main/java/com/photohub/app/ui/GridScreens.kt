@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -49,6 +50,7 @@ import coil3.compose.AsyncImage
 import com.photohub.app.PhotoHubApp
 import com.photohub.app.data.db.TimelineItem
 import java.time.LocalDate
+import kotlinx.coroutines.launch
 import java.time.ZoneId
 
 @Composable
@@ -61,9 +63,28 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("アルバムはまだありません") }
         return
     }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var pullMsg by remember { mutableStateOf<String?>(null) }
     val mine = albums.filter { !it.shared }
     val family = albums.filter { it.shared }
     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column(Modifier.padding(8.dp)) {
+                androidx.compose.material3.OutlinedButton({
+                    pullMsg = "読み込んでいます…"
+                    scope.launch {
+                        pullMsg = try {
+                            val r = app.net.api()!!.pullAlbums()
+                            r["error"]?.toString()?.trim('"') ?: "Synology Photosのアルバム ${r["albums"]} 件を読み込みました"
+                        } catch (e: Exception) { "読み込めませんでした（${e.message}）" }
+                        com.photohub.app.data.SyncWorker.runNow(app)
+                    }
+                }) { Text("Synology Photosのアルバムを読み込む") }
+                pullMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         if (mine.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("自分のアルバム", "Synologyにある、自分だけのアルバム") }
             items(mine, key = { "a${it.id}" }) { a -> AlbumCard(a) { onAlbum(a.id, a.name) } }
@@ -218,10 +239,43 @@ fun FolderScreen(bucket: String, onOpen: (List<TimelineItem>, Int) -> Unit) {
 }
 
 @Composable
-fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit) {
-    val app = LocalContext.current.applicationContext as PhotoHubApp
+fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDeleted: () -> Unit = {}) {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val items by app.db.media().album(albumId).collectAsState(initial = emptyList())
-    MediaGrid(items, onOpen)
+    val album = (app.lists.albums.collectAsState().value ?: emptyList()).firstOrNull { it.id == albumId }
+    var rename by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    MediaGrid(items, onOpen, albumId = albumId, header = {
+        Row(Modifier.fillMaxWidth().padding(12.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(listOfNotNull(if (album?.shared == true) "家族で共有" else "自分だけ",
+                if (album?.origin == "synology") "Synology Photosと同期" else null, "${items.size} 件").joinToString("・"),
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton({ rename = album?.name ?: "" }) { Text("名前を変える") }
+            androidx.compose.material3.TextButton({ confirmDelete = true }) { Text("削除") }
+        }
+    })
+    rename?.let { cur ->
+        var v by remember { mutableStateOf(cur) }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { rename = null }, title = { Text("アルバムの名前") },
+            text = { OutlinedTextField(v, { v = it }, singleLine = true) },
+            confirmButton = { androidx.compose.material3.TextButton(enabled = v.isNotBlank(), onClick = {
+                rename = null
+                scope.launch { try { app.net.api()!!.renameAlbum(albumId, com.photohub.app.data.api.AlbumNameBody(v.trim())) } catch (_: Exception) {}
+                    com.photohub.app.data.SyncWorker.runNow(ctx) }
+            }) { Text("変える") } },
+            dismissButton = { androidx.compose.material3.TextButton({ rename = null }) { Text("やめる") } })
+    }
+    if (confirmDelete) androidx.compose.material3.AlertDialog(onDismissRequest = { confirmDelete = false },
+        title = { Text("アルバムを削除しますか？") },
+        text = { Text("アルバムだけを消します。中の写真は消えません。" + if (album?.origin == "synology") "Synology Photosのアルバムも消えます。" else "") },
+        confirmButton = { androidx.compose.material3.TextButton({
+            confirmDelete = false
+            scope.launch { try { app.net.api()!!.deleteAlbum(albumId) } catch (_: Exception) {}
+                com.photohub.app.data.SyncWorker.runNow(ctx); onDeleted() }
+        }) { Text("削除") } },
+        dismissButton = { androidx.compose.material3.TextButton({ confirmDelete = false }) { Text("やめる") } })
 }
 
 /** What the search box understands: words, a year ("2023"), a month ("2023年8月", "2023/8"). */
@@ -361,4 +415,48 @@ private fun <T> LazyRowChips(values: List<T>, selected: T, label: (T) -> String,
 @Composable
 fun SimpleList(lines: List<Pair<String, String>>) {
     LazyColumn { items(lines) { (a, b) -> ListItem(headlineContent = { Text(a) }, supportingContent = { Text(b) }) } }
+}
+
+/** Put the chosen photos in an album: an existing one (own or family) or a new one. */
+@Composable
+fun AddToAlbumDialog(items: List<TimelineItem>, onDone: (String?) -> Unit) {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val albums = app.lists.albums.collectAsState().value ?: emptyList()
+    var newName by remember { mutableStateOf("") }
+    var shared by remember { mutableStateOf(false) }
+    val hashes = items.mapNotNull { it.hash }
+    fun finish(block: suspend () -> String) = scope.launch {
+        val msg = try { block() } catch (e: Exception) { "できませんでした（${e.message}）" }
+        com.photohub.app.data.SyncWorker.runNow(ctx)
+        onDone(msg)
+    }
+    androidx.compose.material3.AlertDialog(onDismissRequest = { onDone(null) },
+        title = { Text("${hashes.size} 件をアルバムに追加") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hashes.isEmpty()) Text("Synologyにある写真が選ばれていません（スマホにしかない写真は、同期したあとで追加できます）。")
+                OutlinedTextField(newName, { newName = it }, label = { Text("新しいアルバムの名前") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(shared, { shared = it })
+                    Text("家族で共有するアルバムにする", style = MaterialTheme.typography.bodySmall)
+                }
+                if (albums.isNotEmpty()) Text("または、今あるアルバムに追加", style = MaterialTheme.typography.labelLarge)
+                LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                    items(albums, key = { it.id }) { a ->
+                        Text(a.name + if (a.shared) "（家族）" else "", modifier = Modifier.fillMaxWidth()
+                            .clickable(enabled = hashes.isNotEmpty()) {
+                                finish { app.net.api()!!.addToAlbum(a.id, com.photohub.app.data.api.HashesBody(hashes)); "「${a.name}」に追加しました" }
+                            }.padding(vertical = 10.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(enabled = newName.isNotBlank(), onClick = {
+                finish { app.net.api()!!.createAlbum(com.photohub.app.data.api.AlbumNewBody(newName.trim(), hashes, shared)); "アルバム「${newName.trim()}」を作りました" }
+            }) { Text("新しいアルバムを作る") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton({ onDone(null) }) { Text("やめる") } })
 }
