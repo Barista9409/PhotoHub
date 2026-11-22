@@ -16,8 +16,8 @@ android {
         applicationId = "com.photohub.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 41
-        versionName = "0.28.3"
+        versionCode = 42
+        versionName = "0.28.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // GitHub repository whose latest Release the app updates itself from
         buildConfigField("String", "UPDATE_REPO", "\"Barista9409/PhotoHub\"")

@@ -396,3 +396,34 @@ def test_takeout_leaves_drive_once_copied(settings, db):
     os.utime(z, (old, old))
     assert collect_from_drive_sync(db, settings, u) == 1
     assert not z.exists() and (settings.inbox / "chie" / z.name).read_bytes() == b"zip"
+
+
+def test_dates_from_the_phone(settings, db, chie):
+    """A PNG without a date inside: the phone's date is used (upload header), and old wrong dates get fixed."""
+    import io
+    from datetime import datetime
+    from PIL import Image
+    u, h, c = chie
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 30), (200, 10, 10)).save(buf, "PNG")
+    data = buf.getvalue()
+    when = int(datetime(2021, 5, 3, 12, 0).timestamp() * 1000)
+    r = c.post("/api/upload", content=data, headers={**h, "X-File-Hash": hashlib.sha256(data).hexdigest(),
+                                                     "X-File-Name": "Screenshot_1.png", "X-Taken-At": str(when)})
+    assert r.status_code == 200
+    process_incoming(db, settings, apply=True)
+    item = c.get("/api/sync", headers=h).json()["items"][0]
+    assert abs(item["taken_at"] - when) < 2000
+    # an older upload without the header got "today": the phone fixes it later
+    buf2 = io.BytesIO()
+    Image.new("RGB", (40, 30), (10, 200, 10)).save(buf2, "PNG")
+    d2 = buf2.getvalue()
+    c.post("/api/upload", content=d2, headers={**h, "X-File-Hash": hashlib.sha256(d2).hexdigest(), "X-File-Name": "b.png"})
+    process_incoming(db, settings, apply=True)
+    fh2 = hashlib.sha256(d2).hexdigest()
+    old = int(datetime(2019, 1, 2, 9, 0).timestamp() * 1000)
+    assert c.post("/api/media/dates", json={"items": [{"file_hash": fh2, "taken_at": old}]}, headers=h).json()["fixed"] == 1
+    items = {i["name"]: i for i in c.get("/api/sync", headers=h).json()["items"]}
+    assert abs(items["b.png"]["taken_at"] - old) < 2000
+    # a real (older) date is never moved
+    assert c.post("/api/media/dates", json={"items": [{"file_hash": fh2, "taken_at": old - 86400000 * 400}]}, headers=h).json()["fixed"] == 0

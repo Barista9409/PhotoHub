@@ -48,6 +48,15 @@ class Paths(BaseModel):
     paths: list[str]
 
 
+class DateFix(BaseModel):
+    file_hash: str
+    taken_at: int  # ms since epoch, from the phone
+
+
+class DateFixes(BaseModel):
+    items: list[DateFix]
+
+
 class Hashes(BaseModel):
     hashes: list[str]
 
@@ -301,6 +310,12 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     if size > 8 * 1024**3:
                         raise HTTPException(413, "too large")
                     f.write(chunk)
+            # the phone's own date for the photo: files without a date inside (screenshots, PNG, saved
+            # images) get it as their file time, so they are not dated "the day they arrived"
+            taken = request.headers.get("x-taken-at", "")
+            if taken.isdigit() and int(taken) > 0:
+                t = int(taken) / 1000
+                os.utime(tmp, (t, t))
             from .incoming import UploadRejected, store_upload
             try:
                 return store_upload(db, settings, user, Path(tmp), fh, name,
@@ -515,6 +530,32 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         """Read this person's Synology Photos albums now."""
         from . import albums
         return albums.pull(db, settings, user)
+
+    @app.post("/api/media/dates")
+    def media_dates(body: DateFixes, user: User = Depends(auth)) -> dict:
+        """Photos that got the day they arrived as their date (no date inside the file): the phone knows
+        the real one. Only dates that look like an arrival date are changed (close to when PhotoHub
+        first saw the photo), and only to an earlier date. The file time is set too (Synology Photos uses it)."""
+        import os
+        from datetime import datetime, timedelta, timezone
+        n = 0
+        with db.session() as s:
+            for fx in body.items[:2000]:
+                when = datetime.fromtimestamp(fx.taken_at / 1000, tz=timezone.utc).replace(tzinfo=None)
+                for m in s.execute(select(Media).where(Media.file_hash == fx.file_hash.lower(), Media.status == "active")).scalars():
+                    if not can_see(s, user, m):
+                        continue
+                    arrival_like = m.taken_at is None or abs((m.taken_at - m.created_at).total_seconds()) < 2 * 86400
+                    if not arrival_like or (m.taken_at is not None and when >= m.taken_at - timedelta(days=1)):
+                        continue
+                    m.taken_at, m.tz_offset = when, None
+                    try:
+                        os.utime(m.nas_path, (fx.taken_at / 1000, fx.taken_at / 1000))
+                    except OSError:
+                        pass
+                    touch_media(s, m)
+                    n += 1
+        return {"fixed": n}
 
     @app.post("/api/drive-removed")
     def drive_removed_files(body: Hashes, user: User = Depends(auth)) -> dict:

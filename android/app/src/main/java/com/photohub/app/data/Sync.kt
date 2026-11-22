@@ -68,6 +68,12 @@ class SyncEngine(private val app: PhotoHubApp) {
                 try { api.deviceSync("{}".toRequestBody()) } catch (_: Exception) {}
                 return@withContext Result(changed, 0, 0, "更新しました")
             }
+            // photos the Synology dated "the day they arrived": tell it the phone's real date
+            try {
+                val fixes = dao.datesToFix()
+                for (chunk in fixes.chunked(500))
+                    api.fixDates(com.photohub.app.data.api.DateFixBody(chunk.map { com.photohub.app.data.api.DateFixItem(it.fileHash, it.takenAt) }))
+            } catch (_: Exception) {}
             // 2) thumbnails for everything, in packs of 300
             val missing = dao.allRemoteHashes().filterNot { files.hasThumb(it) }
             var thumbs = 0

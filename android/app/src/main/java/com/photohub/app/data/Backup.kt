@@ -119,6 +119,7 @@ class DriveClient(private val app: PhotoHubApp) {
         val folder = folderId(token)
         val mime = m.mime ?: "application/octet-stream"
         val meta = """{"name":${Json.encodeToString(kotlinx.serialization.serializer<String>(), m.name)},"parents":["$folder"],""" +
+            """"modifiedTime":"${java.time.Instant.ofEpochMilli(m.takenAt)}",""" +
             """"appProperties":{"fileHash":"${m.fileHash}","takenAt":"${m.takenAt}"}}"""
         val init = http.newCall(Request.Builder().url("$UPLOAD/files?uploadType=resumable&fields=id")
             .header("Authorization", "Bearer $token").header("X-Upload-Content-Type", mime)
@@ -315,6 +316,8 @@ class BackupEngine(private val app: PhotoHubApp) {
             // the NAS puts it in Synology Photos' own backup folder for this phone, same layout
             .header("X-Device", URLEncoder.encode(deviceName(), "UTF-8"))
             .header("X-Rel-Path", URLEncoder.encode(m.relPath ?: "", "UTF-8"))
+            // the phone's date: files without a date inside (screenshots, PNG ...) keep it on the Synology
+            .header("X-Taken-At", m.takenAt.toString())
             .post(streamBody(app, Uri.parse(m.uri), m.mime ?: "application/octet-stream", m.size)).build()
         return try {
             app.net.client(app.token).newBuilder().readTimeout(10, TimeUnit.MINUTES).writeTimeout(10, TimeUnit.MINUTES)

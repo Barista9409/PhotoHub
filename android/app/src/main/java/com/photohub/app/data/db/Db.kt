@@ -40,6 +40,8 @@ data class RemoteMedia(
     val place: String? = null,    // e.g. "東京都 渋谷区" (from the GPS position, named on the Synology)
 )
 
+data class DateToFix(val fileHash: String, val takenAt: Long)
+
 data class PlaceCount(val place: String, val n: Int, val hash: String)
 
 /** A photo's folder in the family's shared space (for browsing 共有 by folder). */
@@ -113,7 +115,11 @@ data class DriveFile(
 private const val REMOTE_PART = """
     SELECT r.hash AS itemKey, r.hash AS hash,
            (SELECT l.uri FROM local_media l WHERE l.fileHash = r.fileHash LIMIT 1) AS localUri,
-           r.kind AS kind, r.takenAt AS takenAt, r.tz AS tz, r.name AS name,
+           r.kind AS kind,
+           -- a photo dated the day it reached the Synology (no date inside the file): the phone's date is the real one
+           COALESCE((SELECT MIN(l.takenAt) FROM local_media l WHERE l.fileHash = r.fileHash AND l.takenAt < r.takenAt - 86400000),
+                    r.takenAt) AS takenAt,
+           r.tz AS tz, r.name AS name,
            r.stores
              || CASE WHEN EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = r.fileHash) THEN ',phone' ELSE '' END
              || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE d.fileHash = r.fileHash) AND r.stores NOT LIKE '%drive%' THEN ',drive' ELSE '' END
@@ -272,6 +278,11 @@ interface MediaDao {
 
     @Query("SELECT COUNT(*) FROM local_media WHERE fileHash IS NULL")
     suspend fun countUnhashed(): Int
+
+    /** Synology copies dated later than the phone's own date by more than a day (see TIMELINE_SELECT). */
+    @Query("""SELECT r.fileHash AS fileHash, MIN(l.takenAt) AS takenAt FROM remote_media r JOIN local_media l ON l.fileHash = r.fileHash
+              WHERE l.takenAt > 0 AND l.takenAt < r.takenAt - 86400000 GROUP BY r.fileHash LIMIT 2000""")
+    suspend fun datesToFix(): List<DateToFix>
 
     @Query("UPDATE local_media SET onNas = 1 WHERE fileHash IN (:hashes)")
     suspend fun markOnNas(hashes: List<String>)
