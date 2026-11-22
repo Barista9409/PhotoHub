@@ -116,19 +116,19 @@ data class DriveFile(
 
 private const val REMOTE_PART = """
     SELECT r.hash AS itemKey, r.hash AS hash,
-           (SELECT l.uri FROM local_media l WHERE l.fileHash = r.fileHash LIMIT 1) AS localUri,
+           (SELECT l.uri FROM local_media l WHERE (l.fileHash = r.fileHash OR l.fileHash IN (SELECT a.fileHash FROM remote_alias a WHERE a.hash = r.hash)) LIMIT 1) AS localUri,
            r.kind AS kind,
            -- a photo dated the day it reached the Synology (no date inside the file): the phone's date is the real one
-           COALESCE((SELECT MIN(l.takenAt) FROM local_media l WHERE l.fileHash = r.fileHash AND l.takenAt < r.takenAt - 86400000),
-                    (SELECT MIN(d.takenAt) FROM drive_file d WHERE d.fileHash = r.fileHash AND d.takenAt > 0 AND d.takenAt < r.takenAt - 86400000),
+           COALESCE((SELECT MIN(l.takenAt) FROM local_media l WHERE (l.fileHash = r.fileHash OR l.fileHash IN (SELECT a.fileHash FROM remote_alias a WHERE a.hash = r.hash)) AND l.takenAt < r.takenAt - 86400000),
+                    (SELECT MIN(d.takenAt) FROM drive_file d WHERE (d.fileHash = r.fileHash OR d.fileHash IN (SELECT a.fileHash FROM remote_alias a WHERE a.hash = r.hash)) AND d.takenAt > 0 AND d.takenAt < r.takenAt - 86400000),
                     r.takenAt) AS takenAt,
            r.tz AS tz, r.name AS name,
            r.stores
-             || CASE WHEN EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = r.fileHash) THEN ',phone' ELSE '' END
-             || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE d.fileHash = r.fileHash) AND r.stores NOT LIKE '%drive%' THEN ',drive' ELSE '' END
+             || CASE WHEN EXISTS (SELECT 1 FROM local_media l WHERE (l.fileHash = r.fileHash OR l.fileHash IN (SELECT a.fileHash FROM remote_alias a WHERE a.hash = r.hash))) THEN ',phone' ELSE '' END
+             || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE (d.fileHash = r.fileHash OR d.fileHash IN (SELECT a.fileHash FROM remote_alias a WHERE a.hash = r.hash))) AND r.stores NOT LIKE '%drive%' THEN ',drive' ELSE '' END
              AS stores,
            r.lat AS lat, r.lon AS lon, r.bytes AS bytes, r.w AS w, r.h AS h, r.duration AS duration, r.mime AS mime,
-           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = r.fileHash) AS driveId, r.place AS place, r.rot AS rot
+           (SELECT d.driveId FROM drive_file d WHERE (d.fileHash = r.fileHash OR d.fileHash IN (SELECT a.fileHash FROM remote_alias a WHERE a.hash = r.hash))) AS driveId, r.place AS place, r.rot AS rot
     FROM remote_media r
 """
 
@@ -142,7 +142,8 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
            l.size AS bytes, l.w AS w, l.h AS h, NULL AS duration, l.mime AS mime,
            (SELECT d.driveId FROM drive_file d WHERE d.fileHash = l.fileHash) AS driveId, NULL AS place, 0 AS rot
     FROM local_media l
-    WHERE l.fileHash IS NULL OR NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = l.fileHash)
+    WHERE l.fileHash IS NULL OR (NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = l.fileHash)
+                               AND NOT EXISTS (SELECT 1 FROM remote_alias a WHERE a.fileHash = l.fileHash))
     UNION ALL
     SELECT 'drive:' || d.fileHash AS itemKey, NULL AS hash, NULL AS localUri,
            CASE WHEN d.mime LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind,
@@ -150,10 +151,15 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
            d.size AS bytes, NULL AS w, NULL AS h, NULL AS duration, d.mime AS mime, d.driveId AS driveId, NULL AS place, 0 AS rot
     FROM drive_file d
     WHERE NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = d.fileHash)
+      AND NOT EXISTS (SELECT 1 FROM remote_alias a WHERE a.fileHash = d.fileHash)
       AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
       -- the same photo from Google Photos (Takeout) is on the Synology with other bytes: same name, same day
       AND NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.name = d.name AND d.takenAt > 0 AND ABS(r.takenAt - d.takenAt) < 129600000)
 """
+
+/** Another file that is the same photo as one on the Synology (e.g. the phone's original in Drive). */
+@Entity(tableName = "remote_alias", indices = [Index("hash")])
+data class RemoteAlias(@PrimaryKey val fileHash: String, val hash: String)
 
 data class HashRot(val hash: String, val rot: Int)
 
@@ -240,6 +246,15 @@ interface MediaDao {
 
     @Query("DELETE FROM album WHERE id NOT IN (:keep)")
     suspend fun pruneAlbums(keep: List<Long>)
+
+    @Query("DELETE FROM remote_alias")
+    suspend fun clearAliases()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAliases(rows: List<RemoteAlias>)
+
+    @Transaction
+    suspend fun setAliases(rows: List<RemoteAlias>) { clearAliases(); insertAliases(rows) }
 
     @Transaction
     suspend fun applySync(upserts: List<RemoteMedia>, deletes: List<String>, links: List<AlbumMedia>, albums: List<AlbumRow>) {
@@ -373,15 +388,15 @@ interface MediaDao {
     suspend fun clearAlbums() { clearAlbumMedia(); clearAlbumRows() }
 }
 
-@Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
-    version = 9, exportSchema = true)
+@Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class, RemoteAlias::class],
+    version = 10, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 
     companion object {
         fun build(ctx: Context): AppDb =
             Room.databaseBuilder(ctx, AppDb::class.java, "photohub.db")
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)   // keep the phone's checked photos (hashing takes a while)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)   // keep the phone's checked photos (hashing takes a while)
                 .fallbackToDestructiveMigration(true).build()
 
         /** Photos and albums now say whether they are in the family's shared space: fetch them again
@@ -416,6 +431,12 @@ abstract class AppDb : RoomDatabase() {
         private val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE remote_media ADD COLUMN rot INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        private val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `remote_alias` (`fileHash` TEXT NOT NULL, `hash` TEXT NOT NULL, PRIMARY KEY(`fileHash`))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_remote_alias_hash` ON `remote_alias` (`hash`)")
             }
         }
         private const val REMOTE_SQL_7 = "CREATE TABLE IF NOT EXISTS `remote_media` (`hash` TEXT NOT NULL, `fileHash` TEXT NOT NULL, `kind` TEXT NOT NULL, `mime` TEXT, `takenAt` INTEGER NOT NULL, `tz` INTEGER, `lat` REAL, `lon` REAL, `w` INTEGER, `h` INTEGER, `duration` REAL, `bytes` INTEGER NOT NULL, `name` TEXT NOT NULL, `stores` TEXT NOT NULL, `pair` TEXT, `description` TEXT, `rev` INTEGER NOT NULL, `space` TEXT NOT NULL, `folder` TEXT NOT NULL, PRIMARY KEY(`hash`))"

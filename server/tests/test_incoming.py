@@ -476,3 +476,25 @@ def test_synology_thumbnails_are_not_photos(settings, db, chie):
     assert not junk.exists()
     with db.session() as s:
         assert {Path(m.nas_path).name for m in s.execute(select(Media).where(Media.status == "active")).scalars()} == {"a.jpg"}
+
+
+def test_aliases_link_the_drive_original_to_the_synology_copy(settings, db, chie):
+    """Google Photos rewrites files: the Synology keeps the Takeout copy, the phone's original
+    (other bytes, same picture) in Drive is merged into it. The phone learns both are one photo."""
+    u, h, c = chie
+    img = make_image(7)
+    takeout = Path(u.personal_root) / "GooglePhotos" / "PXL_7.jpg"
+    takeout.parent.mkdir(parents=True)
+    takeout.write_bytes(img + b"google")          # same pixels, other bytes
+    from photohub.scanner import scan
+    from photohub.users import scan_roots
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    d = drive_dir(settings, u) / "2026" / "PXL_7.jpg"
+    d.parent.mkdir(parents=True)
+    d.write_bytes(img)
+    settings.stable_seconds = 0
+    process_incoming(db, settings, apply=True)
+    assert _count(db) == 1
+    with db.session() as s:
+        m = s.execute(select(Media)).scalar_one()
+    assert c.get("/api/aliases", headers=h).json()["items"] == [[hashlib.sha256(img).hexdigest(), m.content_hash]]

@@ -75,6 +75,9 @@ data class DateFixItem(@SerialName("file_hash") val fileHash: String, @SerialNam
 data class DateFixBody(val items: List<DateFixItem>)
 
 @Serializable
+data class AliasList(val items: List<List<String>> = emptyList())
+
+@Serializable
 data class BulkStatus(val running: Boolean = false, val total: Int = 0, val done: Int = 0, val trashed: Int = 0,
                       val failed: Int = 0, val applied: Boolean = true, val open: Int = 0)
 
@@ -284,6 +287,7 @@ interface PhotoHubApi {
     @GET("api/jobs") suspend fun jobs(@Query("limit") limit: Int = 50): List<Job>
     @GET("api/jobs/{id}/errors") suspend fun jobErrors(@Path("id") id: Long): List<JobError>
     @GET("api/sync") suspend fun sync(@Query("cursor") cursor: Long, @Query("limit") limit: Int = 2000): SyncPage
+    @GET("api/aliases") suspend fun aliases(): AliasList
     @POST("api/thumbs") suspend fun thumbs(@Body body: HashesBody): ResponseBody
     @GET("api/similar") suspend fun similar(@Query("status") status: String = "open"): List<SimilarGroup>
     @POST("api/similar/resolve-all") suspend fun resolveAll(): BulkStatus

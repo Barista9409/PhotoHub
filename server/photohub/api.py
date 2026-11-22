@@ -723,6 +723,17 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             more = bool(rows) and s.scalar(select(func.count()).select_from(Media).where(Media.rev > next_cursor, vis)) > 0
         return {"items": items, "albums": albums, "cursor": next_cursor, "has_more": more}
 
+    @app.get("/api/aliases")
+    def aliases(user: User = Depends(auth)) -> dict:
+        """Other files that turned out to be the same photo as one on the Synology (e.g. the phone's
+        original in Google Drive, while the Synology keeps the Google Photos copy): file hash -> photo."""
+        from .db import Upload
+        with db.session() as s:
+            rows = s.execute(select(Upload.file_hash, Media.content_hash)
+                             .join(Media, Media.id == Upload.media_id)
+                             .where(Upload.file_hash != Media.file_hash, Media.status == "active", visible_clause(user))).all()
+        return {"items": sorted({(fh, h) for fh, h in rows})}
+
     @app.post("/api/thumbs")
     def thumbs(body: Hashes, user: User = Depends(auth)) -> Response:
         """Thumbnail pack: 'PHP1' u32 count, then per item: u16 len, hash, u32 len, webp bytes.

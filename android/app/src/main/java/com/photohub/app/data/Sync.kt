@@ -64,6 +64,9 @@ class SyncEngine(private val app: PhotoHubApp) {
                 progress("Synologyの写真の一覧を読み込み中 $changed 件")
                 if (!page.hasMore) break
             }
+            // other files of the same photos (the phone's original in Drive vs. the Google Photos copy)
+            try { dao.setAliases(api.aliases().items.filter { it.size == 2 }.map { com.photohub.app.data.db.RemoteAlias(it[0], it[1]) }) }
+            catch (_: Exception) {}   // older Synology: no list
             if (listOnly) {   // mobile data without permission: the list only; thumbnails load when shown
                 try { api.deviceSync("{}".toRequestBody()) } catch (_: Exception) {}
                 return@withContext Result(changed, 0, 0, "更新しました")
