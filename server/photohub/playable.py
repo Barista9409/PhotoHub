@@ -65,3 +65,82 @@ def make(settings: Settings, m: Media) -> Path:
             raise RuntimeError(f"ffmpeg failed: {r.stderr[-300:]}")
         tmp.replace(dst)
         return dst
+
+
+MP4_LIKE = {".mp4", ".mov", ".m4v", ".3gp"}
+
+
+def is_faststart(src: Path) -> bool:
+    """True when the MP4's index ('moov') comes before the picture data ('mdat'): it can start
+    playing at once over the network. Phones often write the index at the end."""
+    try:
+        with src.open("rb") as f:
+            pos, size = 0, src.stat().st_size
+            for _ in range(64):
+                if pos + 8 > size:
+                    return True
+                f.seek(pos)
+                head = f.read(16)
+                n, kind = int.from_bytes(head[:4], "big"), head[4:8]
+                if n == 1:
+                    n = int.from_bytes(head[8:16], "big")
+                elif n == 0:
+                    n = size - pos
+                if kind == b"moov":
+                    return True
+                if kind == b"mdat":
+                    return False
+                if n < 8:
+                    return True
+                pos += n
+    except OSError:
+        return True
+    return True
+
+
+def wants_copy(m: Media) -> bool:
+    """A phone-friendly copy helps: a format phones cannot play, or an MP4 whose index is at the end."""
+    if m.kind != "video":
+        return False
+    p = Path(m.nas_path)
+    suffix = p.suffix.lower()
+    return suffix in NEEDS or (suffix in MP4_LIKE and not is_faststart(p))
+
+
+def prepare_all(db, settings: Settings, budget_gb: float = 50.0, minutes: int = 50) -> dict:  # noqa: ANN001
+    """Make the phone-friendly copies ahead of time, newest videos first, so they play at once.
+    Stops at the time limit (the next run goes on) and keeps the copies under `budget_gb`
+    (older copies are not made once it is full). Copies of videos that are gone are removed."""
+    import time
+    from sqlalchemy import select
+    start = time.time()
+    root = settings.cache / "playable"
+    root.mkdir(parents=True, exist_ok=True)
+    used = sum(f.stat().st_size for f in root.rglob("*.mp4") if f.is_file())
+    made = skipped = 0
+    with db.session() as s:
+        videos = list(s.execute(select(Media).where(Media.kind == "video", Media.status == "active")
+                                .order_by(Media.taken_at.desc())).scalars())
+        for m in videos:
+            s.expunge(m)
+    keep = {path_for(settings, m) for m in videos}
+    for f in root.rglob("*.mp4"):   # copies of deleted videos
+        if f not in keep and not f.name.endswith(".tmp.mp4"):
+            used -= f.stat().st_size
+            f.unlink(missing_ok=True)
+    for m in videos:
+        if time.time() - start > minutes * 60:
+            break
+        if path_for(settings, m).exists() or not Path(m.nas_path).exists():
+            continue
+        if not wants_copy(m):
+            continue
+        if used + (m.bytes or 0) > budget_gb * 1e9:
+            skipped += 1
+            continue
+        try:
+            used += make(settings, m).stat().st_size
+            made += 1
+        except Exception:  # noqa: BLE001 - one odd video must not stop the rest
+            skipped += 1
+    return {"made": made, "skipped": skipped, "used_gb": round(used / 1e9, 2)}

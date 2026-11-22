@@ -820,6 +820,14 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         return {"ok": True, "bytes": p.stat().st_size}
 
+    @app.head("/api/playable/{content_hash}")
+    def playable_ready(content_hash: str, user: User = Depends(auth)) -> Response:
+        """200 when the phone-friendly copy is already there (made ahead of time), 404 when not."""
+        from . import playable
+        with db.session() as s:
+            m = media_or_404(s, content_hash, user)
+        return Response(status_code=200 if playable.path_for(settings, m).exists() else 404)
+
     @app.get("/api/playable/{content_hash}")
     def playable_get(content_hash: str, user: User = Depends(auth)) -> FileResponse:
         from . import playable

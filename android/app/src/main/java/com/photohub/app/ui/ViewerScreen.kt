@@ -270,15 +270,30 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
     // where to play from, best first: the phone's own file, the Synology, Google Drive
     // formats phones cannot play (AVCHD .MTS, AVI, WMV, MPEG-2 ...): the Synology makes an MP4 first
     val needsMp4 = item.name.substringAfterLast('.', "").lowercase() in PLAY_VIA_SYNOLOGY
-    val sources = remember(item.itemKey, base) {
+    val plain = remember(item.itemKey, base) {
         val mp4 = if (item.hash != null && base != null) "playable" else null
         if (needsMp4) listOfNotNull(mp4, item.localUri, originalUrl(base, item))
         else listOfNotNull(item.localUri, originalUrl(base, item), item.driveId?.let { app.drive.mediaUrl(it) }, mp4)
+    }
+    // the Synology makes phone-friendly copies ahead of time: when one is ready, start with it
+    var ready by remember(item.itemKey, base) { mutableStateOf<Boolean?>(if (item.localUri != null || item.hash == null || base == null) false else null) }
+    androidx.compose.runtime.LaunchedEffect(item.itemKey, base) {
+        if (ready != null) return@LaunchedEffect
+        ready = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                app.net.client(app.token).newBuilder().callTimeout(4, java.util.concurrent.TimeUnit.SECONDS).build()
+                    .newCall(okhttp3.Request.Builder().url("$base/api/playable/${item.hash}").head().build()).execute().use { it.code == 200 }
+            } catch (e: Exception) { false }
+        }
+    }
+    val sources = remember(plain, ready) {
+        if (ready == true) listOf("$base/api/playable/${item.hash}") + plain.filter { it != "playable" } else plain
     }
     var at by remember(item.itemKey) { mutableStateOf(0) }
     var preparing by remember(item.itemKey) { mutableStateOf(false) }   // the Synology is making its copy
     val player = remember(item.itemKey) { ExoPlayer.Builder(ctx).build() }
     androidx.compose.runtime.LaunchedEffect(item.itemKey, at, sources) {
+        if (ready == null) return@LaunchedEffect   // still asking whether a ready copy exists
         var uri = sources.getOrNull(at) ?: run { error = "再生できる場所がありません（Synologyにつながっていないかもしれません）"; return@LaunchedEffect }
         error = null
         if (uri == "playable") {

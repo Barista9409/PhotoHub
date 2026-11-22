@@ -113,6 +113,10 @@ class Service:
         from .photos_link import reindex_due
         reindex_due(self.db, self.s)
 
+    def job_playable(self) -> None:
+        from . import playable
+        playable.prepare_all(self.db, self.s, budget_gb=self.s.playable_max_gb)
+
     def job_autoalbums(self) -> None:
         from . import autoalbums
         autoalbums.run_all(self.db, self.s)
@@ -170,6 +174,9 @@ class Service:
         # photos PhotoHub put in Synology Photos' folders: ask it to look again (it does not notice by itself)
         sch.add_job(lambda: self._guard("photos_reindex", self.job_photos_reindex, heavy=False), "interval", minutes=5,
                     id="photos_reindex", next_run_time=datetime.now() + timedelta(minutes=2))
+        # phone-friendly copies of videos, made ahead of time (hourly, up to 50 minutes a run)
+        sch.add_job(lambda: self._guard("playable", self.job_playable), "interval", hours=1, id="playable",
+                    next_run_time=datetime.now() + timedelta(minutes=8))
         # ふりかえり / 旅行 / フォルダ albums: every night, and once soon after starting
         sch.add_job(lambda: self._guard("autoalbums", self.job_autoalbums, heavy=False), "cron", hour=3, minute=40,
                     id="autoalbums")
