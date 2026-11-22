@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.photohub.app.data.Updater
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -196,7 +197,30 @@ fun GoogleCleanupScreen() {
     val scope = rememberCoroutineScope()
     var ask by remember { mutableStateOf<Candidate?>(null) }
     if (rows == null) { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
+    // safety check before anyone deletes in Google Photos (which also deletes the phone's copies)
+    val phoneOnly by app.db.media().phoneOnlyCounts().collectAsState(initial = emptyList())
+    val unchecked by app.db.media().uncheckedCount().collectAsState(initial = 0)
+    var datesPending by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { datesPending = try { app.db.media().datesToFix().size } catch (e: Exception) { 0 } }
+    val updater by app.updater.state.collectAsState()
+    val problems = buildList {
+        val n = phoneOnly.sumOf { it.n }
+        if (n > 0) add("まだSynologyに送っていない写真が、このスマホに $n 枚あります。設定の「今すぐ同期・保存」で送り終えてください")
+        if (unchecked > 0) add("まだ確認していないスマホの写真が $unchecked 枚あります（同期で確認します）")
+        if (datesPending > 0) add("Synology側の日付を直している途中の写真が $datesPending 枚あります。同期が終わるまで待ってください")
+        if (updater is Updater.State.Available || updater is Updater.State.Ready) add("アプリに新しい版があります。先に更新してください")
+    }
     LazyColumn(Modifier.fillMaxSize().padding(8.dp)) {
+        item {
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = if (problems.isEmpty()) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (problems.isEmpty()) "確認OK：このスマホの写真はすべてSynologyにあります" else "まだGoogleフォトで消さないでください",
+                        style = MaterialTheme.typography.titleSmall)
+                    problems.forEach { Text("・$it", style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
         item {
             Text("あなたのGoogleアカウントの分です。Synologyに保存されハッシュが一致した、撮影から一定期間たった写真・動画です。PhotoHubはGoogleから削除しません。" +
                 "Googleフォトのアプリで該当する月を削除したら「削除した」を押してください。", style = MaterialTheme.typography.bodySmall,
