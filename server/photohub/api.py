@@ -554,6 +554,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "duplicates": dups, "similar_open": open_groups, "rev": max_rev, "apply": settings.apply,
                 "scan_progress": scan_progress or None,
                 "build": os.environ.get("PHOTOHUB_BUILD", "dev"),
+                "remote": netinfo.remote_url(settings),
                 "amazon_heartbeat": (hb.isoformat() if (hb := storage.amazon_heartbeat(db, settings)) else None)}
 
     def _group_scope(user: User):  # noqa: ANN202

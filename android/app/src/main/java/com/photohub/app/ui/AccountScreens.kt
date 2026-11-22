@@ -131,6 +131,10 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
     LaunchedEffect(base) {
         me = try { app.net.api()?.me() } catch (e: Exception) { null }
         status = try { app.net.api()?.status() } catch (e: Exception) { null }
+        // take the Synology's away-from-home address when this phone has none yet
+        status?.remote?.takeIf { it.isNotBlank() && app.prefs.current().remoteUrl.isBlank() }?.let {
+            app.prefs.save(app.prefs.current().copy(remoteUrl = it))
+        }
     }
     val last by app.prefs.lastBackup.collectAsState(initial = 0L to "")
     val updater by app.updater.state.collectAsState()

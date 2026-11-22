@@ -145,6 +145,7 @@ data class Status(
     @SerialName("amazon_heartbeat") val amazonHeartbeat: String? = null,
     @SerialName("scan_progress") val scanProgress: String? = null,
     val build: String? = null,
+    val remote: String? = null,   // the away-from-home address the Synology knows (PHOTOHUB_REMOTE_URL / Tailscale)
 )
 
 @Serializable
