@@ -178,3 +178,26 @@ def test_scheduled_runs_do_not_repeat_dry_run(settings, db):
     assert import_inbox(db, settings, apply=False, wait_stable=False)[0].new == 3  # manual run still works
     rep = import_inbox(db, settings, apply=True, wait_stable=True)[0]  # switching to apply imports it
     assert rep.new == 3
+
+
+def test_takeout_status_for_the_app(settings, db):
+    """The app's migration screen: ZIPs found, waiting, live progress and results."""
+    from fastapi.testclient import TestClient
+    from photohub.api import create_app
+    from photohub.users import add_user
+    u, token = add_user(db, settings, "reo")
+    h = {"Authorization": f"Bearer {token}"}
+    src = settings.homes_root / "reo" / "Takeout"
+    src.mkdir(parents=True)
+    (src / "takeout-1-001.zip").write_bytes(b"x" * 10)
+    items = default_items(5)
+    (settings.inbox / "reo").mkdir(parents=True, exist_ok=True)
+    _zip(settings, "reo/takeout-20260101T000000Z-001.zip", items)
+    c = TestClient(create_app(settings, db))
+    st = c.get("/api/me/takeout", headers=h).json()
+    assert [z["name"] for z in st["sources"]] == ["takeout-1-001.zip"] and st["sources"][0]["bytes"] == 10
+    assert [z["name"] for z in st["waiting"]] == ["takeout-20260101T000000Z-001.zip"]
+    import_inbox(db, settings, apply=False)
+    st = c.get("/api/me/takeout", headers=h).json()
+    assert st["current"]["finished"] and st["current"]["done"] == 5 and st["current"]["dry_run"]
+    assert st["jobs"][0]["state"] == "dry_run" and st["jobs"][0]["new"] == 5

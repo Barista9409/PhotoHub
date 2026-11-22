@@ -358,6 +358,27 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             s.get(User, user.id).dsm_secret = None
         return {"ok": True}
 
+    @app.get("/api/me/takeout")
+    def my_takeout(user: User = Depends(auth)) -> dict:
+        """Where this person's Google Photos migration is: ZIPs found, waiting, being imported, results."""
+        from .takeout import PROGRESS, takeout_sources
+        def zinfo(p: Path) -> dict:
+            try:
+                return {"name": p.name, "bytes": p.stat().st_size}
+            except OSError:
+                return {"name": p.name, "bytes": 0}
+        sources = [zinfo(p) for p in takeout_sources(settings, user)]
+        inbox = settings.inbox / user.name
+        waiting = [zinfo(p) for p in sorted(inbox.glob("*.zip"))] if inbox.is_dir() else []
+        with db.session() as s:
+            jobs = [{"id": j.id, "state": j.state, "archive": j.archive_name, "new": j.new_count or 0,
+                     "duplicate": j.dup_count or 0, "error": j.error_count or 0,
+                     "finished_at": j.finished_at.isoformat() if j.finished_at else None}
+                    for j in s.execute(select(ImportJob).where(ImportJob.source == "takeout", ImportJob.user_id == user.id)
+                                       .order_by(ImportJob.id.desc()).limit(10)).scalars()]
+        cur = dict(PROGRESS.get(user.id) or {})
+        return {"apply": settings.apply, "sources": sources, "waiting": waiting, "current": cur or None, "jobs": jobs}
+
     @app.post("/api/drive-removed")
     def drive_removed_files(body: Hashes, user: User = Depends(auth)) -> dict:
         """The phone removed these from Google Drive; tidy the Synology's copy of the Drive folder."""

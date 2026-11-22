@@ -100,7 +100,7 @@ private fun sourceLabel(s: String) = when (s) {
 }
 
 private fun stateLabel(s: String) = when (s) {
-    "done" -> "完了"; "failed" -> "失敗あり"; "running" -> "処理中"; "dry_run" -> "確認のみ（dry-run）"; else -> s
+    "done" -> "完了"; "failed" -> "失敗あり"; "running" -> "処理中"; "dry_run" -> "試運転（見込み）"; else -> s
 }
 
 /** Similar photos: pick the ones to keep; the rest go to the NAS trash folder. */

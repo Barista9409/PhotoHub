@@ -146,6 +146,36 @@ def album_map(out: Path) -> dict[str, set[str]]:
     return res
 
 
+# What each person's Takeout import is doing right now (read by the app's status screen).
+# In memory on purpose: the API and the importer run in the same process, and a dry run keeps
+# its database transaction open, so progress cannot go through the database.
+PROGRESS: dict[int, dict] = {}
+
+
+def _progress(user: User | None, **kw) -> None:  # noqa: ANN003
+    if user is None:
+        return
+    p = PROGRESS.setdefault(user.id, {})
+    p.update(kw, updated=time.time())
+
+
+def takeout_sources(settings: Settings, user: User) -> list[Path]:
+    """Takeout ZIPs that Cloud Sync brought for this person (all the places PhotoHub looks)."""
+    home = settings.homes_root / user.name
+    found: set[Path] = set()
+    try:
+        found |= set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip"))
+        drive_in = settings.inbox.parent / "drive" / user.name
+        found |= set((drive_in / "Takeout").glob("*.zip")) | set(drive_in.glob("takeout-*.zip"))
+        if user.takeout_dir:
+            found |= set((home / user.takeout_dir).glob("*.zip")) | set((home / user.takeout_dir).glob("Takeout/*.zip"))
+        if user.drive_root:
+            found |= set((home / user.drive_root / "Takeout").glob("*.zip"))
+    except OSError:
+        pass
+    return sorted(z for z in found if z.parent.parent.name != "Photos" and not z.name.endswith(".copying"))
+
+
 def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply: bool,
                  user: User | None = None) -> ImportReport:
     rep = ImportReport(archive=(f"{user.name}: " if user else "") + group.prefix, dry_run=not apply)
@@ -161,7 +191,10 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
 
     workdir = settings.work / key
     extracted, out = workdir / "extracted", workdir / "gpth-out"
+    _progress(user, archive=group.prefix, parts=len(group.parts), step="extract", done=0, total=0,
+              new=0, duplicate=0, error=0, dry_run=not apply, finished=False)
     _extract(group, extracted)
+    _progress(user, step="organize")
     run_gpth(settings, extracted, out)
 
     albums = album_map(out)
@@ -179,7 +212,9 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
     if apply:
         from .prescan import refresh_index
         refresh_index(db, settings, user)
+    _progress(user, step="analyse", total=len(main_files))
     cands = analyse(main_files, settings)
+    _progress(user, step="import", done=0, total=len(cands))
     for c in cands:
         c.albums = set(albums.get(c.path.relative_to(out).as_posix(), set()))
         parts = [x.lower() for x in c.path.relative_to(out).parts]
@@ -216,6 +251,8 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
                 rep.errors.append(f"{rel}: {item.message}")
             bucket = item.result if item.result in ("new", "duplicate", "merged") else "error"
             setattr(rep, bucket, getattr(rep, bucket) + 1)
+            _progress(user, done=rep.new + rep.duplicate + rep.merged + rep.error, new=rep.new,
+                      duplicate=rep.duplicate + rep.merged, error=rep.error)
             if apply:
                 s.commit()  # progress survives an interruption
         for p, rel, dest_name in aside_files:
@@ -226,6 +263,7 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
                     copy_verified(p, dst)
         job.new_count, job.dup_count, job.error_count = rep.new, rep.duplicate + rep.merged, rep.error
         job.finished_at = utcnow()
+        _progress(user, step="done", finished=True)
         if not apply:
             s.rollback()
             s.add(ImportJob(source="takeout", archive_name=job.archive_name, archive_key=key,
@@ -286,19 +324,7 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
     Finished ZIPs are copied into the person's Takeout inbox (the originals are left alone), so
     nothing has to go through the phone. Returns how many were copied."""
     import shutil
-    home = settings.homes_root / user.name
-    try:
-        found = set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip"))
-        drive_in = settings.inbox.parent / "drive" / user.name   # Cloud Sync into photohub/inbox/drive/<name>
-        found |= set((drive_in / "Takeout").glob("*.zip")) | set(drive_in.glob("takeout-*.zip"))
-        if user.takeout_dir:  # the Takeout folder the person chose in the app (any depth)
-            found |= set((home / user.takeout_dir).glob("*.zip")) | set((home / user.takeout_dir).glob("Takeout/*.zip"))
-        if user.drive_root:  # the Drive folder the person chose in the app
-            found |= set((home / user.drive_root / "Takeout").glob("*.zip"))
-        found = sorted(found)
-    except OSError:
-        return 0
-    found = [z for z in found if z.parent.parent.name != "Photos" and not z.name.endswith(".copying")]
+    found = takeout_sources(settings, user)
     inbox = settings.inbox / user.name
     copied = 0
     for z in found:

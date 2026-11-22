@@ -25,6 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
@@ -40,6 +43,8 @@ fun MigrationScreen(open: (Dest) -> Unit = {}) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
         Text("Googleフォトの写真を、一度だけSynologyへ移します。スマホで送る必要はありません。",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
+        SectionTitle("Takeoutの状況")
+        Group { TakeoutStatusCard(open) }
         SectionTitle("手順")
         Group {
             SettingRow(Icons.Default.Cloud, "1. TakeoutをGoogleドライブに作る",
@@ -60,5 +65,64 @@ fun MigrationScreen(open: (Dest) -> Unit = {}) {
         Text("取り込みの様子は「Synologyへの取り込み記録」で見られます。30GBで数時間かかります。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(20.dp))
+    }
+}
+
+
+/** Live view of the migration: ZIPs found, waiting, the running import with a bar, and the results. */
+@Composable
+private fun TakeoutStatusCard(open: (Dest) -> Unit) {
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as com.photohub.app.PhotoHubApp
+    var st by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<com.photohub.app.data.api.TakeoutStatus?>(null) }
+    var err by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {   // refresh every 5 seconds while this screen is open
+            try { st = app.net.api()?.takeoutStatus(); err = if (st == null) "Synologyにつながりません" else null }
+            catch (e: retrofit2.HttpException) { err = if (e.code() == 404) "Synology側（サーバー）が古い版です。更新すると表示されます" else "エラー（${e.code()}）" }
+            catch (e: Exception) { err = "Synologyにつながりません" }
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+    val s = st
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (s == null) { Text(err ?: "読み込み中…", style = MaterialTheme.typography.bodyMedium); return@Column }
+        if (!s.apply) {
+            Text("試運転中：下の件数は見込みです。写真はまだ動かしていません（ZIPも消しません）。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        }
+        val srcBytes = s.sources.sumOf { it.bytes }
+        Text(if (s.sources.isEmpty()) "Googleドライブから届いたZIP：まだありません（Cloud Syncのダウンロード中か、届くフォルダが違う可能性があります）"
+             else "Googleドライブから届いたZIP：${s.sources.size} 個・${humanBytes(srcBytes)}", style = MaterialTheme.typography.bodyMedium)
+        if (s.waiting.isNotEmpty()) Text("取り込み待ち・取り込み中：${s.waiting.size} 個（${humanBytes(s.waiting.sumOf { it.bytes })}）",
+            style = MaterialTheme.typography.bodyMedium)
+        val c = s.current
+        if (c != null && !c.finished) {
+            val label = when (c.step) {
+                "extract" -> "ZIPを展開中"; "organize" -> "日時・アルバムを整理中"; "analyse" -> "写真を確認中"
+                "import" -> if (c.dryRun) "取り込みの見込みを計算中" else "Synologyへ取り込み中"; else -> "処理中"
+            }
+            Text("$label：${c.archive}", style = MaterialTheme.typography.titleSmall)
+            if (c.total > 0) {
+                LinearProgressIndicator(progress = { c.done.toFloat() / c.total }, modifier = Modifier.fillMaxWidth())
+                Text("${c.done} / ${c.total}（${c.done * 100 / c.total}%）　新規 ${c.new}・重複 ${c.duplicate}・失敗 ${c.error}",
+                    style = MaterialTheme.typography.bodySmall)
+            } else {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("大きいZIPは、展開と整理だけで1時間以上かかることがあります", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (s.jobs.isNotEmpty()) {
+            Text("結果", style = MaterialTheme.typography.titleSmall)
+            s.jobs.take(5).forEach { j ->
+                val state = when (j.state) { "done" -> "完了"; "failed" -> "失敗あり"; "running" -> "処理中"; "dry_run" -> "試運転（見込み）"; else -> j.state }
+                Text("$state・新規 ${j.new}・重複 ${j.duplicate}・失敗 ${j.error}" + (j.finishedAt?.let { "（${it.take(16).replace('T', ' ')}）" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (j.error > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            }
+            Text("失敗の理由は「Synologyへの取り込み記録」で見られます", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { open(Dest.IMPORT_LOG) })
+        } else if (s.sources.isEmpty() && s.waiting.isEmpty() && c == null) {
+            Text("まだ取り込みはありません", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

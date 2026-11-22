@@ -61,6 +61,24 @@ data class MySettings(
 )
 
 @Serializable
+data class ZipInfo(val name: String = "", val bytes: Long = 0)
+
+@Serializable
+data class TakeoutProgress(
+    val archive: String = "", val parts: Int = 0, val step: String = "", val done: Int = 0, val total: Int = 0,
+    val new: Int = 0, val duplicate: Int = 0, val error: Int = 0, @SerialName("dry_run") val dryRun: Boolean = false,
+    val finished: Boolean = false, val updated: Double = 0.0,
+)
+
+@Serializable
+data class TakeoutJob(val id: Long = 0, val state: String = "", val archive: String? = null, val new: Int = 0,
+                      val duplicate: Int = 0, val error: Int = 0, @SerialName("finished_at") val finishedAt: String? = null)
+
+@Serializable
+data class TakeoutStatus(val apply: Boolean = false, val sources: List<ZipInfo> = emptyList(), val waiting: List<ZipInfo> = emptyList(),
+                         val current: TakeoutProgress? = null, val jobs: List<TakeoutJob> = emptyList())
+
+@Serializable
 data class BrowseResult(val path: String = "", val folders: List<String> = emptyList(), val zips: Int = 0)
 
 @Serializable
@@ -182,6 +200,7 @@ interface PhotoHubApi {
     @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status
     @GET("api/me/folders") suspend fun myFolders(): MyFolders
+    @GET("api/me/takeout") suspend fun takeoutStatus(): TakeoutStatus
     @GET("api/me/browse") suspend fun browse(@retrofit2.http.Query("base") base: String, @retrofit2.http.Query("path") path: String): BrowseResult
     @POST("api/me/synology-probe") suspend fun synologyProbe(): ProbeResult
     @retrofit2.http.DELETE("api/me/synology-link") suspend fun synologyUnlink(): Map<String, Boolean>
