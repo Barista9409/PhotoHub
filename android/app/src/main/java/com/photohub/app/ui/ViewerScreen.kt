@@ -385,8 +385,13 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
         while (preparing) kotlinx.coroutines.delay(1000)   // making the copy can take minutes: wait for it
         if (sources.getOrNull(at) == "playable") kotlinx.coroutines.delay(20_000)   // then give it its 20 seconds
         if (!started) {
+            // what the player knows: little buffered = the network; plenty buffered = the decoder (format)
+            val v = player.videoFormat; val au = player.audioFormat
             com.photohub.app.data.AppLog.error("動画が始まらない",
-                msg = "${item.name} ${humanBytes(item.bytes)} 場所${at + 1}/${sources.size}: ${sources.getOrNull(at)?.substringBefore("?")}")
+                msg = "${item.name} ${humanBytes(item.bytes)} 場所${at + 1}/${sources.size}: ${sources.getOrNull(at)?.substringBefore("?")}" +
+                    " 状態=${player.playbackState} 読込中=${player.isLoading} 読込済=${player.bufferedPosition}ms" +
+                    " 映像=${v?.sampleMimeType}/${v?.codecs}/${v?.width}x${v?.height}/${v?.colorInfo}" +
+                    " 音声=${au?.sampleMimeType}/${au?.codecs}/${au?.sampleRate}Hz/${au?.channelCount}ch")
             if (at + 1 < sources.size) at++
             else error = "再生を始められませんでした。通信が遅いか、この動画の形式に対応していないかもしれません"
         }
