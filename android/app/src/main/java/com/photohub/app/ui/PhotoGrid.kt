@@ -331,41 +331,22 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     }
 
     confirmDelete?.let { list ->
-        val phoneOnly = list.count { it.hash == null && it.driveId == null }
-        val onPhone = list.filter { it.localUri != null }
-        AlertDialog(onDismissRequest = { confirmDelete = null },
-            title = { Text("${list.size} 件を削除") },
-            text = {
-                Text("Synology・Googleドライブ・このスマホの、すべてから消します。Synologyの写真は30日間ゴミ箱に残るので、「写真の整理」→「ゴミ箱」から戻せます。" +
-                    (if (phoneOnly > 0) "\n\nうち $phoneOnly 件はこのスマホにしかありません。ゴミ箱に入らず、元に戻せません。" else ""))
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = null
-                    selected = emptySet()
-                    scope.launch {
-                        busy = "削除しています…"
-                        val o = com.photohub.app.data.Deleter.everywhere(app, list)
-                        busy = null
-                        toast = o.error ?: "ゴミ箱に ${o.trashed} 件" + (if (o.fromDrive > 0) "・ドライブから ${o.fromDrive} 件" else "")
-                        if (o.phoneUris.isNotEmpty() && Build.VERSION.SDK_INT >= 30) {
-                            val pi = MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
-                            deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                        }
-                        com.photohub.app.data.SyncWorker.runNow(ctx)
-                    }
-                }) { Text("すべてから削除") }
-            },
-            dismissButton = {
-                Row {
-                    if (onPhone.isNotEmpty() && Build.VERSION.SDK_INT >= 30) TextButton({
-                        confirmDelete = null
-                        val pi = MediaStore.createDeleteRequest(ctx.contentResolver, onPhone.map { android.net.Uri.parse(it.localUri) })
-                        deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                    }) { Text("スマホからだけ") }
-                    TextButton({ confirmDelete = null }) { Text("やめる") }
+        DeleteDialog(list, onDismiss = { confirmDelete = null }) { nas, drive, phone ->
+            confirmDelete = null
+            selected = emptySet()
+            scope.launch {
+                busy = "削除しています…"
+                val o = com.photohub.app.data.Deleter.everywhere(app, list, nas, drive, phone)
+                busy = null
+                toast = o.error ?: listOfNotNull(if (nas) "Synologyのゴミ箱に ${o.trashed} 件" else null,
+                    if (o.fromDrive > 0) "ドライブから ${o.fromDrive} 件" else null).joinToString("・").ifBlank { null }
+                if (o.phoneUris.isNotEmpty() && Build.VERSION.SDK_INT >= 30) {
+                    val pi = MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
+                    deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
                 }
-            })
+                com.photohub.app.data.SyncWorker.runNow(ctx)
+            }
+        }
     }
     moveOf?.let { list ->
         AlertDialog(onDismissRequest = { moveOf = null },

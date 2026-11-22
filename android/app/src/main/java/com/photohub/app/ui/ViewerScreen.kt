@@ -64,7 +64,7 @@ import com.photohub.app.data.db.TimelineItem
 import kotlinx.coroutines.launch
 
 /** Pending action that needs a "you are on mobile data" confirmation (spec F6). */
-private data class Confirm(val title: String, val text: String, val run: () -> Unit)
+private data class Confirm(val title: String, val text: String, val ok: String = "OK", val run: () -> Unit)
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -78,6 +78,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     val pager = rememberPagerState(initialPage = start.coerceIn(0, items.lastIndex)) { items.size }
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf<Confirm?>(null) }
+    var deleteOf by remember { mutableStateOf<TimelineItem?>(null) }
     val phoneDelete = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) {
         scope.launch { app.indexer.scan() }
@@ -92,7 +93,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     fun guarded(item: TimelineItem, what: String, action: () -> Unit) {
         val remote = item.localUri == null
         if (remote && app.net.isMetered()) {
-            confirm = Confirm("モバイル回線です", "$what（${humanBytes(item.bytes)}）をSynologyから取得します。よろしいですか？", action)
+            confirm = Confirm("モバイル回線です", "$what（${humanBytes(item.bytes)}）をSynologyから取得します。よろしいですか？", "取得する", action)
         } else action()
     }
 
@@ -145,23 +146,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                         }
                     }
                 }) { Icon(Icons.Default.Share, "共有", tint = Color.White) }
-                IconButton(onClick = {
-                    val item = cur
-                    confirm = Confirm("削除しますか？",
-                        if (item.hash == null && item.driveId == null) "この写真はこのスマホにしかありません。消すと元に戻せません。"
-                        else "Synology・Googleドライブ・このスマホのすべてから消します。30日間は「写真の整理」→「ゴミ箱」から戻せます。") {
-                        scope.launch {
-                            val o = com.photohub.app.data.Deleter.everywhere(app, listOf(item))
-                            if (o.phoneUris.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
-                                val pi = android.provider.MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
-                                phoneDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
-                            }
-                            message = o.error
-                            com.photohub.app.data.SyncWorker.runNow(ctx)
-                            if (o.error == null && o.phoneUris.isEmpty()) onBack()
-                        }
-                    }
-                }) { Icon(Icons.Default.Delete, "削除", tint = Color.White) }
+                IconButton(onClick = { deleteOf = cur }) { Icon(Icons.Default.Delete, "削除", tint = Color.White) }
                 IconButton(onClick = { showInfo = true }) { Icon(Icons.Default.Info, "情報", tint = Color.White) }
             }
             message?.let { Text(it, color = Color.White, modifier = Modifier.padding(8.dp)) }
@@ -195,9 +180,24 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
             }
         }
     }
+    deleteOf?.let { item ->
+        DeleteDialog(listOf(item), onDismiss = { deleteOf = null }) { nas, drive, phone ->
+            deleteOf = null
+            scope.launch {
+                val o = com.photohub.app.data.Deleter.everywhere(app, listOf(item), nas, drive, phone)
+                if (o.phoneUris.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
+                    val pi = android.provider.MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
+                    phoneDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+                }
+                message = o.error
+                com.photohub.app.data.SyncWorker.runNow(ctx)
+                if (o.error == null && o.phoneUris.isEmpty()) onBack()
+            }
+        }
+    }
     confirm?.let { c ->
         AlertDialog(onDismissRequest = { confirm = null }, title = { Text(c.title) }, text = { Text(c.text) },
-            confirmButton = { TextButton({ confirm = null; c.run() }) { Text("取得する") } },
+            confirmButton = { TextButton({ confirm = null; c.run() }) { Text(c.ok) } },
             dismissButton = { TextButton({ confirm = null }) { Text("やめる") } })
     }
 }

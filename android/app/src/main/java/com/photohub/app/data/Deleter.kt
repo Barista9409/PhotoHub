@@ -14,10 +14,11 @@ import kotlinx.coroutines.withContext
 object Deleter {
     data class Outcome(val trashed: Int, val fromDrive: Int, val phoneUris: List<Uri>, val error: String?)
 
-    suspend fun everywhere(app: PhotoHubApp, items: List<TimelineItem>): Outcome = withContext(Dispatchers.IO) {
+    suspend fun everywhere(app: PhotoHubApp, items: List<TimelineItem>, nas: Boolean = true, drive: Boolean = true,
+                           phone: Boolean = true): Outcome = withContext(Dispatchers.IO) {
         var error: String? = null
         var trashed = 0
-        val hashes = items.mapNotNull { it.hash }
+        val hashes = if (nas) items.mapNotNull { it.hash } else emptyList()
         if (hashes.isNotEmpty()) {
             val api = app.net.api()
             if (api == null) error = "Synologyにつながらないため、Synologyの写真は消せませんでした"
@@ -25,7 +26,7 @@ object Deleter {
                  catch (e: Exception) { error = "Synologyで削除できませんでした（${e.message}）" }
         }
         var fromDrive = 0
-        val onDrive = items.mapNotNull { it.driveId }
+        val onDrive = if (drive) items.mapNotNull { it.driveId } else emptyList()
         if (onDrive.isNotEmpty()) {
             val token = app.drive.token()
             if (token != null) for (id in onDrive) try { app.drive.delete(token, id); fromDrive++ } catch (_: Exception) {}
@@ -33,6 +34,6 @@ object Deleter {
             if (fh.isNotEmpty()) app.db.media().deleteDrive(fh)
         }
         if (hashes.isNotEmpty()) app.db.media().deleteRemote(hashes)   // gone from the list right away
-        Outcome(trashed, fromDrive, items.mapNotNull { it.localUri?.let(Uri::parse) }, error)
+        Outcome(trashed, fromDrive, if (phone) items.mapNotNull { it.localUri?.let(Uri::parse) } else emptyList(), error)
     }
 }

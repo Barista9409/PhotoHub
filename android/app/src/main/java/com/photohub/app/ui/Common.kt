@@ -25,6 +25,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -162,4 +164,51 @@ fun Loading(text: String = "読み込み中…") {
             Text(text, fontSize = 14.sp)
         }
     }
+}
+
+
+/**
+ * "Delete from where?" - one tick box per place (Synology / Google Drive / this phone).
+ * A place that holds none of the chosen photos is greyed out.
+ */
+@Composable
+fun DeleteDialog(items: List<com.photohub.app.data.db.TimelineItem>, onDismiss: () -> Unit,
+                 onDelete: (nas: Boolean, drive: Boolean, phone: Boolean) -> Unit) {
+    val nasN = items.count { it.hash != null }
+    val driveN = items.count { it.driveId != null }
+    val phoneN = items.count { it.localUri != null }
+    var nas by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(nasN > 0) }
+    var drive by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(driveN > 0) }
+    var phone by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(phoneN > 0) }
+    @Composable
+    fun Line(p: Place, label: String, n: Int, checked: Boolean, set: (Boolean) -> Unit) {
+        val on = n > 0
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            androidx.compose.material3.Checkbox(checked && on, { set(it) }, enabled = on)
+            androidx.compose.material3.Icon(p.icon, null, modifier = Modifier.size(18.dp),
+                tint = if (on) p.color else androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+            Spacer(Modifier.width(8.dp))
+            Text(if (on) (if (items.size > 1) "$label（$n 件）" else label) else "$label（ありません）", fontSize = 15.sp,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = if (on) 1f else 0.38f))
+        }
+    }
+    val any = (nas && nasN > 0) || (drive && driveN > 0) || (phone && phoneN > 0)
+    androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss,
+        title = { Text(if (items.size > 1) "${items.size} 件を削除" else "削除") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("消す場所を選んでください", fontSize = 13.sp)
+                Line(PLACES.first { it.key == "nas" }, "Synology（30日間ゴミ箱から戻せます）", nasN, nas) { nas = it }
+                Line(PLACES.first { it.key == "drive" }, "Googleドライブ", driveN, drive) { drive = it }
+                Line(PLACES.first { it.key == "phone" }, "このスマホ", phoneN, phone) { phone = it }
+                if (phone && phoneN > 0 && !(nas && nasN > 0) && nasN < phoneN)
+                    Text("Synologyにまだない写真をスマホから消すと、元に戻せません。", fontSize = 12.sp,
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                if (drive && driveN > 0 && !phone && phoneN > 0)
+                    Text("スマホに残っている写真は、次の保存でまたドライブに入ります。", fontSize = 12.sp,
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(enabled = any, onClick = { onDelete(nas && nasN > 0, drive && driveN > 0, phone && phoneN > 0) }) { Text("削除") } },
+        dismissButton = { androidx.compose.material3.TextButton(onDismiss) { Text("やめる") } })
 }
