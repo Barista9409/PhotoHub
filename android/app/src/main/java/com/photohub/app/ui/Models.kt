@@ -11,6 +11,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import coil3.request.ImageRequest
+import coil3.request.transformations
+import coil3.size.Size
+import coil3.transform.Transformation
 import java.io.File
 
 /** Shared, in-memory UI state: the NAS base URL and the list the viewer pages through. */
@@ -29,7 +35,33 @@ object UiState {
  * Image source for an item, cheapest first (spec F6 "写真を開く"):
  * phone copy -> device thumbnail/preview -> NAS (only when reachable).
  */
-fun thumbModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when {
+/** Turns the picture clockwise (photos set upright in PhotoHub; the file itself is untouched). */
+class Rotate(private val degrees: Int) : Transformation() {
+    override val cacheKey = "rotate-$degrees"
+    override suspend fun transform(input: Bitmap, size: Size): Bitmap =
+        Bitmap.createBitmap(input, 0, 0, input.width, input.height, Matrix().apply { postRotate(degrees.toFloat()) }, true)
+}
+
+/** The image to load, turned upright when someone rotated it. */
+fun turned(app: PhotoHubApp, item: TimelineItem, data: Any?): Any? =
+    if (data == null || item.rot % 360 == 0 || item.kind == "video") data
+    else ImageRequest.Builder(app).data(data).transformations(Rotate(item.rot)).build()
+
+/** Rotate photos on the Synology (90 = clockwise); the phone shows it right away. */
+suspend fun rotatePhotos(app: PhotoHubApp, hashes: List<String>, degrees: Int): String = try {
+    val api = app.net.api() ?: return "Synologyにつながりません"
+    val r = api.rotate(com.photohub.app.data.api.RotateBody(hashes, degrees)).rotation
+    r.forEach { (h, rot) -> app.db.media().setRot(h, rot) }
+    if (r.isEmpty()) "回転できる写真がありません（動画やスマホにしかない写真は回せません）" else "${r.size} 枚を回転しました"
+} catch (e: retrofit2.HttpException) {
+    if (e.code() == 404) "Synology側が古い版です。新しい版に更新してください" else "回転できませんでした（HTTP ${e.code()}）"
+} catch (e: Exception) { "Synologyにつながりません" }
+
+fun thumbModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = turned(app, item, rawThumb(app, item, base))
+
+fun previewModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = turned(app, item, rawPreview(app, item, base))
+
+private fun rawThumb(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when {
     item.localUri != null -> Uri.parse(item.localUri)
     item.hash != null && app.files.hasThumb(item.hash) -> app.files.thumb(item.hash)
     item.hash != null && base != null -> "$base/api/thumb/${item.hash}"
@@ -37,7 +69,7 @@ fun thumbModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when
     else -> null
 }
 
-fun previewModel(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when {
+private fun rawPreview(app: PhotoHubApp, item: TimelineItem, base: String?): Any? = when {
     item.localUri != null -> Uri.parse(item.localUri)
     item.hash != null && app.files.hasPreview(item.hash) -> app.files.preview(item.hash)
     item.hash != null && base != null -> "$base/api/preview/${item.hash}"

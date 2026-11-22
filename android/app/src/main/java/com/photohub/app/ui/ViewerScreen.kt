@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -147,6 +148,9 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                         }
                     }
                 }) { Icon(Icons.Default.Share, "共有", tint = Color.White) }
+                if (cur.hash != null && cur.kind == "photo") IconButton(onClick = {
+                    scope.launch { val m = rotatePhotos(app, listOf(cur.hash), 90); if (!m.endsWith("回転しました")) message = m }
+                }) { Icon(Icons.Default.Rotate90DegreesCw, "右に回転", tint = Color.White) }
                 IconButton(onClick = { deleteOf = cur }) { Icon(Icons.Default.Delete, "削除", tint = Color.White) }
                 IconButton(onClick = { showInfo = true }) { Icon(Icons.Default.Info, "情報", tint = Color.White) }
             }

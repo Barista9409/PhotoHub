@@ -38,6 +38,7 @@ data class RemoteMedia(
     val space: String = "mine",   // mine / shared (family) / granted
     val folder: String = "",      // folder inside its space, e.g. "2024年 沖縄旅行"
     val place: String? = null,    // e.g. "東京都 渋谷区" (from the GPS position, named on the Synology)
+    @androidx.room.ColumnInfo(defaultValue = "0") val rot: Int = 0,   // clockwise turn to show it upright
 )
 
 data class DateToFix(val fileHash: String, val takenAt: Long)
@@ -99,6 +100,7 @@ data class TimelineItem(
     val mime: String?,
     val driveId: String? = null,   // copy in the person's Google Drive (reachable without VPN)
     val place: String? = null,
+    val rot: Int = 0,
 )
 
 /** A photo this phone put in Google Drive (from the Drive folder listing). */
@@ -126,7 +128,7 @@ private const val REMOTE_PART = """
              || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE d.fileHash = r.fileHash) AND r.stores NOT LIKE '%drive%' THEN ',drive' ELSE '' END
              AS stores,
            r.lat AS lat, r.lon AS lon, r.bytes AS bytes, r.w AS w, r.h AS h, r.duration AS duration, r.mime AS mime,
-           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = r.fileHash) AS driveId, r.place AS place
+           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = r.fileHash) AS driveId, r.place AS place, r.rot AS rot
     FROM remote_media r
 """
 
@@ -138,14 +140,14 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
                    || CASE WHEN EXISTS (SELECT 1 FROM drive_file d WHERE d.fileHash = l.fileHash) THEN ',drive' ELSE '' END AS stores,
            l.lat AS lat, l.lon AS lon,
            l.size AS bytes, l.w AS w, l.h AS h, NULL AS duration, l.mime AS mime,
-           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = l.fileHash) AS driveId, NULL AS place
+           (SELECT d.driveId FROM drive_file d WHERE d.fileHash = l.fileHash) AS driveId, NULL AS place, 0 AS rot
     FROM local_media l
     WHERE l.fileHash IS NULL OR NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = l.fileHash)
     UNION ALL
     SELECT 'drive:' || d.fileHash AS itemKey, NULL AS hash, NULL AS localUri,
            CASE WHEN d.mime LIKE 'video/%' THEN 'video' ELSE 'photo' END AS kind,
            d.takenAt AS takenAt, NULL AS tz, d.name AS name, 'drive' AS stores, NULL AS lat, NULL AS lon,
-           d.size AS bytes, NULL AS w, NULL AS h, NULL AS duration, d.mime AS mime, d.driveId AS driveId, NULL AS place
+           d.size AS bytes, NULL AS w, NULL AS h, NULL AS duration, d.mime AS mime, d.driveId AS driveId, NULL AS place, 0 AS rot
     FROM drive_file d
     WHERE NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = d.fileHash)
       AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
@@ -210,6 +212,9 @@ interface MediaDao {
 
     @Upsert
     suspend fun upsertRemote(items: List<RemoteMedia>)
+
+    @Query("UPDATE remote_media SET rot = :rot WHERE hash = :hash")
+    suspend fun setRot(hash: String, rot: Int)
 
     @Query("DELETE FROM remote_media WHERE hash IN (:hashes)")
     suspend fun deleteRemote(hashes: List<String>)
@@ -359,14 +364,14 @@ interface MediaDao {
 }
 
 @Database(entities = [RemoteMedia::class, AlbumRow::class, AlbumMedia::class, LocalMedia::class, DriveFile::class],
-    version = 8, exportSchema = true)
+    version = 9, exportSchema = true)
 abstract class AppDb : RoomDatabase() {
     abstract fun media(): MediaDao
 
     companion object {
         fun build(ctx: Context): AppDb =
             Room.databaseBuilder(ctx, AppDb::class.java, "photohub.db")
-                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)   // keep the phone's checked photos (hashing takes a while)
+                .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)   // keep the phone's checked photos (hashing takes a while)
                 .fallbackToDestructiveMigration(true).build()
 
         /** Photos and albums now say whether they are in the family's shared space: fetch them again
@@ -396,6 +401,11 @@ abstract class AppDb : RoomDatabase() {
         private val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE remote_media ADD COLUMN place TEXT")
+            }
+        }
+        private val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE remote_media ADD COLUMN rot INTEGER NOT NULL DEFAULT 0")
             }
         }
         private const val REMOTE_SQL_7 = "CREATE TABLE IF NOT EXISTS `remote_media` (`hash` TEXT NOT NULL, `fileHash` TEXT NOT NULL, `kind` TEXT NOT NULL, `mime` TEXT, `takenAt` INTEGER NOT NULL, `tz` INTEGER, `lat` REAL, `lon` REAL, `w` INTEGER, `h` INTEGER, `duration` REAL, `bytes` INTEGER NOT NULL, `name` TEXT NOT NULL, `stores` TEXT NOT NULL, `pair` TEXT, `description` TEXT, `rev` INTEGER NOT NULL, `space` TEXT NOT NULL, `folder` TEXT NOT NULL, PRIMARY KEY(`hash`))"

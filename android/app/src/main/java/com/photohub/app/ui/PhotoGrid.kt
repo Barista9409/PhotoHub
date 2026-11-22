@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -304,6 +305,11 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                     }) { Icon(Icons.Default.Favorite, "お気に入り") }
                     IconButton({ downloadOf = items.filter { it.itemKey in selected } }) { Icon(Icons.Default.Download, "このスマホに保存") }
                     IconButton({ dateOf = items.filter { it.itemKey in selected && it.hash != null } }) { Icon(Icons.Default.Event, "日付を変更") }
+                    IconButton({
+                        val list = items.filter { it.itemKey in selected && it.hash != null && it.kind == "photo" }.map { it.hash!! }
+                        selected = emptySet()
+                        scope.launch { toast = if (list.isEmpty()) "Synologyにある写真を選んでください" else rotatePhotos(app, list, 90) }
+                    }) { Icon(Icons.Default.Rotate90DegreesCw, "右に回転") }
                     IconButton({ albumOf = items.filter { it.itemKey in selected && it.hash != null } }) {
                         Icon(Icons.Default.PhotoAlbum, "アルバムに追加")
                     }

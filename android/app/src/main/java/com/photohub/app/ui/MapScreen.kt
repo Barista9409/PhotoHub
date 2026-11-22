@@ -257,7 +257,7 @@ class PhotoMapOverlay(private val app: PhotoHubApp) : Overlay() {
         thumbs.get(item.itemKey)?.let { return it }
         if (!loading.add(item.itemKey)) return null
         val model = thumbModel(app, item, base) ?: return null
-        val req = ImageRequest.Builder(app).data(model).size(200).allowHardware(false)
+        val req = (if (model is ImageRequest) model.newBuilder() else ImageRequest.Builder(app).data(model)).size(200).allowHardware(false)
             .target(onSuccess = { img ->
                 thumbs.put(item.itemKey, img.toBitmap()); loading.remove(item.itemKey); mapView?.postInvalidate()
             }, onError = { loading.remove(item.itemKey) })

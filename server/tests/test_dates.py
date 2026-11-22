@@ -57,6 +57,10 @@ def test_repair_and_set_by_hand(settings, db):
     assert c.post("/api/media/set-date", json={"hashes": [hash_nodate], "date": "2016-07-20"}, headers=h).json()["changed"] == 1
     with db.session() as s:
         assert s.execute(select(Media).where(Media.content_hash == hash_nodate)).scalar_one().taken_at == datetime(2016, 7, 20, 3, 0)
+    # turning a photo upright: kept on the Synology and handed to the phone with the sync
+    assert c.post("/api/media/rotate", json={"hashes": [hash_nodate], "degrees": -90}, headers=h).json()["rotation"] == {hash_nodate: 270}
+    assert c.post("/api/media/rotate", json={"hashes": [hash_nodate], "degrees": 90}, headers=h).json()["rotation"] == {hash_nodate: 0}
+    assert c.post("/api/media/rotate", json={"hashes": [hash_nodate], "degrees": 45}, headers=h).status_code == 400
 
 
 def test_date_inside_png(settings, tmp_path):

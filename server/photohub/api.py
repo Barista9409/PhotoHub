@@ -62,6 +62,11 @@ class SetDate(BaseModel):
     date: str  # local "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
 
 
+class Rotate(BaseModel):
+    hashes: list[str]
+    degrees: int  # clockwise: 90, -90, 180 (added to the current turn)
+
+
 class Hashes(BaseModel):
     hashes: list[str]
 
@@ -542,6 +547,21 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         from .dates import repair
         return repair(db, settings, {None, user.id})
 
+    @app.post("/api/media/rotate")
+    def media_rotate(body: Rotate, user: User = Depends(auth)) -> dict:
+        """Turn photos upright (own and family photos). Returns each photo's new turn."""
+        if body.degrees % 90:
+            raise HTTPException(400, "degrees must be a multiple of 90")
+        out: dict[str, int] = {}
+        with db.session() as s:
+            for m in s.execute(select(Media).where(Media.content_hash.in_(body.hashes[:5000]), Media.status == "active")).scalars():
+                if m.kind != "photo" or not can_see(s, user, m):
+                    continue
+                m.rotation = ((m.rotation or 0) + body.degrees) % 360
+                touch_media(s, m)
+                out[m.content_hash] = m.rotation
+        return {"rotation": out}
+
     @app.post("/api/media/set-date")
     def media_set_date(body: SetDate, user: User = Depends(auth)) -> dict:
         from datetime import datetime
@@ -694,7 +714,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "w": m.width, "h": m.height, "duration": m.duration, "bytes": m.bytes,
                 "name": Path(m.nas_path).name, "folder": _folder_of(m, owners), "place": place_of(s, m),
                 "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
-                "deleted": m.status != "active", "rev": m.rev, "pair": m.pair_key, "desc": m.description,
+                "deleted": m.status != "active", "rev": m.rev, "rot": m.rotation or 0, "pair": m.pair_key, "desc": m.description,
                 "space": "shared" if m.owner_id is None else ("mine" if m.owner_id == user.id else "granted"),
             } for m in rows]
             albums = [{"id": a.id, "name": a.name, "origin": a.origin, "shared": a.owner_id is None}

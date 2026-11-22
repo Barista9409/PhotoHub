@@ -109,6 +109,9 @@ class Media(Base):
     description: Mapped[str | None] = mapped_column(Text)
     pair_key: Mapped[str | None] = mapped_column(String(255), index=True)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+    # turn to show it upright, clockwise degrees (0/90/180/270), on top of the file's own orientation.
+    # The file itself is left untouched; the app turns the picture when it shows it.
+    rotation: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / trashed
     owner_id: Mapped[int | None] = mapped_column(Integer, index=True)  # NULL = shared space
     # True = PhotoHub wrote this file (Takeout / phone upload). If the same photo later turns up
