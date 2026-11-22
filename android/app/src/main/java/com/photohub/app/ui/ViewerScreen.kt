@@ -345,6 +345,16 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
     }
     var at by remember(item.itemKey) { mutableStateOf(0) }
     var preparing by remember(item.itemKey) { mutableStateOf(false) }   // the Synology is making its copy
+    // bytes that arrived for the current source (shown while it loads)
+    val loaded = remember(item.itemKey) { java.util.concurrent.atomic.AtomicLong(0) }
+    val counter = remember(item.itemKey) {
+        object : androidx.media3.datasource.TransferListener {
+            override fun onTransferInitializing(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) {}
+            override fun onTransferStart(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) {}
+            override fun onBytesTransferred(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean, bytes: Int) { loaded.addAndGet(bytes.toLong()) }
+            override fun onTransferEnd(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) {}
+        }
+    }
     val player = remember(item.itemKey) { ExoPlayer.Builder(ctx).build() }
     androidx.compose.runtime.LaunchedEffect(item.itemKey, at, sources) {
         if (ready == null) return@LaunchedEffect   // still asking whether a ready copy exists
@@ -352,7 +362,7 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
         error = null
         if (uri == "playable") {
             preparing = true
-            error = "この形式はスマホで再生できないため、Synologyで再生できる形に変換しています…（初回だけ。長い動画は数分かかります）"
+            error = null   // the progress overlay says what is going on
             val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     app.net.client(app.token).newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.MINUTES).build()
@@ -369,6 +379,8 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
             app.drive.token()
             OkHttpDataSource.Factory(okhttp3.OkHttpClient()).setDefaultRequestProperties(mapOf("Authorization" to "Bearer ${app.driveToken}"))
         } else OkHttpDataSource.Factory(app.net.client(app.token))
+        http.setTransferListener(counter)
+        loaded.set(0)
         val src = DefaultMediaSourceFactory(DefaultDataSource.Factory(ctx, http)).createMediaSource(MediaItem.fromUri(uri))
         player.setMediaSource(src)
         player.prepare()
@@ -418,13 +430,39 @@ fun VideoPlayer(app: PhotoHubApp, item: TimelineItem, base: String?) {
             Text(it, color = Color.White, modifier = Modifier.align(Alignment.Center)
                 .background(Color(0xCC000000), RoundedCornerShape(12.dp)).padding(16.dp))
         }
-        if (error == null && buffering && !started) {
+        // progress while it loads: how much arrived, how fast, and how close it is to starting
+        if (error == null && !started && (buffering || preparing)) {
             val where = sources.getOrNull(at).orEmpty().let { u ->
                 when { u.startsWith("content:") -> "このスマホ"; u.contains("googleapis") -> "Googleドライブ"
                        u.contains("/api/playable") || u == "playable" -> "Synology（再生用）"; else -> "Synology" } }
-            Text("読み込み中…（$where から・${humanBytes(item.bytes)}）", color = Color.White,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 120.dp)
-                    .background(Color(0xAA000000), RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
+            var line by remember { mutableStateOf("") }
+            var toStart by remember { mutableStateOf(0f) }
+            androidx.compose.runtime.LaunchedEffect(at, preparing) {
+                val t0 = System.currentTimeMillis()
+                var last = loaded.get(); var lastT = t0
+                while (true) {
+                    kotlinx.coroutines.delay(500)
+                    val now = System.currentTimeMillis()
+                    val secs = (now - t0) / 1000
+                    line = if (preparing) "Synologyで、スマホですぐ再生できる形に整えています… %d:%02d（長い動画は数分かかります）".format(secs / 60, secs % 60)
+                    else {
+                        val b = loaded.get()
+                        val speed = (b - last) * 1000.0 / maxOf(1, now - lastT)
+                        last = b; lastT = now
+                        toStart = (player.bufferedPosition / 2500f).coerceIn(0f, 1f)   // the player starts after about 2.5 s
+                        "読み込み中（$where から）${humanBytes(b)} / ${humanBytes(item.bytes)}・${humanBytes(speed.toLong())}/秒・%d秒".format(secs)
+                    }
+                }
+            }
+            Column(Modifier.align(Alignment.BottomCenter).padding(start = 24.dp, end = 24.dp, bottom = 120.dp)
+                .background(Color(0xCC000000), RoundedCornerShape(12.dp)).padding(14.dp)) {
+                Text(line.ifEmpty { "読み込み中…（$where から）" }, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 8.dp))
+                if (preparing) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                else androidx.compose.material3.LinearProgressIndicator(progress = { toStart }, modifier = Modifier.fillMaxWidth())
+                if (!preparing) Text("再生が始まるまで ${(toStart * 100).toInt()}%", color = Color(0xCCFFFFFF),
+                    style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+            }
         }
     }
 }
