@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -692,5 +693,24 @@ fun RemoteAddressRow() {
                 }) { Text(if (busy) "確かめています…" else "保存して確かめる") }
             },
             dismissButton = { TextButton({ edit = null }) { Text("閉じる") } })
+    }
+}
+
+
+/** "A new version is out" strip on the main tabs; Android always asks before installing, so one tap here. */
+@Composable
+fun UpdateBanner(onOpen: () -> Unit) {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    val st by app.updater.state.collectAsState()
+    val name = when (val x = st) {
+        is Updater.State.Available -> x.release.versionName
+        is Updater.State.Ready -> x.release.versionName
+        else -> return
+    }
+    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer).clickable(onClick = onOpen)
+        .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("新しい版 $name があります", style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f))
+        Text("更新する ›", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }

@@ -87,10 +87,14 @@ DSMの「タスクスケジューラ」に、1時間ごとに新しい版を確�
 
 ```
 cd /volume1/docker/photohub || exit 1
-docker pull ghcr.io/barista9409/photohub:latest | grep -q "Downloaded newer image" || exit 0
-docker compose up -d 2>/dev/null || docker-compose up -d
-docker image prune -f
+docker pull -q ghcr.io/barista9409/photohub:latest >/dev/null 2>&1
+new=$(docker image inspect -f '{{.Id}}' ghcr.io/barista9409/photohub:latest)
+cur=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
+[ -n "$new" ] && [ "$new" = "$cur" ] && exit 0
+{ date; docker compose up -d || docker-compose up -d; docker image prune -f; } >> /volume1/docker/photohub/update.log 2>&1
 ```
+
+> 動いている版とダウンロードした版を比べて、違うときだけ入れ替えます（途中で失敗しても、次の回にやり直します）。結果は `docker/photohub/update.log` に残ります。
 
 5. すぐ試すには、一覧で `PhotoHub自動更新` を選んで「実行」。少し待ってアプリの「Synology側の版」が新しい日付になれば成功です
 

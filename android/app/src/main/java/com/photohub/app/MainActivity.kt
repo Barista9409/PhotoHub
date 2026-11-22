@@ -128,6 +128,8 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         else {
             // fetch what is new on the NAS (photos Synology Photos backed up, Takeout, other phones)
             com.photohub.app.data.SyncWorker.runNow(app)
+            // and whether a new version of the app is out (only a small check; the banner offers it)
+            app.scope.launch { try { app.updater.check() } catch (_: Exception) {} }
             if (openUpdate) nav.navigate(Dest.APP.route)
         }
     }
@@ -160,6 +162,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         Column(if (fullScreen) Modifier else Modifier.padding(pad)) {
             // loading bar above the content (never on top of it)
             if (!fullScreen) com.photohub.app.ui.NasListBanner()
+            if (tabs.any { it.route == route }) com.photohub.app.ui.UpdateBanner { nav.navigate(Dest.APP.route) }
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
                 composable("albums") {
