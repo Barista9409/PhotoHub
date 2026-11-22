@@ -91,40 +91,115 @@ cd /volume1/docker/photohub || exit 1
 
 ### 新しい版を自動で入れる（おすすめ・最初に1回だけ設定）
 
-DSMの「タスクスケジューラ」に、1時間ごとに新しい版を確かめるスクリプトを登録します。新しい版があったときだけ入れ替えて再起動し、なければ何もしません。
+DSMの「タスクスケジューラ」に、**1分ごと**に新しい版を確かめるスクリプトを登録します。確かめるときはGitHubに「最新版の番号」を聞くだけで、ダウンロードはしないので軽く済みます。新しい版が出ていれば、1分ほどで入れ替わります。
 
-1. コントロールパネル →「タスクスケジューラ」→「作成」→「予約タスク」→「ユーザー指定のスクリプト」
+1. コントロールパネル →「タスクスケジューラ」→「作成」→「予約タスク」→「ユーザー指定のスクリプト」（前に作った `PhotoHub自動更新` があれば、それを選んで「編集」）
 2. 「全般」タブ：タスク名 `PhotoHub自動更新`、ユーザー **`root`**、「有効」にチェック
-3. 「スケジュール」タブ：「毎日を実行」、開始時刻 `00:05`、「頻度を続行」で **1時間ごと**、最終実行時刻 `23:05`
-4. 「タスク設定」タブ：「ユーザー指定のスクリプト」に下のスクリプトをそのまま貼り付け →「OK」
+3. 「スケジュール」タブ：「毎日を実行」、開始時刻 `00:00`、「頻度を続行」で **1分ごと**（選べなければ5分ごと）、最終実行時刻 `23:59`
+4. 「タスク設定」タブ：「ユーザー指定のスクリプト」の中身を全部消して、下のスクリプトを**全部**貼り付け →「OK」（[`tools/synology-update.sh`](../tools/synology-update.sh) と同じものです）
 
 ```
-ID=<プロジェクトのID>
-L=/volume1/docker/photohub
-cd $L || exit 1
-docker pull -q ghcr.io/barista9409/photohub:latest >/dev/null 2>&1
-new=$(docker image inspect -f '{{.Id}}' ghcr.io/barista9409/photohub:latest)
-cur=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
-if [ -n "$new" ] && [ "$new" = "$cur" ]; then
-  echo "$(date '+%Y-%m-%d %H:%M') 確認：最新です（入れ替えなし）" > $L/update-last.txt
+#!/bin/bash
+# PhotoHub auto-update for Synology (DSM Task Scheduler, user root, every minute).
+#
+# Lessons built in:
+# - Asks GHCR for the digest of :latest (a tiny request) instead of pulling every time,
+#   so it can run every minute and a new version is in within about a minute of being published.
+# - Does not depend on Container Manager's API (build_stream failed with code 2104 on DSM).
+# - Never runs twice at the same time (lock), and never gets stuck: a stale lock is cleared.
+# - Checks the new version actually answers /api/health; if not, goes back to the previous
+#   version and does not try that broken version again.
+# - Writes the result in plain words to update-last.txt (.txt so File Station opens it).
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+IMG=ghcr.io/barista9409/photohub
+DIR=/volume1/docker/photohub
+LOG=$DIR/update.txt
+LAST=$DIR/update-last.txt
+BAD=$DIR/update-bad.txt
+LOCK=/tmp/photohub-update.lock
+cd "$DIR" || exit 1
+
+now() { date '+%Y-%m-%d %H:%M'; }
+say() { echo "$(now) $1" > "$LAST"; }
+log() { echo "$(now) $1" >> "$LOG"; }
+
+# one at a time; a lock older than 30 minutes is left over from a crash
+if ! mkdir "$LOCK" 2>/dev/null; then
+  [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ] && rm -rf "$LOCK" && mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+trap 'rm -rf "$LOCK"' EXIT
+
+# 1) what GHCR has now (digest only, no download)
+tok=$(curl -s --max-time 20 "https://ghcr.io/token?scope=repository:${IMG#ghcr.io/}:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+remote=$(curl -sI --max-time 20 -H "Authorization: Bearer $tok" \
+  -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json" \
+  "https://ghcr.io/v2/${IMG#ghcr.io/}/manifests/latest" | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p')
+if [ -z "$remote" ]; then
+  say "確認できませんでした（インターネットかGitHubにつながりません。次の回にもう一度確かめます）"
   exit 0
 fi
-{
-date
-out=$(synowebapi --exec api=SYNO.Docker.Project method=build_stream version=1 id="$ID" 2>&1)
-echo "$out" | grep -q '"success" : true' || { echo "CMでの作り直しに失敗。docker composeで入れ替えます"; docker rm -f photohub; docker compose up -d || docker-compose up -d; }
-docker image prune -f
-} >> $L/update.txt 2>&1
-now=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
-if [ "$now" = "$new" ]; then m="新しい版を入れました"; else m="入れ替えに失敗しました（update.txt を見てください）"; fi
-echo "$(date '+%Y-%m-%d %H:%M') $m" > $L/update-last.txt
+
+# 2) what is running (stopped on purpose, e.g. to edit the YAML: leave it alone)
+if [ "$(docker inspect -f '{{.State.Running}}' photohub 2>/dev/null)" != "true" ]; then
+  say "PhotoHubが止まっているので、更新は休んでいます（起動すると、また確かめます）"
+  exit 0
+fi
+cur_img=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
+cur_digests=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$cur_img" 2>/dev/null)
+if echo "$cur_digests" | grep -q "$remote"; then
+  say "確認：最新です（入れ替えなし）"
+  exit 0
+fi
+if grep -qx "$remote" "$BAD" 2>/dev/null; then
+  say "新しい版は起動しなかったため、前の版のままです（次に新しい版が出たら入れます）"
+  exit 0
+fi
+
+# 3) download and swap
+log "新しい版を見つけました: $remote"
+if ! docker pull -q "$IMG:latest" >> "$LOG" 2>&1; then
+  say "ダウンロードに失敗しました（次の回にもう一度やります）"; log "pull failed"; exit 0
+fi
+[ -n "$cur_img" ] && docker tag "$cur_img" photohub-previous:latest 2>/dev/null
+compose() { docker compose up -d "$@" >> "$LOG" 2>&1 || docker-compose up -d "$@" >> "$LOG" 2>&1; }
+docker rm -f photohub >> "$LOG" 2>&1
+compose
+
+# 4) does it answer?
+ok=""
+for i in $(seq 1 36); do   # up to 3 minutes
+  sleep 5
+  curl -s --max-time 4 http://127.0.0.1:8765/api/health | grep -q '"ok": *true' && ok=1 && break
+done
+if [ -n "$ok" ]; then
+  build=$(curl -s --max-time 4 http://127.0.0.1:8765/api/health | sed -n 's/.*"build": *"\([^"]*\)".*/\1/p')
+  say "新しい版を入れました（$build）"; log "ok $build"
+  docker image prune -f >> "$LOG" 2>&1
+else
+  log "新しい版が起動しません。前の版に戻します"
+  echo "$remote" >> "$BAD"
+  if docker image inspect photohub-previous:latest >/dev/null 2>&1; then
+    docker tag photohub-previous:latest "$IMG:latest"
+    docker rm -f photohub >> "$LOG" 2>&1
+    compose
+  fi
+  say "新しい版が起動しなかったので、前の版に戻しました（update.txt を見てください）"
+fi
+
+# keep the record short
+tail -n 400 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
 ```
 
-> 新しい版があるときだけ、まず Container Manager 自身にビルドさせます。それが使えないSynologyでは、自動で docker compose に切り替えて入れ替えます（この場合、Container Manager の「停止」ボタンが失敗することがあるので、再起動は上の `PhotoHub再起動` タスクで行ってください）。`<プロジェクトのID>` は、`synowebapi --exec api=SYNO.Docker.Project method=list version=1` を同じ方法で実行すると出る `"id"` です。最後に確認した結果は `docker/photohub/update-last.txt`、入れ替えたときの記録は `update.txt` に残ります
+> このスクリプトがすること
+> - 新しい版があるときだけダウンロードして入れ替えます。Container Manager の機能には頼りません（以前の方法は、このSynologyではエラー 2104 で動きませんでした）
+> - 入れ替えたあと、PhotoHubがちゃんと動き始めたかを確かめます。動かなければ自動で前の版に戻し、その版はもう入れません
+> - PhotoHubを止めているあいだ（YAMLを直すときなど）は、何もしません
+> - 同時に2つ動かないようにしてあります
+> - 結果は `docker/photohub/update-last.txt` に1行で、詳しい記録は `update.txt` に残ります（File Station でそのまま開けます）
+>
+> 入れ替えたあとは、Container Manager の「停止」ボタンが失敗することがあります。止めたいとき・再起動したいときは、上の `PhotoHub再起動` タスクか、Container Manager の「プロジェクト」→ photohub →「操作」→「ビルド」を使ってください。
 
-> 動いている版とダウンロードした版を比べて、違うときだけ入れ替えます（途中で失敗しても、次の回にやり直します）。最後に確認した結果は `docker/photohub/update-last.txt`、入れ替えたときの記録は `update.txt` に残ります。
-
-5. すぐ試すには、一覧で `PhotoHub自動更新` を選んで「実行」。少し待ってアプリの「Synology側の版」が新しい日付になれば成功です
+5. すぐ試すには、一覧で `PhotoHub自動更新` を選んで「実行」。1〜3分待って `update-last.txt` を開き、「最新です」か「新しい版を入れました」と出ていれば成功です。アプリの「更新と共有」→「Synology側の版」にも「最新です」と出ます
 
 
 > **外出先でつながらないとき**：Synology用のTailscaleは、PhotoHubから自分のTailscaleのアドレスが見えないことがあります。アプリの右上のアイコン →「アカウント」→「外出先からの接続（Tailscale）」に、スマホのTailscaleアプリのデバイス一覧に出るSynologyのアドレス（`100.` で始まる）を入れてください。
