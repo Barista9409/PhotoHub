@@ -172,15 +172,27 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 // logging out is rare: an icon on your own card, not a menu item
                 androidx.compose.material3.IconButton({ confirmLogout = true }) { Icon(Icons.AutoMirrored.Filled.Logout, "ログアウト") }
             }
-            Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
+            // one line per connection, green when connected, red when not
+            var driveOk by remember { mutableStateOf<Boolean?>(null) }
+            LaunchedEffect(cur.backupDrive) { driveOk = if (!cur.backupDrive) false else app.drive.token() != null }
+            androidx.compose.foundation.layout.FlowRow(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 when {
-                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「同期設定」）", false)
-                    base == null -> StatusPill("Synologyにつながりません", false)
-                    base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
-                    else -> StatusPill("外出先からつながっています", true)
+                    base == null -> StatusPill("Synology：未接続", false)
+                    base == cur.lanUrl -> StatusPill("Synology：接続済 (LAN)", true)
+                    else -> StatusPill("Synology：接続済 (VPN)", true)
                 }
-                if (status?.apply == false) { Spacer(Modifier.size(8.dp)); StatusPill("試運転中", false) }
+                when (driveOk) {
+                    null -> StatusPill("Google Drive：確認中", true)
+                    true -> StatusPill("Google Drive：接続済", true)
+                    false -> StatusPill("Google Drive：未接続", false)
+                }
+                if (status?.apply == false) StatusPill("試運転中", false)
             }
+            if (base == null && cur.remoteUrl.isBlank())
+                Text("外出先の接続先（Tailscale）が未設定です。下の「同期設定」→「外出先からの接続」で設定してください。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
         }
         if (status?.apply == false) {
             Column(Modifier.padding(16.dp, 8.dp).fillMaxWidth()
