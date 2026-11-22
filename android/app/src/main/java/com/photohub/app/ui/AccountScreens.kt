@@ -174,7 +174,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             }
             Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
                 when {
-                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「接続」）", false)
+                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「同期設定」）", false)
                     base == null -> StatusPill("Synologyにつながりません", false)
                     base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
                     else -> StatusPill("外出先からつながっています", true)
@@ -214,7 +214,11 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         }
         // Groups that fold away (remembered on this phone); every setting sits in its group on this page,
         // a row opens a page only for a tool (tidy up, migration, folders, records). Order = how often it is needed.
-        CollapsibleGroup("sync", "バックアップ", "Synology・Googleドライブ・モバイル回線・今すぐ同期・電池", openByDefault = true) {
+        // 同期設定: what to send where (on/off) -> when (mobile data, battery) -> how to reach the Synology
+        // (away from home, its folders); "sync now" with the last result at the top, the most used row
+        CollapsibleGroup("sync", "同期設定", "今すぐ同期・Synology・Googleドライブ・モバイル回線・電池・外出先・保存場所", openByDefault = true) {
+            if (live.running) BackupProgress(live) else RunNowRow()
+            GroupDivider()
             SwitchRow(Icons.Default.Dns, "Synologyに保存",
                 if (cur.backupNas) "撮った写真を数分でSynologyに送り、Synologyの写真をこのスマホで見られます" else "オフ：Synologyの写真を見るだけ（このスマホの写真は送りません）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
@@ -226,12 +230,16 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 "オフなら、Wi-Fiのときだけ（Synology・ドライブ共通）", cur.backupOnMobile) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupOnMobile = it)) }
             }
-            GroupDivider()
-            if (live.running) BackupProgress(live) else RunNowRow()
             BatteryRow()
+            GroupDivider()
+            RemoteAddressRow()
+            GroupDivider()
+            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeoutを置くフォルダ",
+                onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        CollapsibleGroup("library", "写真", "整理とゴミ箱・このスマホの容量・内訳・Googleフォトからの移行", openByDefault = true) {
+        // データ管理: tidy up (most used) -> this phone's space -> what is where -> moving from Google (once)
+        CollapsibleGroup("library", "データ管理", "整理とゴミ箱・このスマホの容量・内訳・Googleフォトからの移行", openByDefault = true) {
             // one door for tidying up: similar / same photos, suggestions, dates, free space and the trash are inside
             SettingRow(Icons.Default.CleaningServices, "整理とゴミ箱",
                 (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
@@ -244,13 +252,6 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             GroupDivider()
             SettingRow(Icons.Default.PhotoLibrary, "Googleフォトからの移行", "手順・取り込みの状況・Googleフォトを空にする",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
-        }
-
-        CollapsibleGroup("connect", "接続", "外出先からの接続・Synologyの保存場所", openByDefault = false) {
-            RemoteAddressRow()
-            GroupDivider()
-            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeoutを置くフォルダ",
-                onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
         // closed, the summary still says when an update is waiting
