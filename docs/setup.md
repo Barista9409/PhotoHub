@@ -96,7 +96,7 @@ DSMの「タスクスケジューラ」に、1時間ごとに新しい版を確�
 1. コントロールパネル →「タスクスケジューラ」→「作成」→「予約タスク」→「ユーザー指定のスクリプト」
 2. 「全般」タブ：タスク名 `PhotoHub自動更新`、ユーザー **`root`**、「有効」にチェック
 3. 「スケジュール」タブ：「毎日を実行」、開始時刻 `00:05`、「頻度を続行」で **1時間ごと**、最終実行時刻 `23:05`
-4. 「タスク設定」タブ：「ユーザー指定のスクリプト」に下の4行をそのまま貼り付け →「OK」
+4. 「タスク設定」タブ：「ユーザー指定のスクリプト」に下のスクリプトをそのまま貼り付け →「OK」
 
 ```
 ID=<プロジェクトのID>
@@ -109,17 +109,18 @@ if [ -n "$new" ] && [ "$new" = "$cur" ]; then
   echo "$(date '+%Y-%m-%d %H:%M') 確認：最新です（入れ替えなし）" > $L/update-last.txt
   exit 0
 fi
-echo "$(date '+%Y-%m-%d %H:%M') 新しい版を入れました（詳しくは update.txt）" > $L/update-last.txt
 {
 date
 out=$(synowebapi --exec api=SYNO.Docker.Project method=build_stream version=1 id="$ID" 2>&1)
-echo "$out" | tail -5
-echo "$out" | grep -q '"success" : true' || synowebapi --exec api=SYNO.Docker.Project method=build version=1 id="$ID" 2>&1 | tail -5
+echo "$out" | grep -q '"success" : true' || { echo "CMでの作り直しに失敗。docker composeで入れ替えます"; docker rm -f photohub; docker compose up -d || docker-compose up -d; }
 docker image prune -f
 } >> $L/update.txt 2>&1
+now=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
+if [ "$now" = "$new" ]; then m="新しい版を入れました"; else m="入れ替えに失敗しました（update.txt を見てください）"; fi
+echo "$(date '+%Y-%m-%d %H:%M') $m" > $L/update-last.txt
 ```
 
-> 新しい版があるときだけ、Container Manager 自身にビルドさせます（Container Manager の記録とずれないので、「停止」などのボタンもそのまま使えます）。`<プロジェクトのID>` は、`synowebapi --exec api=SYNO.Docker.Project method=list version=1` を同じ方法で実行すると出る `"id"` です。最後に確認した結果は `docker/photohub/update-last.txt`、入れ替えたときの記録は `update.txt` に残ります
+> 新しい版があるときだけ、まず Container Manager 自身にビルドさせます。それが使えないSynologyでは、自動で docker compose に切り替えて入れ替えます（この場合、Container Manager の「停止」ボタンが失敗することがあるので、再起動は上の `PhotoHub再起動` タスクで行ってください）。`<プロジェクトのID>` は、`synowebapi --exec api=SYNO.Docker.Project method=list version=1` を同じ方法で実行すると出る `"id"` です。最後に確認した結果は `docker/photohub/update-last.txt`、入れ替えたときの記録は `update.txt` に残ります
 
 > 動いている版とダウンロードした版を比べて、違うときだけ入れ替えます（途中で失敗しても、次の回にやり直します）。最後に確認した結果は `docker/photohub/update-last.txt`、入れ替えたときの記録は `update.txt` に残ります。
 
