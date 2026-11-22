@@ -102,6 +102,8 @@ class Service:
 
     def job_dates(self) -> None:
         from .dates import repair
+        from .organize import remove_system_thumbs
+        remove_system_thumbs(self.db, self.s)
         repair(self.db, self.s)
 
     def job_places(self) -> None:

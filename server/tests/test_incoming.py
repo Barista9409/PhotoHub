@@ -451,3 +451,28 @@ def test_mts_video_made_playable(settings, db, chie):
     assert c.post(f"/api/playable/{item['hash']}", headers=h).json()["ok"]
     r = c.get(f"/api/playable/{item['hash']}", headers=h)
     assert r.status_code == 200 and r.content[4:8] == b"ftyp"
+
+
+def test_synology_thumbnails_are_not_photos(settings, db, chie):
+    """@eaDir/SYNOFILE_THUMB_*.jpg next to Drive files are Synology's own thumbnails: skipped, and old ones removed."""
+    from photohub.organize import remove_system_thumbs
+    from photohub.db import Media
+    u, h, c = chie
+    drive = settings.homes_root / "chie" / "PhotoHub"
+    (drive / "@eaDir" / "a.jpg").mkdir(parents=True)
+    (drive / "a.jpg").write_bytes(make_image(70))
+    (drive / "@eaDir" / "a.jpg" / "SYNOFILE_THUMB_M.jpg").write_bytes(make_image(71))
+    assert process_incoming(db, settings, apply=True).new == 1
+    # one that an older version imported
+    junk = Path(u.personal_root) / "MobileBackup" / "x" / "SYNOFILE_THUMB_XL.jpg"
+    junk.parent.mkdir(parents=True)
+    junk.write_bytes(make_image(72))
+    from photohub.scanner import scan as _scan
+    with db.session() as s:
+        from photohub.ingest import analyse, new_media
+        cand = analyse([junk], settings)[0]
+        s.add(new_media(cand, junk, junk.stat().st_mtime and __import__("datetime").datetime.utcnow(), u.id))
+    assert remove_system_thumbs(db, settings) == 1
+    assert not junk.exists()
+    with db.session() as s:
+        assert {Path(m.nas_path).name for m in s.execute(select(Media).where(Media.status == "active")).scalars()} == {"a.jpg"}

@@ -32,6 +32,11 @@ def incoming_dir(settings: Settings, user: User) -> Path:
     return settings.root / "incoming" / user.name
 
 
+def is_system_thumb(p: Path) -> bool:
+    """Synology's own thumbnails (SYNOFILE_THUMB_*.jpg, SYNOPHOTO_THUMB_*.jpg) are not photos."""
+    return "@eaDir" in p.parts or p.name.upper().startswith(("SYNOFILE_THUMB", "SYNOPHOTO_THUMB"))
+
+
 def drive_dir(settings: Settings, user: User) -> Path:
     """Where the person's Drive folder "PhotoHub" shows up on the NAS (Cloud Sync):
       1. set explicitly (photohub user set NAME --drive-dir ...) or chosen in the app (drive_root)
@@ -125,8 +130,9 @@ def _scan_drive_folder(db: Database, settings: Settings, user: User) -> int:
     with db.session() as s:
         known = {u.path: u for u in s.execute(select(Upload).where(Upload.user_id == user.id,
                                                                    Upload.source == "drive")).scalars()}
-        for p in sorted(root.rglob("*")):
-            if not p.is_file() or p.name.startswith(".") or not kind_of(p):
+        from .scanner import walk  # skips @eaDir (Synology's own thumbnails), #recycle, hidden files
+        for p in walk(root):
+            if is_system_thumb(p):
                 continue
             st = p.stat()
             k = known.get(str(p))

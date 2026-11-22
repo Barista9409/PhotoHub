@@ -241,3 +241,21 @@ def blurry(db: Database, settings: Settings, user: User, limit: int = 300, thres
                 if len(out) >= limit:
                     break
     return out
+
+
+def remove_system_thumbs(db: Database, settings: Settings) -> int:
+    """Synology's own thumbnails that older versions imported as photos (from @eaDir in the Drive
+    folder): move them to the trash (restorable for 30 days) and stop them coming back."""
+    from .db import Upload
+    from .incoming import is_system_thumb
+    with db.session() as s:
+        junk = [m.content_hash for m in s.execute(select(Media).where(Media.status == "active")).scalars()
+                if is_system_thumb(Path(m.nas_path))]
+        for up in s.execute(select(Upload).where(Upload.processed_at.is_(None))).scalars():
+            if is_system_thumb(Path(up.path)):
+                up.processed_at = utcnow()
+    n = trash(db, settings, None, junk) if junk else 0
+    if n:
+        with db.session() as s:
+            log_event(s, "info", "system_thumbs_removed", f"{n} Synology thumbnail file(s) were not photos: moved to the trash")
+    return n

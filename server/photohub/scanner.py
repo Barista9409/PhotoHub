@@ -47,7 +47,7 @@ def walk(root: Path):  # noqa: ANN201
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
         for fn in sorted(filenames):
-            if fn.startswith(".") or fn.endswith(".xmp"):
+            if fn.startswith(".") or fn.endswith(".xmp") or fn.upper().startswith(("SYNOFILE_THUMB", "SYNOPHOTO_THUMB")):
                 continue
             p = Path(dirpath) / fn
             if kind_of(p):
