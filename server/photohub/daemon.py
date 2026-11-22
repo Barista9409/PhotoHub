@@ -106,6 +106,10 @@ class Service:
         remove_system_thumbs(self.db, self.s)
         repair(self.db, self.s)
 
+    def job_autoalbums(self) -> None:
+        from . import autoalbums
+        autoalbums.run_all(self.db, self.s)
+
     def job_places(self) -> None:
         from . import places
         places.assign(self.db)
@@ -156,6 +160,11 @@ class Service:
                     next_run_time=datetime.now() + timedelta(minutes=3))
         sch.add_job(lambda: self._guard("places", self.job_places, heavy=False), "interval", hours=1, id="places",
                     next_run_time=datetime.now() + timedelta(minutes=5))
+        # ふりかえり / 旅行 / フォルダ albums: every night, and once soon after starting
+        sch.add_job(lambda: self._guard("autoalbums", self.job_autoalbums, heavy=False), "cron", hour=3, minute=40,
+                    id="autoalbums")
+        sch.add_job(lambda: self._guard("autoalbums", self.job_autoalbums, heavy=False), "date",
+                    run_date=datetime.now() + timedelta(minutes=12), id="autoalbums-first")
         sch.start()
 
         svc = self

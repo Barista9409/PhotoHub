@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,6 +92,19 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     var barsVisible by remember { mutableStateOf(true) }
     var showInfo by remember { mutableStateOf(false) }
     var dragY by remember { mutableFloatStateOf(0f) }
+    // slideshow: the next photo every 4 seconds, screen kept on; a tap stops it
+    var slideshow by remember { mutableStateOf(UiState.slideshow.also { UiState.slideshow = false }) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(slideshow) {
+        view.keepScreenOn = slideshow
+        if (slideshow) barsVisible = false
+        while (slideshow) {
+            kotlinx.coroutines.delay(4000)
+            if (pager.currentPage < items.lastIndex) pager.animateScrollToPage(pager.currentPage + 1)
+            else { slideshow = false; barsVisible = true; message = "スライドショーが終わりました" }
+        }
+    }
+    DisposableEffect(Unit) { onDispose { view.keepScreenOn = false } }
 
     fun guarded(item: TimelineItem, what: String, action: () -> Unit) {
         val remote = item.localUri == null
@@ -117,7 +131,9 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
             if (item.kind == "video" && (playing == item.itemKey || auto)) {
                 VideoPlayer(app, item, base)
             } else {
-                ZoomableImage(previewModel(app, item, base), item.name, onTap = { barsVisible = !barsVisible })
+                ZoomableImage(previewModel(app, item, base), item.name, onTap = {
+                    if (slideshow) { slideshow = false; barsVisible = true; message = "スライドショーを止めました" } else barsVisible = !barsVisible
+                })
                 if (item.kind == "video") {
                     Button(onClick = { guarded(item, "動画の再生") { playing = item.itemKey } },
                         modifier = Modifier.align(Alignment.Center)) {

@@ -20,6 +20,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Close
@@ -78,9 +83,15 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     // a phone folder is also kept as a Synology album (so other phones see it): show it once, as the folder
     val localBuckets = remember(folders) { folders.map { it.bucket }.toSet() }
     val folderAlbums = remember(albums) { albums.filter { it.origin == "device" }.associateBy { it.name } }
-    val mine = albums.filter { !it.shared && !(it.origin == "device" && it.name in localBuckets) }
-    val family = albums.filter { it.shared }
-    val shownAlbums = mine + family
+    // albums PhotoHub makes by itself come first, newest first: the month's look-back and trips
+    val auto = setOf("digest", "trip", "folder")
+    val digests = albums.filter { it.origin == "digest" }.sortedByDescending { it.name }
+    val trips = albums.filter { it.origin == "trip" }.sortedByDescending { it.name }
+    val sharedFolders = albums.filter { it.origin == "folder" }
+    val mine = albums.filter { !it.shared && it.origin !in auto && !(it.origin == "device" && it.name in localBuckets) }
+    val family = albums.filter { it.shared && it.origin !in auto }
+    val shownAlbums = digests + trips + mine + family + sharedFolders
+    var mergeOf by remember { mutableStateOf<List<com.photohub.app.data.db.AlbumWithCount>?>(null) }
     var picked by remember { mutableStateOf(emptySet<Long>()) }
     var folderMenu by remember { mutableStateOf<String?>(null) }
     val phoneDelete = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -104,6 +115,9 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             androidx.compose.material3.IconButton({ picked = if (all) emptySet() else shownAlbums.map { it.id }.toSet() }) {
                 androidx.compose.material3.Icon(if (all) Icons.Default.Deselect else Icons.Default.SelectAll, if (all) "すべて解除" else "すべて選択")
             }
+            if (picked.size >= 2) androidx.compose.material3.IconButton({ mergeOf = shownAlbums.filter { it.id in picked } }) {
+                androidx.compose.material3.Icon(Icons.AutoMirrored.Filled.MergeType, "アルバムを1つにまとめる")
+            }
             androidx.compose.material3.IconButton({ askDelete = true }) { androidx.compose.material3.Icon(Icons.Default.Delete, "アルバムを削除") }
         }
     }
@@ -120,10 +134,29 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                         com.photohub.app.data.SyncWorker.runNow(app)
                     }
                 }) { Text("Synology Photosのアルバムを読み込む") }
+                androidx.compose.material3.TextButton({
+                    pullMsg = "おまかせアルバムを作っています…"
+                    scope.launch {
+                        pullMsg = try {
+                            val r = app.net.api()!!.autoAlbums()
+                            "ふりかえり ${r["digest"] ?: 0}・旅行 ${r["trip"] ?: 0}・共有フォルダ ${r["folder"] ?: 0} 件を作りました（毎晩自動で更新します）"
+                        } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "作れませんでした（HTTP ${e.code()}）" }
+                          catch (e: Exception) { "作れませんでした（${e.message}）" }
+                        com.photohub.app.data.SyncWorker.runNow(app)
+                    }
+                }) { Text("おまかせアルバムを今すぐ作る") }
                 pullMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除できます。", style = MaterialTheme.typography.bodySmall,
+                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除や、2つ以上を1つにまとめることができます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        if (digests.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("ふりかえり", "毎月のいい写真を、PhotoHubがえらんでまとめます") }
+            items(digests, key = { "a${it.id}" }) { a -> card(a)() }
+        }
+        if (trips.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("旅行", "家から離れた場所で撮った日々を、まとめます") }
+            items(trips, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (mine.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("自分のアルバム", "Synologyにある、自分だけのアルバム") }
@@ -132,6 +165,10 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
         if (family.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("家族の共有アルバム", "家族みんなが見られるアルバム（「共有」タブにもあります）") }
             items(family, key = { "a${it.id}" }) { a -> card(a)() }
+        }
+        if (sharedFolders.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("共有フォルダ", "家族の共有フォルダを、そのままアルバムにしています") }
+            items(sharedFolders, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (folders.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -176,6 +213,26 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                 }) { Text("スマホから消す", color = MaterialTheme.colorScheme.error) }
             } },
             dismissButton = { androidx.compose.material3.TextButton({ folderMenu = null }) { Text("やめる") } })
+    }
+    mergeOf?.let { list ->
+        var name by remember { mutableStateOf(list.first().name) }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { mergeOf = null },
+            title = { Text("${list.size} 件のアルバムを1つにまとめる") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("写真をすべて1つのアルバムに入れ、ほかのアルバムは消します。写真は消えません。", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(name, { name = it }, label = { Text("まとめたアルバムの名前") }, singleLine = true)
+            } },
+            confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = {
+                val ids = list.map { it.id }
+                mergeOf = null; picked = emptySet()
+                scope.launch {
+                    pullMsg = try { app.net.api()!!.mergeAlbums(com.photohub.app.data.api.AlbumMergeBody(ids, name.trim())); "「${name.trim()}」にまとめました" }
+                              catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "まとめられませんでした（HTTP ${e.code()}）" }
+                              catch (e: Exception) { "まとめられませんでした（${e.message}）" }
+                    com.photohub.app.data.SyncWorker.runNow(app)
+                }
+            }) { Text("まとめる") } },
+            dismissButton = { androidx.compose.material3.TextButton({ mergeOf = null }) { Text("やめる") } })
     }
     if (askDelete) {
         val chosen = albums.filter { it.id in picked }
@@ -241,7 +298,7 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
         Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; else -> "" },
+        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder" -> "・おまかせ"; else -> "" },
             style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -362,9 +419,23 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
             Text(listOfNotNull(if (album?.shared == true) "家族で共有" else "自分だけ",
                 if (album?.origin == "synology") "Synology Photosと同期" else null, "${items.size} 件").joinToString("・"),
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            androidx.compose.material3.TextButton({ download = true }) { Text("ダウンロード") }
-            androidx.compose.material3.TextButton({ rename = album?.name ?: "" }) { Text("名前を変える") }
-            androidx.compose.material3.TextButton({ confirmDelete = true }) { Text("削除") }
+            // the slideshow is the main thing to do with an album; the rest sits in the ︙ menu
+            androidx.compose.material3.FilledTonalButton(enabled = items.isNotEmpty(), onClick = {
+                UiState.slideshow = true
+                onOpen(items.reversed(), 0)   // oldest first: the story in order
+            }) { Icon(Icons.Default.PlayArrow, null); Text("スライドショー") }
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                androidx.compose.material3.IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, "ほかの操作") }
+                androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    androidx.compose.material3.DropdownMenuItem(text = { Text("ダウンロード") }, leadingIcon = { Icon(Icons.Default.Download, null) },
+                        onClick = { menu = false; download = true })
+                    androidx.compose.material3.DropdownMenuItem(text = { Text("名前を変える") }, leadingIcon = { Icon(Icons.Default.Edit, null) },
+                        onClick = { menu = false; rename = album?.name ?: "" })
+                    androidx.compose.material3.DropdownMenuItem(text = { Text("削除") }, leadingIcon = { Icon(Icons.Default.Delete, null) },
+                        onClick = { menu = false; confirmDelete = true })
+                }
+            }
         }
     })
     rename?.let { cur ->

@@ -26,6 +26,8 @@ object UiState {
 
     var viewerItems: List<TimelineItem> = emptyList()
     var startLogged = false
+    /** The next viewer opens as a slideshow (set by an album's スライドショー button). */
+    var slideshow = false
 
     /** Tapping the tab you are on: the visible photo grid goes back to the top (like Google Photos). */
     val scrollTop = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)

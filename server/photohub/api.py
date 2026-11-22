@@ -81,6 +81,11 @@ class LogBatch(BaseModel):
     items: list[LogItem] = []
 
 
+class AlbumMerge(BaseModel):
+    ids: list[int]
+    name: str | None = None
+
+
 class Hashes(BaseModel):
     hashes: list[str]
 
@@ -496,6 +501,21 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     def album_delete(album_id: int, user: User = Depends(auth)) -> dict:
         from . import albums
         return _album_call(lambda: (albums.delete(db, settings, user, album_id), {"ok": True})[1])
+
+    @app.post("/api/albums/merge")
+    def albums_merge(body: AlbumMerge, user: User = Depends(auth)) -> dict:
+        """Several albums -> the first one (optionally renamed); the others are deleted."""
+        from . import albums as al
+        try:
+            return {"album_id": al.merge(db, settings, user, body.ids, body.name)}
+        except al.AlbumError as e:
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/albums/auto")
+    def albums_auto(user: User = Depends(auth)) -> dict:
+        """Make / refresh the automatic albums now (otherwise every night)."""
+        from . import autoalbums
+        return autoalbums.run_all(db, settings)
 
     @app.post("/api/albums/{album_id}/add")
     def album_add(album_id: int, body: Hashes, user: User = Depends(auth)) -> dict:

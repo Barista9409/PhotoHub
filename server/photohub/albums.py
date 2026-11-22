@@ -66,6 +66,18 @@ def rename(db: Database, settings: Settings, user: User, album_id: int, name: st
     _push(db, settings, user, album_id, rename=True)
 
 
+def _detach_auto(s, a: Album) -> None:  # noqa: ANN001
+    """An automatic album that someone edits becomes their own album."""
+    ref = kv_get(s, f"autoref:{a.id}")
+    if not ref:
+        return
+    from .autoalbums import gone_key
+    origin, owner, key = ref.split("|", 2)
+    kv_set(s, gone_key(origin, None if owner == "None" else int(owner), key), "1")
+    kv_set(s, f"autoref:{a.id}", "")
+    a.origin = "manual"
+
+
 def device_gone_key(user_id: int, name: str) -> str:
     import hashlib
     return f"devicegone:{user_id}:{hashlib.sha1(name.encode()).hexdigest()[:20]}"
@@ -90,6 +102,11 @@ def delete(db: Database, settings: Settings, user: User, album_id: int) -> None:
         if a.origin == "device":
             # a phone folder: the phone sends it on every sync; it must not come back
             kv_set(s, device_gone_key(user.id, a.name), "1")
+        ref = kv_get(s, f"autoref:{a.id}")
+        if ref:   # an album PhotoHub made (ふりかえり / 旅行 / フォルダ): the nightly run must not remake it
+            from .autoalbums import gone_key
+            origin, owner, key = ref.split("|", 2)
+            kv_set(s, gone_key(origin, None if owner == "None" else int(owner), key), "1")
     if syno:
         _synology(db, settings, user, lambda ses: ses.call("SYNO.Foto.Browse.Album", "delete", 1, id=[syno]))
 
@@ -100,6 +117,7 @@ def change(db: Database, settings: Settings, user: User, album_id: int, add: lis
         a = s.get(Album, album_id)
         if a is None or not _may_edit(user, a):
             raise AlbumError("album not found")
+        _detach_auto(s, a)   # changed by hand: PhotoHub stops refreshing it (and does not remake it)
         for m in _media(s, user, add):
             if s.get(AlbumItem, (a.id, m.id)) is None:
                 s.add(AlbumItem(album_id=a.id, media_id=m.id))
@@ -281,3 +299,30 @@ def pull_all(db: Database, settings: Settings) -> None:
     for u in all_users(db):
         if u.dsm_secret:
             pull(db, settings, u)
+
+
+def merge(db: Database, settings: Settings, user: User, ids: list[int], name: str | None) -> int:
+    """Put the photos of several albums into the first one (renamed if a name is given) and delete
+    the others. Returns the id of the album that is left."""
+    ids = list(dict.fromkeys(ids))
+    if len(ids) < 2:
+        raise AlbumError("choose two albums or more")
+    with db.session() as s:
+        albums = [s.get(Album, i) for i in ids]
+        if any(a is None or not _may_edit(user, a) for a in albums):
+            raise AlbumError("album not found")
+        target = albums[0]
+        hashes = []
+        for a in albums[1:]:
+            for ai in s.execute(select(AlbumItem).where(AlbumItem.album_id == a.id)).scalars():
+                m = s.get(Media, ai.media_id)
+                if m is not None:
+                    hashes.append(m.content_hash)
+        tid = target.id
+    if hashes:
+        change(db, settings, user, tid, add=hashes, remove=[])
+    for a in ids[1:]:
+        delete(db, settings, user, a)
+    if name and name.strip():
+        rename(db, settings, user, tid, name)
+    return tid
