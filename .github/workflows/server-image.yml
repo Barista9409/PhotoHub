@@ -57,6 +57,9 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: PHOTOHUB_BUILD=${{ steps.stamp.outputs.b }}
+          # reuse unchanged layers between builds, so the NAS re-downloads only what changed
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ steps.img.outputs.name }}:latest
             ${{ steps.img.outputs.name }}:${{ github.sha }}

@@ -17,9 +17,14 @@ RUN curl -fsSL -o /usr/local/bin/gpth \
  && chmod +x /usr/local/bin/gpth
 
 WORKDIR /app
+# Libraries first (changes rarely), PhotoHub's own code last (changes often): an update then only
+# downloads the small top layers instead of the whole ~1 GB image.
 COPY pyproject.toml ./
+RUN python3 -m venv /opt/venv \
+ && /opt/venv/bin/python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > /tmp/req.txt \
+ && /opt/venv/bin/pip install --no-cache-dir -r /tmp/req.txt
 COPY photohub ./photohub
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir .
+RUN /opt/venv/bin/pip install --no-cache-dir --no-deps .
 ENV PATH=/opt/venv/bin:$PATH TZ=UTC PYTHONUNBUFFERED=1 HOME=/tmp
 # which build this is (shown in the app: アプリ → Synology側の版), set by GitHub Actions
 ARG PHOTOHUB_BUILD=dev
