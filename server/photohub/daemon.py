@@ -20,7 +20,7 @@ from watchdog.observers.polling import PollingObserver
 from . import derivatives, notify, scanner, similar, storage, synology
 from .api import create_app
 from .config import Settings
-from .db import Database, kv_get, kv_set, log_event
+from .db import utcnow, Database, kv_get, kv_set, log_event
 from .takeout import import_inbox
 from .users import all_users, scan_roots
 
@@ -99,6 +99,20 @@ class Service:
         self.db.backup(self.s.db_dir / "backup")
 
     # ---- wiring ------------------------------------------------------------------
+    def mark_interrupted(self) -> int:
+        """Scans and phone/Drive runs cut off by a restart would show 'running' forever: mark them.
+        (Takeout jobs stay 'running': the importer resumes those.) The next scan picks up where it stopped."""
+        from sqlalchemy import select
+        from .db import ImportJob
+        n = 0
+        with self.db.session() as s:
+            for j in s.execute(select(ImportJob).where(ImportJob.state == "running",
+                                                       ImportJob.source.in_(["phone_scan", "phone"]))).scalars():
+                j.state, j.finished_at = "interrupted", j.finished_at or utcnow()
+                j.message = (j.message or "") + " (stopped by a restart; continued by the next run)"
+                n += 1
+        return n
+
     def start_background(self) -> BackgroundScheduler:
         sch = BackgroundScheduler(job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 3600})
         sch.add_job(lambda: self._guard("inbox", self.job_inbox), "interval", minutes=10, id="inbox",
@@ -145,7 +159,9 @@ def serve(settings: Settings, db: Database) -> None:
     log.info("PhotoHub starting (apply=%s, library=%s)", settings.apply, settings.library)
     with db.session() as s:
         log_event(s, "info", "daemon_start", f"apply={settings.apply}")
-    sch = Service(settings, db).start_background()
+    svc = Service(settings, db)
+    svc.mark_interrupted()
+    sch = svc.start_background()
     from .netinfo import Advertiser, lan_url, remote_url
     adv = Advertiser(settings)
     log.info("home address %s, Tailscale address %s, mDNS %s", lan_url(settings) or "?",

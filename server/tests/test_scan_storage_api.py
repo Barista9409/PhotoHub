@@ -191,3 +191,15 @@ def test_candidates_without_amazon(settings, db):
     storage.verify_nas(db, settings)
     rows = storage.google_candidates(db, settings)
     assert len(rows) == 1 and rows[0]["photos"] == 1
+
+
+def test_restart_marks_cut_off_runs_interrupted(settings, db):
+    from photohub.daemon import Service
+    from photohub.db import ImportJob
+    with db.session() as s:
+        s.add(ImportJob(source="phone_scan", archive_name="x", state="running"))
+        s.add(ImportJob(source="takeout", archive_name="t", state="running"))
+    assert Service(settings, db).mark_interrupted() == 1
+    with db.session() as s:
+        states = {j.source: j.state for j in s.execute(select(ImportJob)).scalars()}
+    assert states == {"phone_scan": "interrupted", "takeout": "running"}

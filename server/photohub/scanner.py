@@ -134,6 +134,8 @@ def _scan(db: Database, settings: Settings, roots: list, *, apply: bool,
             pending.clear()
             if apply:
                 kv_set(s, "scan_progress", f"{rep.scanned}")
+                # counts so far, so the import log shows progress instead of 0 until the end
+                job.new_count, job.dup_count, job.error_count = rep.new, len(rep.duplicates), len(rep.errors)
                 s.commit()
 
         seen = 0
