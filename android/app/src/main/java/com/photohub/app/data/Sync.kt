@@ -51,7 +51,7 @@ class SyncEngine(private val app: PhotoHubApp) {
                         hash = it.hash, fileHash = it.fileHash, kind = it.kind, mime = it.mime,
                         takenAt = it.takenAt ?: 0, tz = it.tz, lat = it.lat, lon = it.lon, w = it.w, h = it.h,
                         duration = it.duration, bytes = it.bytes, name = it.name,
-                        stores = it.stores.joinToString(","), pair = it.pair, description = it.desc, rev = it.rev, space = it.space, folder = it.folder,
+                        stores = it.stores.joinToString(","), pair = it.pair, description = it.desc, rev = it.rev, space = it.space, folder = it.folder, place = it.place,
                     )
                 }
                 val dels = page.items.filter { it.deleted }.map { it.hash }

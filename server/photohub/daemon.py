@@ -92,6 +92,10 @@ class Service:
         for u in all_users(self.db):  # each person's own Google account
             storage.google_candidates(self.db, self.s, u.id)
 
+    def job_albums(self) -> None:
+        from . import albums
+        albums.pull_all(self.db, self.s)
+
     def job_places(self) -> None:
         from . import places
         places.assign(self.db)
@@ -134,6 +138,8 @@ class Service:
                     next_run_time=datetime.now())
         sch.add_job(lambda: self._guard("backup", self.job_backup, heavy=False), "cron", hour=4, minute=0, id="backup")
         sch.add_job(lambda: self._guard("trash", self.job_trash, heavy=False), "cron", hour=4, minute=30, id="trash")
+        sch.add_job(lambda: self._guard("albums", self.job_albums, heavy=False), "interval", minutes=15, id="albums",
+                    next_run_time=datetime.now() + timedelta(minutes=3))
         sch.add_job(lambda: self._guard("places", self.job_places, heavy=False), "interval", hours=1, id="places",
                     next_run_time=datetime.now() + timedelta(minutes=5))
         sch.start()

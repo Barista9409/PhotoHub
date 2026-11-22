@@ -29,6 +29,16 @@ PACK_MAGIC = b"PHP1"
 IMMUTABLE = {"Cache-Control": "private, max-age=31536000, immutable"}
 
 
+class AlbumNew(BaseModel):
+    name: str
+    hashes: list[str] = []
+    shared: bool = False
+
+
+class AlbumName(BaseModel):
+    name: str
+
+
 class Move(BaseModel):
     hashes: list[str]
     to: str  # shared / mine
@@ -432,6 +442,45 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     def suggestions_blurry(user: User = Depends(auth)) -> dict:
         from . import organize
         return {"items": organize.blurry(db, settings, user)}
+
+    # ---- albums (albums.py) ------------------------------------------------------
+    def _album_call(fn):  # noqa: ANN001, ANN202
+        from .albums import AlbumError
+        try:
+            return fn()
+        except AlbumError as e:
+            raise HTTPException(400 if "empty" in str(e) else 404, str(e)) from e
+
+    @app.post("/api/albums")
+    def album_create(body: AlbumNew, user: User = Depends(auth)) -> dict:
+        from . import albums
+        return _album_call(lambda: {"id": albums.create(db, settings, user, body.name, body.hashes, body.shared)})
+
+    @app.put("/api/albums/{album_id}")
+    def album_rename(album_id: int, body: AlbumName, user: User = Depends(auth)) -> dict:
+        from . import albums
+        return _album_call(lambda: (albums.rename(db, settings, user, album_id, body.name), {"ok": True})[1])
+
+    @app.delete("/api/albums/{album_id}")
+    def album_delete(album_id: int, user: User = Depends(auth)) -> dict:
+        from . import albums
+        return _album_call(lambda: (albums.delete(db, settings, user, album_id), {"ok": True})[1])
+
+    @app.post("/api/albums/{album_id}/add")
+    def album_add(album_id: int, body: Hashes, user: User = Depends(auth)) -> dict:
+        from . import albums
+        return _album_call(lambda: {"changed": albums.change(db, settings, user, album_id, body.hashes, [])})
+
+    @app.post("/api/albums/{album_id}/remove")
+    def album_remove(album_id: int, body: Hashes, user: User = Depends(auth)) -> dict:
+        from . import albums
+        return _album_call(lambda: {"changed": albums.change(db, settings, user, album_id, [], body.hashes)})
+
+    @app.post("/api/albums/pull")
+    def album_pull(user: User = Depends(auth)) -> dict:
+        """Read this person's Synology Photos albums now."""
+        from . import albums
+        return albums.pull(db, settings, user)
 
     @app.post("/api/drive-removed")
     def drive_removed_files(body: Hashes, user: User = Depends(auth)) -> dict:

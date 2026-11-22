@@ -268,10 +268,11 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
         all.groupBy { java.time.Instant.ofEpochMilli(it.takenAt).atZone(zoneFor(it.tz)).year }.toSortedMap(compareByDescending { it })
     }
     val albums = app.lists.albums.collectAsState().value ?: emptyList()
+    val places by app.db.media().places().collectAsState(initial = emptyList())
 
     val box: @Composable () -> Unit = {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(q, { q = it }, placeholder = { Text("例：海、IMG_1234、2023、2023年8月") }, singleLine = true,
+            OutlinedTextField(q, { q = it }, placeholder = { Text("例：渋谷、沖縄、2023年8月、IMG_1234") }, singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = { if (active) androidx.compose.material3.IconButton({ q = ""; kind = ""; withPlace = false; favOnly = false; shots = false }) {
                     Icon(Icons.Default.Close, "条件を消す") } },
@@ -286,7 +287,7 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
             if (active) {
                 val cond = buildList {
                     parsed.year?.let { add(if (parsed.month != null) "${it}年${parsed.month}月" else "${it}年") }
-                    if (parsed.text.isNotBlank()) add("「${parsed.text}」（ファイル名・アルバム名・説明）")
+                    if (parsed.text.isNotBlank()) add("「${parsed.text}」（場所・ファイル名・アルバム名・説明）")
                 }
                 Text((if (cond.isEmpty()) "" else cond.joinToString("・") + "　") + "${results.size} 件",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -300,7 +301,7 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
     LazyColumn(Modifier.fillMaxSize()) {
         item { box() }
         item {
-            Text("ことばは、ファイル名・アルバム名・写真の説明から探します。年や「2023年8月」も入れられます。",
+            Text("ことばは、撮った場所（市区町村）・ファイル名・アルバム名・写真の説明から探します。年や「2023年8月」も入れられます。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp))
         }
@@ -311,6 +312,16 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(years.entries.toList(), key = { it.key }) { (y, list) ->
                         CoverTile("${y}年", "${list.size} 件", list.first()) { q = "${y}年" }
+                    }
+                }
+            }
+        }
+        if (places.isNotEmpty()) {
+            item { Text("場所から探す", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp, 20.dp, 16.dp, 8.dp)) }
+            item {
+                androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    places.forEach { p ->
+                        androidx.compose.material3.AssistChip(onClick = { q = p.place }, label = { Text("${p.place}（${p.n}）") })
                     }
                 }
             }

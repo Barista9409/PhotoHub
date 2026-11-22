@@ -175,6 +175,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                 Text(cur.name)
                 Text(listOfNotNull(cur.w?.let { w -> cur.h?.let { "${w}×${it}" } }, humanBytes(cur.bytes),
                     cur.duration?.let { "%d:%02d".format((it / 60).toInt(), (it % 60).toInt()) }).joinToString("・"))
+                cur.place?.let { Text("撮った場所：$it", style = MaterialTheme.typography.bodyMedium) }
                 Text("保存されている場所", style = MaterialTheme.typography.labelLarge)
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
