@@ -101,6 +101,11 @@ def have(db: Database, user: User, hashes: list[str]) -> dict[str, str]:
         for (fh,) in s.execute(select(Media.file_hash).where(Media.file_hash.in_(hashes), Media.status == "active",
                                                              visible_clause(user))).all():
             out[fh] = "nas"
+        # deleted on purpose (in the trash or gone for good): the phone must not send it again
+        for (fh,) in s.execute(select(Media.file_hash).where(Media.file_hash.in_(hashes),
+                                                             Media.status.in_(["trashed", "deleted"]),
+                                                             visible_clause(user))).all():
+            out.setdefault(fh, "deleted")
         for u in s.execute(select(Upload).where(Upload.user_id == user.id, Upload.file_hash.in_(hashes))).scalars():
             if u.file_hash in out:
                 continue

@@ -161,6 +161,7 @@ def _scan(db: Database, settings: Settings, roots: list, *, apply: bool,
             if any(str(m.nas_path).startswith(str(r)) for r, _ in roots) and not Path(m.nas_path).exists():
                 rep.missing += 1
                 set_location(s, m.id, "nas", "removed")
+                m.status = "removed"  # deleted in Synology Photos / File Station: gone from the app too
                 touch_media(s, m)
 
         if apply:

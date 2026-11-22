@@ -28,6 +28,15 @@ PACK_MAGIC = b"PHP1"
 IMMUTABLE = {"Cache-Control": "private, max-age=31536000, immutable"}
 
 
+class Move(BaseModel):
+    hashes: list[str]
+    to: str  # shared / mine
+
+
+class Paths(BaseModel):
+    paths: list[str]
+
+
 class Hashes(BaseModel):
     hashes: list[str]
 
@@ -378,6 +387,50 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                                        .order_by(ImportJob.id.desc()).limit(10)).scalars()]
         cur = dict(PROGRESS.get(user.id) or {})
         return {"apply": settings.apply, "sources": sources, "waiting": waiting, "current": cur or None, "jobs": jobs}
+
+    # ---- 写真の整理 (organize.py) -------------------------------------------
+    @app.post("/api/media/delete")
+    def media_delete(body: Hashes, user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"trashed": organize.trash(db, settings, user, body.hashes), "days": settings.trash_days}
+
+    @app.get("/api/trash")
+    def trash_list(user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"days": settings.trash_days, "items": organize.trashed(db, settings, user)}
+
+    @app.post("/api/trash/restore")
+    def trash_restore(body: Hashes, user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"restored": organize.restore(db, settings, user, body.hashes)}
+
+    @app.post("/api/trash/empty")
+    def trash_empty(body: Hashes, user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"deleted": organize.purge(db, settings, user, hashes=body.hashes or None)}
+
+    @app.post("/api/media/move")
+    def media_move(body: Move, user: User = Depends(auth)) -> dict:
+        from . import organize
+        try:
+            return {"moved": organize.move_space(db, settings, user, body.hashes, body.to)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.get("/api/duplicates")
+    def duplicates(user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"items": organize.duplicate_files(db, settings, user)}
+
+    @app.post("/api/duplicates/remove")
+    def duplicates_remove(body: Paths, user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"removed": organize.remove_duplicates(db, settings, user, body.paths)}
+
+    @app.get("/api/suggestions/blurry")
+    def suggestions_blurry(user: User = Depends(auth)) -> dict:
+        from . import organize
+        return {"items": organize.blurry(db, settings, user)}
 
     @app.post("/api/drive-removed")
     def drive_removed_files(body: Hashes, user: User = Depends(auth)) -> dict:
