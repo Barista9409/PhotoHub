@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from . import derivatives, netinfo, similar, storage
 from .dsm_login import login
 from .config import Settings
+from .places import place_of
 from .db import (Album, AlbumItem, Database, Event, ImportItem, ImportJob, Location, Media, SimilarGroup,
                  SimilarMember, User, can_see, kv_get, kv_set, touch_media, utcnow, visible_clause)
 from .users import by_token, redeem_invite
@@ -545,7 +546,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "hash": m.content_hash, "file_hash": m.file_hash, "kind": m.kind, "mime": m.mime,
                 "taken_at": _ms(m.taken_at), "tz": m.tz_offset, "lat": m.lat, "lon": m.lon,
                 "w": m.width, "h": m.height, "duration": m.duration, "bytes": m.bytes,
-                "name": Path(m.nas_path).name, "folder": _folder_of(m, owners),
+                "name": Path(m.nas_path).name, "folder": _folder_of(m, owners), "place": place_of(s, m),
                 "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
                 "deleted": m.status != "active", "rev": m.rev, "pair": m.pair_key, "desc": m.description,
                 "space": "shared" if m.owner_id is None else ("mine" if m.owner_id == user.id else "granted"),

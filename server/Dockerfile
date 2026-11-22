@@ -16,6 +16,16 @@ RUN curl -fsSL -o /usr/local/bin/gpth \
  && echo "${GPTH_SHA256}  /usr/local/bin/gpth" | sha256sum -c - \
  && chmod +x /usr/local/bin/gpth
 
+# Offline place names (GeoNames, CC BY 4.0): built once into the image, so locations never leave the NAS
+COPY tools/build_places.py /tmp/build_places.py
+RUN mkdir -p /opt/geo /tmp/gn && cd /tmp/gn \
+ && curl -fsSL -o cities1000.zip https://download.geonames.org/export/dump/cities1000.zip \
+ && curl -fsSL -o admin1CodesASCII.txt https://download.geonames.org/export/dump/admin1CodesASCII.txt \
+ && curl -fsSL -o countryInfo.txt https://download.geonames.org/export/dump/countryInfo.txt \
+ && python3 -c "import zipfile; zipfile.ZipFile('cities1000.zip').extractall('.')" \
+ && python3 /tmp/build_places.py /tmp/gn /opt/geo/places.tsv \
+ && rm -rf /tmp/gn /tmp/build_places.py
+
 WORKDIR /app
 # Libraries first (changes rarely), PhotoHub's own code last (changes often): an update then only
 # downloads the small top layers instead of the whole ~1 GB image.
