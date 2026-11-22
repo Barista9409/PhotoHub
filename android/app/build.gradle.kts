@@ -16,11 +16,15 @@ android {
         applicationId = "com.photohub.app"
         minSdk = 29
         targetSdk = 36
-        versionCode = 48
-        versionName = "0.29.2"
+        versionCode = 49
+        versionName = "0.30.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // GitHub repository whose latest Release the app updates itself from
         buildConfigField("String", "UPDATE_REPO", "\"Barista9409/PhotoHub\"")
+        // what changed in this version, shown once after an update (from release-notes.txt)
+        val notesText = file("release-notes.txt").takeIf { it.exists() }?.readText()?.trim() ?: ""
+        buildConfigField("String", "RELEASE_NOTES",
+            "\"" + notesText.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"")
     }
 
     signingConfigs {

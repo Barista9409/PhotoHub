@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.TaskAlt
@@ -401,6 +403,8 @@ fun AppScreen() {
         Group {
             UpdateRow()
             GroupDivider()
+            CurrentNotesRow()
+            GroupDivider()
             SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "新しい版をWi-Fiで取り込んで入れます", cur.autoUpdate) {
                 scope.launch { app.prefs.save(cur.copy(autoUpdate = it)) }
             }
@@ -556,9 +560,13 @@ fun UpdateRow() {
     val app = ctx.applicationContext as PhotoHubApp
     val scope = rememberCoroutineScope()
     val st by app.updater.state.collectAsState()
+    var notesOf by remember { mutableStateOf<com.photohub.app.data.api.AppRelease?>(null) }
+    fun install(r: com.photohub.app.data.api.AppRelease) = scope.launch {
+        app.updater.download(r)?.let { if (app.updater.canInstall()) app.updater.install(it) else ctx.startActivity(app.updater.installPermissionIntent()) }
+    }
     val (sub, action) = when (val x = st) {
-        is Updater.State.Available -> "新しい版 ${x.release.versionName} があります。押すと更新" to { scope.launch { app.updater.download(x.release)?.let { if (app.updater.canInstall()) app.updater.install(it) else ctx.startActivity(app.updater.installPermissionIntent()) } }; Unit }
-        is Updater.State.Ready -> "${x.release.versionName} の準備ができました。押すとインストール" to { if (app.updater.canInstall()) app.updater.install(x.file) else ctx.startActivity(app.updater.installPermissionIntent()) }
+        is Updater.State.Available -> "新しい版 ${x.release.versionName} があります。押すと変更点を見て更新できます" to { notesOf = x.release }
+        is Updater.State.Ready -> "${x.release.versionName} の準備ができました。押すと変更点を見てインストール" to { notesOf = x.release }
         is Updater.State.Downloading -> "ダウンロード中 ${x.percent}%" to {}
         Updater.State.Installing -> "インストール中…" to {}
         Updater.State.UpToDate -> "最新です（${app.updater.currentVersionName}）。押すと確認" to { scope.launch { app.updater.check() }; Unit }
@@ -566,6 +574,52 @@ fun UpdateRow() {
         else -> "確認中…" to {}
     }
     SettingRow(Icons.Default.SystemUpdate, "アプリの更新", sub, onClick = action)
+    notesOf?.let { r ->
+        AlertDialog(onDismissRequest = { notesOf = null },
+            title = { Text("PhotoHub ${r.versionName} の変更点") },
+            text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                item { Text(r.notes.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium) } } },
+            confirmButton = { TextButton({ notesOf = null
+                val x = st
+                if (x is Updater.State.Ready) { if (app.updater.canInstall()) app.updater.install(x.file) else ctx.startActivity(app.updater.installPermissionIntent()) }
+                else install(r) }) { Text("更新する") } },
+            dismissButton = { TextButton({ notesOf = null }) { Text("あとで") } })
+    }
+}
+
+/** This version's changes: a row on the app screen, and a dialog once right after an update. */
+@Composable
+fun CurrentNotesRow() {
+    var show by remember { mutableStateOf(false) }
+    SettingRow(Icons.Default.NewReleases, "この版の変更点", "PhotoHub ${BuildConfig.VERSION_NAME} で変わったこと", onClick = { show = true })
+    if (show) WhatsNewDialog { show = false }
+}
+
+@Composable
+fun WhatsNewDialog(onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss,
+        title = { Text("PhotoHub ${BuildConfig.VERSION_NAME} の変更点") },
+        text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
+            item { Text(BuildConfig.RELEASE_NOTES.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium) } } },
+        confirmButton = { TextButton(onDismiss) { Text("OK") } })
+}
+
+/** Shown once after the app was updated (not on a fresh install). */
+@Composable
+fun WhatsNewOnce() {
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("photohub_ui", android.content.Context.MODE_PRIVATE) }
+    val seen = remember { prefs.getInt("seen_version", 0) }
+    var show by remember { mutableStateOf(seen in 1 until BuildConfig.VERSION_CODE) }
+    val app = ctx.applicationContext as PhotoHubApp
+    LaunchedEffect(Unit) {
+        // first time with this feature: already set up = it was an update, so show it; a fresh install does not
+        if (seen == 0) { if (app.prefs.current().configured) show = true else prefs.edit().putInt("seen_version", BuildConfig.VERSION_CODE).apply() }
+    }
+    if (show) WhatsNewDialog {
+        show = false
+        prefs.edit().putInt("seen_version", BuildConfig.VERSION_CODE).apply()
+    }
 }
 
 @Composable
