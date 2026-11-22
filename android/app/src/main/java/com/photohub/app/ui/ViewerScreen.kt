@@ -193,12 +193,13 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                 val whereLines by androidx.compose.runtime.produceState(emptyList<Pair<String, String>>(), cur.itemKey) {
                     val out = mutableListOf<Pair<String, String>>()
                     cur.hash?.let { h -> app.db.media().remote(h) }?.let { r ->
-                        val space = when (r.space) { "shared" -> "家族の共有フォルダ（photo）"; "mine" -> "自分の写真フォルダ（home/Photos）"; else -> "家族の個人フォルダ" }
-                        out += "Synology" to (listOf(space) + r.folder.split('/').filter { it.isNotBlank() } + r.name).joinToString(" › ")
+                        // the folder as File Station shows it
+                        val root = when (r.space) { "shared" -> listOf("photo"); "mine" -> listOf("home", "Photos"); else -> listOf("homes", "（家族の個人フォルダ）", "Photos") }
+                        out += "Synology（File Station）" to (root + r.folder.split('/').filter { it.isNotBlank() }).joinToString(" / ")
                     }
-                    cur.localUri?.let { u -> out += "このスマホ" to ((app.db.media().localRelPath(u) ?: "").trimEnd('/').split('/')
-                        .filter { it.isNotBlank() } + cur.name).joinToString(" › ") }
-                    if ("drive" in cur.stores.split(',')) out += "Googleドライブ" to "マイドライブ › PhotoHub › ${cur.name}"
+                    cur.localUri?.let { u -> out += "このスマホ" to (listOf("内部ストレージ") + (app.db.media().localRelPath(u) ?: "")
+                        .split('/').filter { it.isNotBlank() }).joinToString(" / ") }
+                    if ("drive" in cur.stores.split(',')) out += "Googleドライブ" to "マイドライブ / PhotoHub"
                     value = out
                 }
                 whereLines.forEach { (where, path) ->

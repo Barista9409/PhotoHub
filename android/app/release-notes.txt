@@ -1,1 +1,1 @@
-・写真の「情報」に、保存されている場所ごとのフォルダを表示（Synology：家族の共有フォルダ › 2024 › 運動会 › IMG_1234.jpg、このスマホ：DCIM › Camera › …、Googleドライブ：マイドライブ › PhotoHub › …）。長押しでコピーできます
+・写真の「情報」の保存場所を、フォルダ名の並び（File Stationと同じ形）で表示：Synology：photo / 2024 / 運動会、このスマホ：内部ストレージ / DCIM / Camera、Googleドライブ：マイドライブ / PhotoHub
