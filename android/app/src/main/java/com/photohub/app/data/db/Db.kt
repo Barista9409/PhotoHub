@@ -216,6 +216,9 @@ interface MediaDao {
     @Query("SELECT * FROM remote_media WHERE hash = :hash")
     suspend fun remote(hash: String): RemoteMedia?
 
+    @Query("SELECT relPath FROM local_media WHERE uri = :uri LIMIT 1")
+    suspend fun localRelPath(uri: String): String?
+
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("SELECT * FROM remote_media WHERE takenAt >= :since ORDER BY takenAt DESC")
     suspend fun remoteSince(since: Long): List<RemoteMedia>

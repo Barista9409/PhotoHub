@@ -189,6 +189,26 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                     val ps = placesOf(cur.stores)
                     ps.forEach { PlaceChip(it) }
                 }
+                // where exactly: the folder on each of them
+                val whereLines by androidx.compose.runtime.produceState(emptyList<Pair<String, String>>(), cur.itemKey) {
+                    val out = mutableListOf<Pair<String, String>>()
+                    cur.hash?.let { h -> app.db.media().remote(h) }?.let { r ->
+                        val space = when (r.space) { "shared" -> "家族の共有フォルダ（photo）"; "mine" -> "自分の写真フォルダ（home/Photos）"; else -> "家族の個人フォルダ" }
+                        out += "Synology" to (listOf(space) + r.folder.split('/').filter { it.isNotBlank() } + r.name).joinToString(" › ")
+                    }
+                    cur.localUri?.let { u -> out += "このスマホ" to ((app.db.media().localRelPath(u) ?: "").trimEnd('/').split('/')
+                        .filter { it.isNotBlank() } + cur.name).joinToString(" › ") }
+                    if ("drive" in cur.stores.split(',')) out += "Googleドライブ" to "マイドライブ › PhotoHub › ${cur.name}"
+                    value = out
+                }
+                whereLines.forEach { (where, path) ->
+                    Column {
+                        Text(where, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            Text(path, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
                 var legend by remember { mutableStateOf(false) }
                 androidx.compose.material3.TextButton({ legend = !legend }) { Text(if (legend) "印の見かたを閉じる" else "一覧の印の見かた") }
                 if (legend) PlaceLegend()
