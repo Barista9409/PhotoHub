@@ -49,7 +49,7 @@ jobs:
 
       - name: Build stamp
         id: stamp
-        run: echo "b=$(TZ=Asia/Tokyo date +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: echo "b=$(TZ=Asia/Tokyo date +%Y-%m-%d-%H%M)-${{ github.run_number }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@v6
         with:

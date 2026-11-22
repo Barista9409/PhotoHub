@@ -151,6 +151,8 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
     FROM drive_file d
     WHERE NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.fileHash = d.fileHash)
       AND NOT EXISTS (SELECT 1 FROM local_media l WHERE l.fileHash = d.fileHash)
+      -- the same photo from Google Photos (Takeout) is on the Synology with other bytes: same name, same day
+      AND NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.name = d.name AND d.takenAt > 0 AND ABS(r.takenAt - d.takenAt) < 129600000)
 """
 
 data class HashRot(val hash: String, val rot: Int)

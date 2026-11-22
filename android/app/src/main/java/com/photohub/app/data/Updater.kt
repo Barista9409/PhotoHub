@@ -89,13 +89,34 @@ class Updater(private val app: PhotoHubApp) {
         }
 
     /** Commit (first 7 chars) of the newest server image that finished building on GitHub. */
-    suspend fun latestServerSha(): String? = withContext(Dispatchers.IO) {
+    suspend fun latestServer(): ServerBuild? = withContext(Dispatchers.IO) {
         try {
             val body = get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/actions/workflows/server-image.yml/runs?branch=main&status=success&per_page=1",
                 "application/vnd.github+json")
-            val runs = json.parseToJsonElement(body).jsonObject["workflow_runs"]?.jsonArray
-            runs?.firstOrNull()?.jsonObject?.get("head_sha")?.jsonPrimitive?.content?.take(7)
+            val run = json.parseToJsonElement(body).jsonObject["workflow_runs"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@withContext null
+            val at = run["run_started_at"]?.jsonPrimitive?.content?.let {
+                java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime() }
+            ServerBuild(run["head_sha"]!!.jsonPrimitive.content.take(7), run["run_number"]?.jsonPrimitive?.content?.toIntOrNull(), at)
         } catch (e: Exception) { null }
+    }
+
+    /** A server version: "2026-11-22-2244-39-1a7a067" (newer) or "2026-11-22-1a7a067" (older). */
+    data class ServerBuild(val sha: String, val number: Int?, val at: java.time.LocalDateTime?) {
+        fun label(): String {
+            val time = at?.let { "${it.monthValue}月${it.dayOfMonth}日 %d:%02d".format(it.hour, it.minute) }
+            return listOfNotNull(number?.let { "第${it}版" }, time).joinToString("・").ifEmpty { "番号のない版" }
+        }
+        companion object {
+            fun parse(s: String): ServerBuild? {
+                val p = s.split('-')
+                if (p.size < 4) return null
+                val date = runCatching { java.time.LocalDate.of(p[0].toInt(), p[1].toInt(), p[2].toInt()) }.getOrNull() ?: return null
+                return if (p.size >= 6) {
+                    val hm = p[3].padStart(4, '0')
+                    ServerBuild(p.last(), p[4].toIntOrNull(), date.atTime(hm.take(2).toInt(), hm.takeLast(2).toInt()))
+                } else ServerBuild(p.last(), null, date.atStartOfDay())
+            }
+        }
     }
 
     private fun fetchLatest(): AppRelease? {

@@ -95,8 +95,16 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
             .connectTimeout(8, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val req = chain.request()
+                if (req.url.host == "www.googleapis.com") {
+                    // the Drive token expires after an hour, and is empty until a backup has run: get one and retry
+                    if (driveToken.isEmpty()) kotlinx.coroutines.runBlocking { drive.token() }
+                    val first = chain.proceed(req.newBuilder().header("Authorization", "Bearer $driveToken").build())
+                    if (first.code != 401) return@addInterceptor first
+                    first.close()
+                    val fresh = kotlinx.coroutines.runBlocking { drive.refreshToken() } ?: driveToken
+                    return@addInterceptor chain.proceed(req.newBuilder().header("Authorization", "Bearer $fresh").build())
+                }
                 chain.proceed(when {
-                    req.url.host == "www.googleapis.com" -> req.newBuilder().header("Authorization", "Bearer $driveToken").build()
                     req.url.encodedPath.startsWith("/api/") -> req.newBuilder().header("Authorization", "Bearer $token").build()
                     else -> req
                 })

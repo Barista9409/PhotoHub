@@ -70,6 +70,16 @@ class DriveClient(private val app: PhotoHubApp) {
         if (r.hasResolution()) null else r.accessToken?.also { app.driveToken = it }
     } catch (e: Exception) { null }
 
+    /** A new token after the old one expired (the cached one is cleared first). */
+    suspend fun refreshToken(): String? {
+        val old = app.driveToken
+        if (old.isNotEmpty()) try {
+            com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(app)
+                .clearToken(com.google.android.gms.auth.api.identity.ClearTokenRequest.builder().setToken(old).build()).await()
+        } catch (_: Exception) {}
+        return token()
+    }
+
     private fun call(token: String, req: Request.Builder): String =
         http.newCall(req.header("Authorization", "Bearer $token").build()).execute().use { r ->
             val body = r.body?.string().orEmpty()

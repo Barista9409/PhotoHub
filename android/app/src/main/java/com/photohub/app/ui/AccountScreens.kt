@@ -415,13 +415,15 @@ fun AppScreen() {
             LaunchedEffect(Unit) {
                 val build = try { app.net.api()?.status()?.let { it.build ?: "" } } catch (e: Exception) { null }
                 if (build == null) { server = "Synologyにつながりません"; return@LaunchedEffect }
-                val latest = app.updater.latestServerSha()
-                val mine = build.substringAfterLast('-', "")
+                val latest = app.updater.latestServer()
+                val mine = com.photohub.app.data.Updater.ServerBuild.parse(build)
+                fun name(b: com.photohub.app.data.Updater.ServerBuild) =
+                    if (b.number == null && b.at != null) "${b.at.monthValue}月${b.at.dayOfMonth}日の版" else b.label()
                 server = when {
-                    build.isEmpty() -> "古い版です（2026-11-22より前）。新しい版に更新してください"
-                    latest == null -> "$build（最新か確かめられませんでした）"
-                    mine == latest -> "最新です（$build）"
-                    else -> "古い版です（$build）。新しい版に更新してください"
+                    mine == null -> "とても古い版です。新しい版に更新してください"
+                    latest == null -> "${name(mine)}（最新か確かめられませんでした）"
+                    mine.sha == latest.sha -> "最新です（${name(latest)}）"
+                    else -> "古い版です（${name(mine)}）。最新は${name(latest)}。自動更新を入れていれば、数分で入れ替わります"
                 }
             }
             SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
