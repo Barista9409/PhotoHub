@@ -61,7 +61,7 @@ fun SynologyPlacesScreen() {
         val api = app.net.api()
         if (api == null) { why = "Synologyにつながりません。自宅のWi-Fiか、外出先ならTailscaleをオンにしてください。"; return }
         f = try { api.myFolders() } catch (e: retrofit2.HttpException) {
-            why = if (e.code() == 404) "Synology側（サーバー）が古い版です。新しい版に更新してください（導入ガイド「サーバー（Synology側）を新しい版にする」）。更新できたかは「更新と共有」→「Synology側の版」で確かめられます。"
+            why = if (e.code() == 404) "Synology側（サーバー）が古い版です。新しい版に更新してください（導入ガイド「サーバー（Synology側）を新しい版にする」）。更新できたかは「アプリ」→「更新・家族に送る」→「Synology側の版」で確かめられます。"
                   else "Synologyでエラーが出ました（${e.code()}）"
             null
         } catch (e: Exception) { why = "Synologyにつながりません（${e.message}）"; null }

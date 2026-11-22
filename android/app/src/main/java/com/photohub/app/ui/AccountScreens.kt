@@ -103,13 +103,13 @@ enum class Dest(val route: String, val title: String) {
     CLEANUP("cleanup", "Googleフォトから消してよい写真"),
     MIGRATION("migration", "移行の手順"),
     IMPORT_LOG("import_log", "Synologyへの取り込み記録"),
-    DEVICE("device", "このスマホ"),
-    APP("app", "アプリ"),
+    DEVICE("device", "このスマホの容量"),
+    APP("app", "更新・家族に送る"),
     LIBRARY("library", "ライブラリの内訳"),
     FREE_UP("free_up", "空き容量を増やす"),
-    TAKEOUT("takeout", "反映状況"),
+    TAKEOUT("takeout", "取り込みの状況"),
     PLACES("places", "Synologyの保存場所"),
-    ORGANIZE("organize", "写真の整理"),
+    ORGANIZE("organize", "写真の整理とゴミ箱"),
     TRASH("trash", "ゴミ箱"),
     DUPLICATES("duplicates", "まったく同じ写真"),
     LOGS("logs", "動作の記録"),
@@ -163,7 +163,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             }
             Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
                 when {
-                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「アカウント」）", false)
+                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「接続と保存場所」）", false)
                     base == null -> StatusPill("Synologyにつながりません", false)
                     base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
                     else -> StatusPill("外出先からつながっています", true)
@@ -201,61 +201,67 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 androidx.compose.material3.Button({ confirmLogout = true }) { Text("ログアウトしてログインし直す") }
             }
         }
-        CollapsibleGroup("sync", "同期と保存", "Synologyと同期・Googleドライブ・モバイル回線・今すぐ同期・保存場所", openByDefault = true) {
-            SwitchRow(Icons.Default.Dns, "Synologyと同期",
-                if (cur.backupNas) "撮った写真を送り、Synologyの写真を受け取ります" else "オフ（Synologyの写真を見るだけ）", cur.backupNas) {
+        // a stop or failure last time: shown first, it is what to look at
+        CrashRow()
+
+        // order = how often people need it: backup (daily) -> tidy up -> moving from Google (once)
+        // -> connection & folders (set once) -> app; logging out last, on its own
+        CollapsibleGroup("sync", "バックアップ", "Synology・Googleドライブ・モバイル回線・今すぐ同期", openByDefault = true) {
+            SwitchRow(Icons.Default.Dns, "Synologyに保存",
+                if (cur.backupNas) "撮った写真をSynologyに送り、Synologyの写真をこのスマホで見られます" else "オフ：Synologyの写真を見るだけ（このスマホの写真は送りません）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
             }
             GroupDivider()
             DriveToggleRow(onOpen = { open(Dest.DRIVE_BACKUP) })
             GroupDivider()
-            SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも同期・保存する",
-                "オフなら、Wi-Fiのときだけ送ったり受け取ったりします（Synology・ドライブ共通）", cur.backupOnMobile) {
+            SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも送る・受け取る",
+                "オフなら、Wi-Fiのときだけ（Synology・ドライブ共通）", cur.backupOnMobile) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupOnMobile = it)) }
             }
             GroupDivider()
             if (live.running) BackupProgress(live) else RunNowRow()
-            GroupDivider()
-            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeout・Googleの写真の置き場所",
-                onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        CollapsibleGroup("library", "ライブラリ", "このスマホのデータ・内訳・写真の整理", openByDefault = true) {
-            SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", storageSummary() + "使う容量の上限・外出先ですぐ開ける期間",
+        CollapsibleGroup("library", "写真と容量", "整理・ゴミ箱・このスマホの容量・内訳", openByDefault = true) {
+            // one door for tidying up: similar / same photos, suggestions, free space and the trash are inside
+            SettingRow(Icons.Default.CleaningServices, "写真の整理とゴミ箱",
+                (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
+                    "同じ写真・スクリーンショット・空き容量・ゴミ箱", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
+            GroupDivider()
+            SettingRow(Icons.Default.PhoneAndroid, "このスマホの容量", storageSummary() + "上限・外出先ですぐ開ける期間",
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(), onClick = { open(Dest.LIBRARY) }) { Chevron() }
-            GroupDivider()
-            // one door for tidying up: similar / same photos, suggestions, free space and the trash are inside
-            SettingRow(Icons.Default.CleaningServices, "写真の整理",
-                (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
-                    "同じ写真・スクリーンショット・空き容量・ゴミ箱", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
         }
 
-        CollapsibleGroup("migration", "Googleフォトからの移行", "移行の手順・反映状況・Googleフォトを空にする", openByDefault = false) {
-            SettingRow(Icons.Default.PhotoLibrary, "移行の手順", "Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
+        CollapsibleGroup("migration", "Googleフォトからの移行", "手順・取り込みの状況・Googleフォトを空にする", openByDefault = false) {
+            SettingRow(Icons.Default.PhotoLibrary, "1. 移行の手順", "Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "反映状況", "取り込みの進み具合・結果・TakeoutのZIPの削除",
+            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "2. 取り込みの状況", "進み具合・結果・取り込んだZIPの削除",
                 onClick = { open(Dest.TAKEOUT) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.TaskAlt, "Googleフォトを空にする", "Synologyに保存済みの写真を月ごとに案内します",
+            SettingRow(Icons.Default.TaskAlt, "3. Googleフォトを空にする", "Synologyに保存済みか確かめてから、月ごとに案内します",
                 onClick = { open(Dest.CLEANUP) }) { Chevron() }
         }
 
-        CrashRow()
-        CollapsibleGroup("app", "アプリ", "更新と共有・動作の記録", openByDefault = false) {
-            SettingRow(Icons.Default.SystemUpdate, "更新と共有",
-                when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・家族に送る" },
+        CollapsibleGroup("connect", "接続と保存場所", "外出先からの接続・Synologyのフォルダ", openByDefault = false) {
+            RemoteAddressRow()
+            GroupDivider()
+            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeoutを置くフォルダ",
+                onClick = { open(Dest.PLACES) }) { Chevron() }
+        }
+
+        CollapsibleGroup("app", "アプリ", "更新・家族に送る・動作の記録", openByDefault = false) {
+            SettingRow(Icons.Default.SystemUpdate, "更新・家族に送る",
+                when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・Synology側の版" },
                 onClick = { open(Dest.APP) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.BugReport, "動作の記録", "止まった・失敗した・遅かった処理（家族のスマホ全部）",
                 onClick = { open(Dest.LOGS) }) { Chevron() }
         }
 
-        CollapsibleGroup("account", "アカウント", "外出先からの接続・ログアウト", openByDefault = false) {
-            RemoteAddressRow()
-            GroupDivider()
+        Group {
             SettingRow(Icons.AutoMirrored.Filled.Logout, "ログアウト", "別の家族がこのスマホを使うとき", onClick = { confirmLogout = true })
         }
     }

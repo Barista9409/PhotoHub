@@ -173,7 +173,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
 
     if (allItems.isEmpty() && header == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("写真がありません。写真へのアクセスを許可するか、右下の「設定」→「このスマホに持つデータ」→「今すぐ一覧を更新」を押してください。",
+            Text("写真がありません。写真へのアクセスを許可するか、右下の「設定」→「このスマホの容量」→「今すぐ一覧を更新」を押してください。",
                 modifier = Modifier.padding(24.dp))
         }
         return
