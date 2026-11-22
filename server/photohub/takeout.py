@@ -291,12 +291,14 @@ def collect_from_drive_sync(db: Database, settings: Settings, user: User, min_ag
         found = set(home.glob("Takeout/*.zip")) | set(home.glob("*/Takeout/*.zip"))
         drive_in = settings.inbox.parent / "drive" / user.name   # Cloud Sync into photohub/inbox/drive/<name>
         found |= set((drive_in / "Takeout").glob("*.zip")) | set(drive_in.glob("takeout-*.zip"))
+        if user.takeout_dir:  # the Takeout folder the person chose in the app (any depth)
+            found |= set((home / user.takeout_dir).glob("*.zip")) | set((home / user.takeout_dir).glob("Takeout/*.zip"))
         if user.drive_root:  # the Drive folder the person chose in the app
             found |= set((home / user.drive_root / "Takeout").glob("*.zip"))
         found = sorted(found)
     except OSError:
         return 0
-    found = [z for z in found if z.parent.parent.name != "Photos"]
+    found = [z for z in found if z.parent.parent.name != "Photos" and not z.name.endswith(".copying")]
     inbox = settings.inbox / user.name
     copied = 0
     for z in found:

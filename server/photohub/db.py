@@ -60,6 +60,9 @@ class User(Base):
     # the folder in their home where Cloud Sync puts their Google Drive (chosen in the app);
     # Drive photos are read from <it>/PhotoHub and Takeout ZIPs from <it>/Takeout. None = found automatically
     drive_root: Mapped[str | None] = mapped_column(Text)
+    # chosen separately in the app, any depth inside their home (relative paths):
+    drive_photos_dir: Mapped[str | None] = mapped_column(Text)  # where Drive's "PhotoHub" folder arrives
+    takeout_dir: Mapped[str | None] = mapped_column(Text)        # where Takeout ZIPs arrive
     # Synology login for Synology Photos albums (encrypted, see vault.py), only if the person agreed
     dsm_secret: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

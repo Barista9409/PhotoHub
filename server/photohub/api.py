@@ -49,6 +49,8 @@ class MySettings(BaseModel):
     takeout_target: str | None = None  # personal / shared
     backup_dir: str | None = None       # relative to the Photos folder; "" = automatic (MobileBackup/<phone>)
     drive_root: str | None = None       # relative to their home: where Cloud Sync puts their Google Drive; "" = automatic
+    drive_photos_dir: str | None = None # relative to their home: where Drive's PhotoHub folder arrives; "" = automatic
+    takeout_dir: str | None = None      # relative to their home: where Takeout ZIPs arrive; "" = automatic
 
 
 class DeviceAlbum(BaseModel):
@@ -139,21 +141,27 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             d = (base / body.backup_dir.strip("/")).resolve()
             if not d.is_relative_to(base) or d == base or not d.is_dir():
                 raise HTTPException(400, "folder not found in your Photos folder")
-        if body.drive_root:
-            home = (settings.homes_root / user.name).resolve()
-            d = (home / body.drive_root.strip("/")).resolve()
-            if not d.is_relative_to(home) or d == home or not d.is_dir():
-                raise HTTPException(400, "folder not found in your home folder")
+        home = (settings.homes_root / user.name).resolve()
+        for v in (body.drive_root, body.drive_photos_dir, body.takeout_dir):
+            if v:
+                d = (home / v.strip("/")).resolve()
+                if not d.is_relative_to(home) or d == home or not d.is_dir():
+                    raise HTTPException(400, "folder not found in your home folder")
         with db.session() as s:
             u = s.get(User, user.id)
             if body.drive_root is not None:
                 u.drive_root = body.drive_root.strip("/") or None
+            if body.drive_photos_dir is not None:
+                u.drive_photos_dir = body.drive_photos_dir.strip("/") or None
+            if body.takeout_dir is not None:
+                u.takeout_dir = body.takeout_dir.strip("/") or None
             if body.takeout_target is not None:
                 u.takeout_target = body.takeout_target
             if body.backup_dir is not None:
                 u.backup_dir = body.backup_dir.strip("/") or None
             log_event(s, "info", "user_setting", f"{u.name}: takeout_target={u.takeout_target} backup_dir={u.backup_dir}")
-            return {"takeout_target": u.takeout_target, "backup_dir": u.backup_dir or "", "drive_root": u.drive_root or ""}
+            return {"takeout_target": u.takeout_target, "backup_dir": u.backup_dir or "", "drive_root": u.drive_root or "",
+                    "drive_photos_dir": u.drive_photos_dir or "", "takeout_dir": u.takeout_dir or ""}
 
     @app.get("/api/me/folders")
     def my_folders(user: User = Depends(auth)) -> dict:
@@ -196,9 +204,39 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     detected = "/" + shown.relative_to(settings.root.parent).as_posix()
                 except ValueError:
                     detected = ""
+        # where Takeout ZIPs were last found automatically (shown when nothing is chosen)
+        take = ""
+        try:
+            z = next(iter(sorted(home.glob("Takeout")) + sorted(home.glob("*/Takeout"))), None)
+            take = z.relative_to(home).as_posix() if z else ""
+        except (OSError, ValueError):
+            pass
         return {"root": f"homes/{user.name}/Photos", "folders": out, "backup_dir": user.backup_dir or "",
                 "home": f"homes/{user.name}", "home_folders": home_out, "drive_root": user.drive_root or "",
-                "drive_detected": detected}
+                "drive_detected": detected, "drive_photos_dir": user.drive_photos_dir or "",
+                "takeout_dir": user.takeout_dir or "", "takeout_detected": take}
+
+    @app.get("/api/me/browse")
+    def browse(base: str = "home", path: str = "", user: User = Depends(auth)) -> dict:
+        """One folder level inside the person's own home ("home") or Photos ("photos"), to pick a folder
+        at any depth. Only folders; hidden and Synology system folders are left out."""
+        root = (settings.homes_root / user.name) if base == "home" else Path(user.personal_root or "/nonexistent")
+        root = root.resolve()
+        d = (root / path.strip("/")).resolve()
+        if not d.is_relative_to(root) or not d.is_dir():
+            raise HTTPException(404, "folder not found")
+        kids = []
+        try:
+            for p in sorted(d.iterdir(), key=lambda p: p.name.lower()):
+                if p.is_dir() and not p.name.startswith((".", "@", "#")):
+                    kids.append(p.name)
+        except OSError:
+            pass
+        try:
+            zips = sum(1 for _ in d.glob("*.zip"))
+        except OSError:
+            zips = 0
+        return {"path": d.relative_to(root).as_posix() if d != root else "", "folders": kids[:1000], "zips": zips}
 
     @app.post("/api/device-albums")
     def device_albums(body: DeviceAlbum, user: User = Depends(auth)) -> dict:

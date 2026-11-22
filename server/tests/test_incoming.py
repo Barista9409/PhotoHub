@@ -354,3 +354,27 @@ def test_drive_synced_into_photohub_inbox(settings, db):
     f = c.get("/api/me/folders", headers={"Authorization": f"Bearer {token}"}).json()
     assert f["drive_detected"].endswith("inbox/drive/reo")
     assert collect_from_drive_sync(db, settings, u) == 1
+
+
+def test_deep_folders_for_drive_photos_and_takeout(settings, db, chie):
+    """Someone's Cloud Sync lives deep in their home: both folders can be chosen at any depth."""
+    import os
+    import time
+    from photohub.takeout import collect_from_drive_sync
+    from photohub.users import by_name
+    u, h, c = chie
+    deep = settings.homes_root / "chie" / "a" / "b" / "c"
+    (deep / "写真").mkdir(parents=True)
+    (deep / "TO").mkdir()
+    z = deep / "TO" / "takeout-9-001.zip"
+    z.write_bytes(b"z")
+    old = time.time() - 3600
+    os.utime(z, (old, old))
+    b = c.get("/api/me/browse", params={"base": "home", "path": "a/b/c"}, headers=h).json()
+    assert set(b["folders"]) == {"写真", "TO"}
+    assert c.get("/api/me/browse", params={"path": "../.."}, headers=h).status_code == 404
+    r = c.put("/api/me/settings", json={"drive_photos_dir": "a/b/c/写真", "takeout_dir": "a/b/c/TO"}, headers=h).json()
+    assert r["drive_photos_dir"] == "a/b/c/写真" and r["takeout_dir"] == "a/b/c/TO"
+    (deep / "写真" / "PXL_8.jpg").write_bytes(make_image(8))
+    assert process_incoming(db, settings, apply=True).new == 1
+    assert collect_from_drive_sync(db, settings, by_name(db, "chie")) == 1

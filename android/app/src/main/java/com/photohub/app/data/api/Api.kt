@@ -55,7 +55,12 @@ data class MySettings(
     @SerialName("takeout_target") val takeoutTarget: String? = null,
     @SerialName("backup_dir") val backupDir: String? = null,
     @SerialName("drive_root") val driveRoot: String? = null,
+    @SerialName("drive_photos_dir") val drivePhotosDir: String? = null,
+    @SerialName("takeout_dir") val takeoutDir: String? = null,
 )
+
+@Serializable
+data class BrowseResult(val path: String = "", val folders: List<String> = emptyList(), val zips: Int = 0)
 
 @Serializable
 data class FolderEntry(val path: String, val depth: Int = 1)
@@ -65,6 +70,8 @@ data class MyFolders(
     val root: String = "", val folders: List<FolderEntry> = emptyList(), @SerialName("backup_dir") val backupDir: String = "",
     val home: String = "", @SerialName("home_folders") val homeFolders: List<FolderEntry> = emptyList(),
     @SerialName("drive_root") val driveRoot: String = "", @SerialName("drive_detected") val driveDetected: String = "",
+    @SerialName("drive_photos_dir") val drivePhotosDir: String = "", @SerialName("takeout_dir") val takeoutDir: String = "",
+    @SerialName("takeout_detected") val takeoutDetected: String = "",
 )
 
 @Serializable
@@ -174,6 +181,7 @@ interface PhotoHubApi {
     @retrofit2.http.PUT("api/me/settings") suspend fun setMySettings(@Body body: MySettings): MySettings
     @GET("api/status") suspend fun status(): Status
     @GET("api/me/folders") suspend fun myFolders(): MyFolders
+    @GET("api/me/browse") suspend fun browse(@retrofit2.http.Query("base") base: String, @retrofit2.http.Query("path") path: String): BrowseResult
     @POST("api/me/synology-probe") suspend fun synologyProbe(): ProbeResult
     @retrofit2.http.DELETE("api/me/synology-link") suspend fun synologyUnlink(): Map<String, Boolean>
     @POST("api/drive-removed") suspend fun driveRemoved(@Body body: HashesBody): Map<String, Int>

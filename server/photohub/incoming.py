@@ -41,6 +41,8 @@ def drive_dir(settings: Settings, user: User) -> Path:
     if user.drive_dir:
         return Path(user.drive_dir)
     home = settings.homes_root / user.name
+    if user.drive_photos_dir:
+        return home / user.drive_photos_dir
     if user.drive_root:
         return home / user.drive_root / "PhotoHub"
     try:

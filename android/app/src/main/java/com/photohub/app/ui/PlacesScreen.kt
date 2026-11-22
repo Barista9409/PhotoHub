@@ -30,6 +30,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.photohub.app.PhotoHubApp
@@ -81,18 +88,25 @@ fun SynologyPlacesScreen() {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp))
 
-        SectionTitle("Googleドライブのフォルダ（Cloud Sync）")
+        SectionTitle("Googleドライブから届くフォルダ（Cloud Sync）")
         Group {
-            val shown = cur.driveRoot.ifBlank { cur.driveDetected }
-            SettingRow(Icons.Default.Cloud, "Googleドライブを同期しているフォルダ",
+            val photos = cur.drivePhotosDir.ifBlank { cur.driveDetected }
+            SettingRow(Icons.Default.Cloud, "ドライブに保存した写真（PhotoHub）が届くフォルダ",
                 when {
-                    cur.driveRoot.isNotBlank() -> "${cur.home}/${cur.driveRoot}"
-                    shown.startsWith("/") -> "自動で見つけました：${shown.drop(1)}"
-                    shown.isNotBlank() -> "自動で見つけました：${cur.home}/$shown"
-                    else -> "見つかりません。Cloud Syncで同期しているフォルダを選んでください"
+                    cur.drivePhotosDir.isNotBlank() -> "${cur.home}/${cur.drivePhotosDir}"
+                    photos.startsWith("/") -> "自動で見つけました：${photos.drop(1)}"
+                    photos.isNotBlank() -> "自動で見つけました：${cur.home}/$photos/PhotoHub"
+                    else -> "見つかりません。押して選んでください"
                 }, onClick = { pick = "drive" })
+            GroupDivider()
+            SettingRow(Icons.Default.FolderZip, "Takeoutが届くフォルダ",
+                when {
+                    cur.takeoutDir.isNotBlank() -> "${cur.home}/${cur.takeoutDir}"
+                    cur.takeoutDetected.isNotBlank() -> "自動で見つけました：${cur.home}/${cur.takeoutDetected}"
+                    else -> "見つかりません。押して選んでください"
+                }, onClick = { pick = "takeout" })
         }
-        Text("この中の「PhotoHub」フォルダ（ドライブに保存した写真）と「Takeout」フォルダ（Googleフォトの書き出し）を、PhotoHubが自動で読み取ります。取り込みが終わったTakeoutは自動で削除します。",
+        Text("Cloud Syncのタスクの「ローカルパス」と同じフォルダを選んでください。届いた写真とTakeoutを、PhotoHubが自動で取り込みます（取り込みが終わったTakeoutは自動で削除）。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp))
 
@@ -106,17 +120,65 @@ fun SynologyPlacesScreen() {
 
     val cur = f
     if (pick != null && cur != null) {
-        val backup = pick == "backup"
-        val list = if (backup) cur.folders else cur.homeFolders
-        val selected = if (backup) cur.backupDir else cur.driveRoot
-        FolderDialog(
-            title = if (backup) "スマホの写真を入れるフォルダ" else "Googleドライブを同期しているフォルダ",
-            base = if (backup) cur.root else cur.home,
-            autoLabel = if (backup) "自動（MobileBackup/<機種名>）" else "自動で探す",
-            folders = list, selected = selected,
-            onPick = { path -> pick = null; save(if (backup) MySettings(backupDir = path) else MySettings(driveRoot = path)) },
+        val which = pick!!
+        val (title, base, start) = when (which) {
+            "backup" -> Triple("スマホの写真を入れるフォルダ", "photos", cur.backupDir)
+            "drive" -> Triple("ドライブの写真（PhotoHub）が届くフォルダ", "home", cur.drivePhotosDir)
+            else -> Triple("Takeoutが届くフォルダ", "home", cur.takeoutDir)
+        }
+        FolderBrowser(title = title, base = base, rootLabel = if (base == "photos") cur.root else cur.home, start = start,
+            onAuto = { pick = null; save(when (which) { "backup" -> MySettings(backupDir = ""); "drive" -> MySettings(drivePhotosDir = ""); else -> MySettings(takeoutDir = "") }) },
+            onPick = { path -> pick = null; save(when (which) { "backup" -> MySettings(backupDir = path); "drive" -> MySettings(drivePhotosDir = path); else -> MySettings(takeoutDir = path) }) },
             onDismiss = { pick = null })
     }
+}
+
+/** Walk down the folders one level at a time (any depth) and choose one. */
+@Composable
+private fun FolderBrowser(title: String, base: String, rootLabel: String, start: String,
+                          onAuto: () -> Unit, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    var path by remember { mutableStateOf(start.substringBeforeLast('/', "").let { if (start.contains('/')) it else "" }) }
+    var listing by remember { mutableStateOf<com.photohub.app.data.api.BrowseResult?>(null) }
+    var err by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(path) {
+        listing = null
+        listing = try { app.net.api()?.browse(base, path) } catch (e: Exception) { err = "読み込めませんでした（${e.message}）"; null }
+    }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("$rootLabel/${path}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                listing?.let { if (it.zips > 0) Text("このフォルダにZIPが ${it.zips} 個あります", style = MaterialTheme.typography.bodySmall) }
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    if (path.isNotEmpty()) item {
+                        Text("↑ 1つ上へ", modifier = Modifier.fillMaxWidth().clickable { path = path.substringBeforeLast('/', "") }.padding(vertical = 10.dp),
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    val l = listing
+                    if (l == null) item { Text(err ?: "読み込み中…", style = MaterialTheme.typography.bodySmall) }
+                    else {
+                        if (l.folders.isEmpty()) item { Text("この中にフォルダはありません", style = MaterialTheme.typography.bodySmall) }
+                        items(l.folders, key = { it }) { name ->
+                            Row(Modifier.fillMaxWidth().clickable { path = if (path.isEmpty()) name else "$path/$name" }.padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Folder, null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.size(10.dp))
+                                Text(name, modifier = Modifier.weight(1f))
+                                Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(enabled = path.isNotEmpty(), onClick = { onPick(path) }) { Text("このフォルダにする") } },
+        dismissButton = {
+            Row {
+                TextButton(onAuto) { Text("自動に戻す") }
+                TextButton(onDismiss) { Text("閉じる") }
+            }
+        })
 }
 
 @Composable
