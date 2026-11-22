@@ -114,14 +114,13 @@ enum class Dest(val route: String, val title: String) {
     MIGRATION("migration", "移行の手順"),
     IMPORT_LOG("import_log", "Synologyへの取り込み記録"),
     DEVICE("device", "このスマホの容量"),
-    APP("app", "更新・家族に送る"),
     LIBRARY("library", "ライブラリの内訳"),
     TAKEOUT("takeout", "取り込みの状況"),
     PLACES("places", "Synologyの保存場所"),
-    ORGANIZE("organize", "写真の整理とゴミ箱"),
+    ORGANIZE("organize", "整理とゴミ箱"),
     TRASH("trash", "ゴミ箱"),
     DUPLICATES("duplicates", "まったく同じ写真"),
-    LOGS("logs", "動作の記録"),
+    LOGS("logs", "エラーの記録"),
 }
 
 @Composable
@@ -169,10 +168,12 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                     Text(status?.let { "Synologyの写真 ${it.photos} 枚・動画 ${it.videos} 本" } ?: "Synologyの情報を読み込み中…",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                // logging out is rare: an icon on your own card, not a menu item
+                androidx.compose.material3.IconButton({ confirmLogout = true }) { Icon(Icons.AutoMirrored.Filled.Logout, "ログアウト") }
             }
             Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
                 when {
-                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「接続と保存場所」）", false)
+                    base == null && cur.remoteUrl.isBlank() -> StatusPill("つながりません：外出先の接続先が未設定（下の「接続」）", false)
                     base == null -> StatusPill("Synologyにつながりません", false)
                     base == cur.lanUrl -> StatusPill("自宅でつながっています", true)
                     else -> StatusPill("外出先からつながっています", true)
@@ -210,14 +211,12 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 androidx.compose.material3.Button({ confirmLogout = true }) { Text("ログアウトしてログインし直す") }
             }
         }
-        // a stop or failure last time: shown first, it is what to look at
-        CrashRow()
-
-        // order = how often people need it: backup (daily) -> tidy up -> moving from Google (once)
-        // -> connection & folders (set once) -> app; logging out last, on its own
-        CollapsibleGroup("sync", "バックアップ", "Synology・Googleドライブ・モバイル回線・今すぐ同期", openByDefault = true) {
+        // A flat list like most apps: every setting is on this page; a row opens a page only for a tool
+        // (tidy up, migration, folders, records). Order = how often it is needed.
+        SectionTitle("バックアップ")
+        Group {
             SwitchRow(Icons.Default.Dns, "Synologyに保存",
-                if (cur.backupNas) "撮った写真をSynologyに送り、Synologyの写真をこのスマホで見られます" else "オフ：Synologyの写真を見るだけ（このスマホの写真は送りません）", cur.backupNas) {
+                if (cur.backupNas) "撮った写真を数分でSynologyに送り、Synologyの写真をこのスマホで見られます" else "オフ：Synologyの写真を見るだけ（このスマホの写真は送りません）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
             }
             GroupDivider()
@@ -232,51 +231,55 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             BatteryRow()
         }
 
-        CollapsibleGroup("library", "写真と容量", "整理・ゴミ箱・このスマホの容量・内訳", openByDefault = true) {
-            // one door for tidying up: similar / same photos, suggestions, free space and the trash are inside
-            SettingRow(Icons.Default.CleaningServices, "写真の整理とゴミ箱",
+        SectionTitle("写真")
+        Group {
+            // one door for tidying up: similar / same photos, suggestions, dates, free space and the trash are inside
+            SettingRow(Icons.Default.CleaningServices, "整理とゴミ箱",
                 (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
-                    "同じ写真・スクリーンショット・日付直し・空き容量・ゴミ箱", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
+                    "同じ写真・スクリーンショット・日付直し・空き容量", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PhoneAndroid, "このスマホの容量", storageSummary() + "上限・外出先ですぐ開ける期間",
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(), onClick = { open(Dest.LIBRARY) }) { Chevron() }
-        }
-
-        CollapsibleGroup("migration", "Googleフォトからの移行", "手順・取り込みの状況・Googleフォトを空にする", openByDefault = false) {
-            SettingRow(Icons.Default.PhotoLibrary, "移行の手順", "はじめに：Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
+            GroupDivider()
+            SettingRow(Icons.Default.PhotoLibrary, "Googleフォトからの移行", "手順・取り込みの状況・Googleフォトを空にする",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
-            GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.ListAlt, "取り込みの状況", "進み具合・結果・取り込んだZIPの削除",
-                onClick = { open(Dest.TAKEOUT) }) { Chevron() }
-            GroupDivider()
-            SettingRow(Icons.Default.TaskAlt, "Googleフォトを空にする", "最後に：Synologyに保存済みか確かめてから、月ごとに案内します",
-                onClick = { open(Dest.CLEANUP) }) { Chevron() }
         }
 
-        CollapsibleGroup("connect", "接続と保存場所", "外出先からの接続・Synologyのフォルダ", openByDefault = false) {
+        SectionTitle("接続")
+        Group {
             RemoteAddressRow()
             GroupDivider()
             SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeoutを置くフォルダ",
                 onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        CollapsibleGroup("app", "アプリ", "更新・家族に送る・使い方・動作の記録", openByDefault = false) {
-            SettingRow(Icons.Default.SystemUpdate, "更新・家族に送る",
-                when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・Synology側の版" },
-                onClick = { open(Dest.APP) }) { Chevron() }
+        SectionTitle("アプリ")
+        Group {
+            UpdateRow()
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方（導入ガイド）", "Synologyの準備・家族の始め方・困ったとき（いつも最新版）",
+            SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "新しい版をWi-Fiで取り込んで入れます", cur.autoUpdate) {
+                scope.launch { app.prefs.save(app.prefs.current().copy(autoUpdate = it)) }
+            }
+            GroupDivider()
+            ServerVersionRow()
+            GroupDivider()
+            ShareAppRows()
+            GroupDivider()
+            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方（導入ガイド）", "Synologyの準備・家族の始め方・困ったとき",
                 onClick = { openGuide(ctx) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.BugReport, "動作の記録", "止まった・失敗した・遅かった処理（家族のスマホ全部）",
+            val crashed = remember { com.photohub.app.CrashLog.read(ctx) != null }
+            SettingRow(Icons.Default.BugReport, "エラーの記録",
+                if (crashed) "前回、うまく動かないことがありました。押して確かめてください" else "止まった・失敗した・遅かった処理（家族のスマホ全部）",
                 onClick = { open(Dest.LOGS) }) { Chevron() }
         }
-
-        Group {
-            SettingRow(Icons.AutoMirrored.Filled.Logout, "ログアウト", "別の家族がこのスマホを使うとき", onClick = { confirmLogout = true })
-        }
+        // the version at the foot, like most apps; tap it for what changed in this version
+        var notes by remember { mutableStateOf(false) }
+        Text("PhotoHub ${BuildConfig.VERSION_NAME}・この版の変更点", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { notes = true }.padding(20.dp))
+        if (notes) WhatsNewDialog { notes = false }
     }
 
     if (confirmLogout) {
@@ -371,48 +374,6 @@ fun DeviceScreen() {
 }
 
 /** App updates and sharing the app with family. */
-@Composable
-fun AppScreen() {
-    val app = LocalContext.current.applicationContext as PhotoHubApp
-    val scope = rememberCoroutineScope()
-    val s by app.prefs.settings.collectAsState(initial = null)
-    val cur = s ?: return
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        SectionTitle("更新")
-        Group {
-            UpdateRow()
-            GroupDivider()
-            CurrentNotesRow()
-            GroupDivider()
-            SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "新しい版をWi-Fiで取り込んで入れます", cur.autoUpdate) {
-                scope.launch { app.prefs.save(cur.copy(autoUpdate = it)) }
-            }
-        }
-        SectionTitle("Synology側（サーバー）")
-        Group {
-            var server by remember { mutableStateOf<String?>("確認中…") }
-            LaunchedEffect(Unit) {
-                val build = try { app.net.api()?.status()?.let { it.build ?: "" } } catch (e: Exception) { null }
-                if (build == null) { server = "Synologyにつながりません"; return@LaunchedEffect }
-                val latest = app.updater.latestServer()
-                val mine = com.photohub.app.data.Updater.ServerBuild.parse(build)
-                fun name(b: com.photohub.app.data.Updater.ServerBuild) =
-                    if (b.number == null && b.at != null) "${b.at.monthValue}月${b.at.dayOfMonth}日の版" else b.label()
-                server = when {
-                    mine == null -> "とても古い版です。新しい版に更新してください"
-                    latest == null -> "${name(mine)}（最新か確かめられませんでした）"
-                    mine.sha == latest.sha -> "最新です（${name(latest)}）"
-                    else -> "古い版です（${name(mine)}）。最新は${name(latest)}。自動更新を入れていれば2〜3分で入れ替わります（入らないときは、タスクスケジューラの「最終実行時刻」が23:00になっているか確かめてください）"
-                }
-            }
-            SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
-        }
-        SectionTitle("家族に送る")
-        Group { ShareAppRows() }
-        Text("PhotoHub ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp))
-    }
-}
 
 /** Live state of whichever backup is running (the "now" one or the hourly one): one entry per running part. */
 data class BackupLive(val running: Boolean, val parts: List<com.photohub.app.data.BackupStep>)
@@ -542,12 +503,6 @@ fun UpdateRow() {
 }
 
 /** This version's changes: a row on the app screen, and a dialog once right after an update. */
-@Composable
-fun CurrentNotesRow() {
-    var show by remember { mutableStateOf(false) }
-    SettingRow(Icons.Default.NewReleases, "この版の変更点", "PhotoHub ${BuildConfig.VERSION_NAME} で変わったこと", onClick = { show = true })
-    if (show) WhatsNewDialog { show = false }
-}
 
 @Composable
 fun WhatsNewDialog(onDismiss: () -> Unit) {
@@ -770,27 +725,6 @@ fun storageSummary(): String {
 }
 
 
-/** The last time the app stopped (or background work failed): shown until cleared, with a copy button. */
-@Composable
-private fun CrashRow() {
-    val ctx = LocalContext.current
-    var text by remember { mutableStateOf(com.photohub.app.CrashLog.read(ctx)) }
-    var show by remember { mutableStateOf(false) }
-    val t = text ?: return
-    Group {
-        SettingRow(Icons.Default.BugReport, "前回うまく動かなかった記録", t.lineSequence().first() + "（押すと詳しく見られます）",
-            onClick = { show = true }) { Chevron() }
-    }
-    if (show) androidx.compose.material3.AlertDialog(onDismissRequest = { show = false },
-        title = { Text("前回の記録") },
-        text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) { Text(t, style = MaterialTheme.typography.bodySmall) } },
-        confirmButton = { TextButton({
-            val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub", t))
-            show = false
-        }) { Text("コピー") } },
-        dismissButton = { TextButton({ com.photohub.app.CrashLog.clear(ctx); text = null; show = false }) { Text("消す") } })
-}
 
 
 /** Photos dated the day they reached the Synology: fixed from their name, inside or file date. */
@@ -838,4 +772,27 @@ fun BatteryRow() {
                 ask.launch(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
         }) { Chevron() }
+}
+
+
+/** The Synology side's version, and whether it is the newest one. */
+@Composable
+fun ServerVersionRow() {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    var server by remember { mutableStateOf<String?>("確認中…") }
+    LaunchedEffect(Unit) {
+        val build = try { app.net.api()?.status()?.let { it.build ?: "" } } catch (e: Exception) { null }
+        if (build == null) { server = "Synologyにつながりません"; return@LaunchedEffect }
+        val latest = app.updater.latestServer()
+        val mine = com.photohub.app.data.Updater.ServerBuild.parse(build)
+        fun name(b: com.photohub.app.data.Updater.ServerBuild) =
+            if (b.number == null && b.at != null) "${b.at.monthValue}月${b.at.dayOfMonth}日の版" else b.label()
+        server = when {
+            mine == null -> "とても古い版です。新しい版に更新してください"
+            latest == null -> "${name(mine)}（最新か確かめられませんでした）"
+            mine.sha == latest.sha -> "最新です（${name(latest)}）"
+            else -> "古い版です（${name(mine)}）。最新は${name(latest)}。自動更新を入れていれば2〜3分で入れ替わります（入らないときは、タスクスケジューラの「最終実行時刻」が23:00になっているか確かめてください）"
+        }
+    }
+    SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
 }

@@ -130,7 +130,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
             com.photohub.app.data.SyncWorker.runNow(app, light = true)
             // and whether a new version of the app is out (only a small check; the banner offers it)
             app.scope.launch { try { app.updater.check() } catch (_: Exception) {} }
-            if (openUpdate) nav.navigate(Dest.APP.route)
+            if (openUpdate) nav.navigate("account")
         }
     }
     LaunchedEffect(setupLink) { if (setupLink != null) nav.navigate("setup") }
@@ -171,7 +171,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
         Column(if (fullScreen) Modifier else Modifier.padding(pad)) {
             if (!fullScreen) com.photohub.app.ui.DownloadBanner()
             if (!fullScreen) com.photohub.app.ui.WhatsNewOnce()
-            if (tabs.any { it.route == route }) com.photohub.app.ui.UpdateBanner { nav.navigate(Dest.APP.route) }
+            if (tabs.any { it.route == route }) com.photohub.app.ui.UpdateBanner { nav.navigate("account") { launchSingleTop = true } }
             androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "timeline") {
                 composable("timeline") { TimelineScreen(open) }
@@ -200,7 +200,6 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.MIGRATION.route) { com.photohub.app.ui.MigrationScreen(open = { d -> nav.navigate(d.route) }) }
                 composable(Dest.IMPORT_LOG.route) { com.photohub.app.ui.ImportLogScreen() }
                 composable(Dest.DEVICE.route) { com.photohub.app.ui.DeviceScreen() }
-                composable(Dest.APP.route) { com.photohub.app.ui.AppScreen() }
                 composable(Dest.LIBRARY.route) { com.photohub.app.ui.LibraryScreen() }
                 composable(Dest.PLACES.route) { com.photohub.app.ui.SynologyPlacesScreen() }
                 composable(Dest.ORGANIZE.route) { com.photohub.app.ui.OrganizeScreen(open = { r -> nav.navigate(r) }) }

@@ -32,7 +32,7 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * 「動作の記録」: what the family's phones reported to the Synology in the last week —
+ * 「エラーの記録」: what the family's phones reported to the Synology in the last week —
  * stops (grouped by where they happened), errors, and how long things take (slowest first).
  * The copy button puts it all in one text to send to whoever looks after the app.
  */
@@ -54,19 +54,40 @@ fun LogScreen() {
     }
     val d = data
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text("この1週間に、家族のスマホがSynologyに送った記録です（Synologyの中だけに14日間残ります）。" +
+        Text("アプリが止まったり、処理に失敗したり、時間がかかったりした記録です。下は、この1週間に家族のスマホがSynologyに送った記録です（Synologyの中だけに14日間残ります）。" +
             "止まった・失敗した・時間がかかった処理を、多い順・遅い順に並べています。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(16.dp))
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = d != null, onClick = {
                 val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub 動作の記録", asText(d!!)))
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub エラーの記録", asText(d!!)))
                 msg = "コピーしました。そのまま貼り付けて送れます"
             }) { Text("まとめてコピー") }
             OutlinedButton({ msg = "読み込み中…"; refresh++ }) { Text("更新") }
         }
         msg?.let { Text(it, Modifier.padding(16.dp, 8.dp)) }
+
+        // this phone's last stop, straight from the phone (also when the Synology cannot be reached)
+        var local by remember { mutableStateOf(com.photohub.app.CrashLog.read(ctx)) }
+        local?.let { t ->
+            SectionTitle("このスマホで前回うまく動かなかったこと")
+            Group {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(t.lineSequence().first(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(t.lines().drop(1).take(6).joinToString("\n"), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton({
+                            val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub", t))
+                            msg = "コピーしました"
+                        }) { Text("コピー") }
+                        OutlinedButton({ com.photohub.app.CrashLog.clear(ctx); local = null }) { Text("確認したので消す") }
+                    }
+                }
+            }
+        }
         if (d == null) return@Column
 
         SectionTitle("スマホごと")
@@ -110,7 +131,7 @@ private fun when_(ms: Long): String = if (ms <= 0) "?" else
     Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).let { "%d/%d %d:%02d".format(it.monthValue, it.dayOfMonth, it.hour, it.minute) }
 
 private fun asText(d: LogSummary): String = buildString {
-    append("PhotoHub 動作の記録（${d.days}日間）\n\n[スマホ]\n")
+    append("PhotoHub エラーの記録（${d.days}日間）\n\n[スマホ]\n")
     d.devices.forEach { append("- ${it.device} v${it.version} 停止${it.stops} 失敗${it.errors} 最後${when_(it.last)}\n") }
     append("\n[止まった]\n")
     d.stops.forEach { append("- ${it.count}回 v${it.version} ${it.what}\n${it.sample.lines().take(12).joinToString("\n") { l -> "    $l" }}\n") }

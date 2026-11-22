@@ -115,26 +115,3 @@ fun StatusPill(text: String, ok: Boolean) {
 }
 
 
-/**
- * A titled group that folds away (the choice is remembered on this phone). Closed, it shows a short
- * summary of what is inside so people still know where things are.
- */
-@Composable
-fun CollapsibleGroup(key: String, title: String, summary: String, openByDefault: Boolean = true,
-                     content: @Composable ColumnScope.() -> Unit) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val prefs = remember { ctx.getSharedPreferences("photohub_ui", android.content.Context.MODE_PRIVATE) }
-    var open by remember { mutableStateOf(prefs.getBoolean("open_$key", openByDefault)) }
-    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "chevron")
-    Row(Modifier.fillMaxWidth().clickable { open = !open; prefs.edit().putBoolean("open_$key", open).apply() }
-        .padding(start = 20.dp, end = 16.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-            if (!open) Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        }
-        Icon(Icons.Default.ExpandMore, if (open) "たたむ" else "ひらく", tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.graphicsLayer(rotationZ = turn))
-    }
-    androidx.compose.animation.AnimatedVisibility(open) { Group(content) }
-}
