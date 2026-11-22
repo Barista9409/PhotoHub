@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Cloud
@@ -248,6 +249,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.CLEANUP) }) { Chevron() }
         }
 
+        CrashRow()
         CollapsibleGroup("app", "アプリ", "更新と共有", openByDefault = false) {
             SettingRow(Icons.Default.SystemUpdate, "更新と共有",
                 when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・家族に送る" },
@@ -795,4 +797,27 @@ fun storageSummary(): String {
     var t by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(Unit) { t = com.photohub.app.data.AppStorage.measure(app).total }
     return t?.let { "使用中 ${humanBytes(it)}・" } ?: ""
+}
+
+
+/** The last time the app stopped (or background work failed): shown until cleared, with a copy button. */
+@Composable
+private fun CrashRow() {
+    val ctx = LocalContext.current
+    var text by remember { mutableStateOf(com.photohub.app.CrashLog.read(ctx)) }
+    var show by remember { mutableStateOf(false) }
+    val t = text ?: return
+    Group {
+        SettingRow(Icons.Default.BugReport, "前回うまく動かなかった記録", t.lineSequence().first() + "（押すと詳しく見られます）",
+            onClick = { show = true }) { Chevron() }
+    }
+    if (show) androidx.compose.material3.AlertDialog(onDismissRequest = { show = false },
+        title = { Text("前回の記録") },
+        text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) { Text(t, style = MaterialTheme.typography.bodySmall) } },
+        confirmButton = { TextButton({
+            val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub", t))
+            show = false
+        }) { Text("コピー") } },
+        dismissButton = { TextButton({ com.photohub.app.CrashLog.clear(ctx); text = null; show = false }) { Text("消す") } })
 }

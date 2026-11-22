@@ -107,14 +107,18 @@ private fun buildRows(items: List<TimelineItem>, group: String): List<Any> {
     val out = ArrayList<Any>(items.size + items.size / 8)
     var last: Any? = null
     val today = LocalDate.now()
+    val seen = HashSet<String>(items.size * 2)
     items.forEachIndexed { i, it ->
+        // the grid stops the app if a key appears twice: never let a repeated item through
+        if (!seen.add(it.itemKey)) return@forEachIndexed
         val d = localDate(it)
         val key: Any = when (group) { "year" -> d.year; "month" -> d.withDayOfMonth(1); else -> d }
         if (key != last) {
             out += when (group) {
-                "year" -> Header("${d.year}年", "y$key", i)
-                "month" -> Header("${d.year}年${d.monthValue}月", "m$key", i)
-                else -> Header(dayLabel(d, today), "d$key", i)
+                // the index keeps keys apart when the same day shows up twice (photos from other time zones)
+                "year" -> Header("${d.year}年", "y$key@$i", i)
+                "month" -> Header("${d.year}年${d.monthValue}月", "m$key@$i", i)
+                else -> Header(dayLabel(d, today), "d$key@$i", i)
             }
             last = key
         }

@@ -39,7 +39,9 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
     lateinit var updater: Updater
     lateinit var drive: com.photohub.app.data.DriveClient
     @Volatile var driveToken: String = ""
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // a failure in background work is written down (CrashLog) instead of stopping the whole app
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default +
+        kotlinx.coroutines.CoroutineExceptionHandler { _, e -> CrashLog.write(this, e, fatal = false) })
 
     @Volatile var token: String = ""
 
@@ -48,13 +50,14 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         prefs = Prefs(this)
         db = AppDb.build(this)
-        scope.launch(Dispatchers.IO) { files.loadIndex() }
-        lists = com.photohub.app.data.Lists(db, scope)
-        scope.launch { db.media().rotations().collect { l -> com.photohub.app.ui.UiState.rots.value = l.associate { it.hash to it.rot } } }
-        net = Net(this, prefs)
         files = MediaFiles(this)
+        net = Net(this, prefs)
+        lists = com.photohub.app.data.Lists(this, db, scope)
+        scope.launch(Dispatchers.IO) { files.loadIndex() }
+        scope.launch { db.media().rotations().collect { l -> com.photohub.app.ui.UiState.rots.value = l.associate { it.hash to it.rot } } }
         indexer = LocalIndexer(this, db.media())
         updater = Updater(this)
         drive = com.photohub.app.data.DriveClient(this)
@@ -83,6 +86,7 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         db.media().clearRemote()
         db.media().clearAlbums()
         files.clearAll()
+        lists.clearCache()
         coil3.SingletonImageLoader.get(this).let { it.diskCache?.clear(); it.memoryCache?.clear() }
     }
 
