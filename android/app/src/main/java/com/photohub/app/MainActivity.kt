@@ -186,7 +186,6 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                     com.photohub.app.ui.AccountHub(open = { d -> nav.navigate(d.route) },
                         onLoggedOut = { nav.navigate("setup") { popUpTo(0) } })
                 }
-                composable(Dest.NAS_BACKUP.route) { com.photohub.app.ui.NasBackupScreen() }
                 composable(Dest.DRIVE_BACKUP.route) { com.photohub.app.ui.DriveBackupScreen() }
                 composable(Dest.SIMILAR.route) { com.photohub.app.ui.SimilarScreen() }
                 composable(Dest.CLEANUP.route) { com.photohub.app.ui.GoogleCleanupScreen() }

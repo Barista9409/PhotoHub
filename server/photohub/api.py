@@ -20,7 +20,6 @@ from sqlalchemy import func, select
 from . import derivatives, netinfo, similar, storage
 from .dsm_login import login
 from .config import Settings
-from .places import place_of
 from .db import (Album, AlbumItem, Database, Event, ImportItem, ImportJob, Location, Media, SimilarGroup,
                  SimilarMember, User, can_see, kv_get, kv_set, touch_media, utcnow, visible_clause)
 from .users import by_token, redeem_invite
@@ -337,53 +336,6 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 Path(tmp).unlink()
 
     # ---- Takeout ZIP upload from the phone (resumable; ZIPs can be 50 GB) ------------------
-    def _takeout_target(user: User, name: str) -> Path:
-        from urllib.parse import unquote
-        n = Path(unquote(name)).name
-        if not n.lower().endswith(".zip") or n.startswith("."):
-            raise HTTPException(400, "only .zip files")
-        d = settings.inbox / user.name
-        d.mkdir(parents=True, exist_ok=True)
-        return d / n
-
-    @app.get("/api/takeout-upload")
-    def takeout_status(name: str, user: User = Depends(auth)) -> dict:
-        """How much of this ZIP has arrived (to resume after a broken connection)."""
-        dst = _takeout_target(user, name)
-        part = dst.with_name("." + dst.name + ".part")
-        if dst.exists():
-            return {"received": dst.stat().st_size, "done": True}
-        return {"received": part.stat().st_size if part.exists() else 0, "done": False}
-
-    @app.post("/api/takeout-upload")
-    async def takeout_upload(request: Request, user: User = Depends(auth)) -> dict:
-        """Append to <inbox>/<user>/.<name>.part from X-Offset; when X-Total is reached the file is
-        renamed to <name>.zip and the import picks it up (as a dry run until PHOTOHUB_APPLY)."""
-        name = request.headers.get("x-file-name", "")
-        try:
-            offset, total = int(request.headers.get("x-offset", "0")), int(request.headers.get("x-total", "0"))
-        except ValueError:
-            raise HTTPException(400, "bad X-Offset / X-Total")
-        dst = _takeout_target(user, name)
-        if dst.exists():
-            return {"received": dst.stat().st_size, "done": True}
-        part = dst.with_name("." + dst.name + ".part")
-        have = part.stat().st_size if part.exists() else 0
-        if offset != have:
-            raise HTTPException(409, f"expected offset {have}")
-        with open(part, "ab") as f:
-            async for chunk in request.stream():
-                f.write(chunk)
-        size = part.stat().st_size
-        done = total > 0 and size >= total
-        if done:
-            import os
-            os.replace(part, dst)
-            from .db import log_event
-            with db.session() as s:
-                log_event(s, "info", "takeout_uploaded", f"{user.name}: {dst.name} ({size} bytes) from the app")
-        return {"received": size, "done": done}
-
     @app.post("/api/have")
     def have_files(body: Hashes, user: User = Depends(auth)) -> dict:
         """Which of these file hashes are safely on the NAS ('nas') or received ('queued')."""
@@ -695,6 +647,9 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             owners = {u.id: u.personal_root for u in s.execute(select(User)).scalars() if u.personal_root}
             my_albums = set(s.execute(select(Album.id).where(album_visible(user))).scalars())
             ids = [m.id for m in rows]
+            # place names in one query (asking per photo made each page of 2000 take seconds)
+            from .db import KV
+            places = {k.key[6:]: k.value for k in s.execute(select(KV).where(KV.key.in_([f"place:{i}" for i in ids]))).scalars()} if ids else {}
             stores: dict[int, list[str]] = {}
             albums_of: dict[int, list[int]] = {}
             if ids:
@@ -712,7 +667,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "hash": m.content_hash, "file_hash": m.file_hash, "kind": m.kind, "mime": m.mime,
                 "taken_at": _ms(m.taken_at), "tz": m.tz_offset, "lat": m.lat, "lon": m.lon,
                 "w": m.width, "h": m.height, "duration": m.duration, "bytes": m.bytes,
-                "name": Path(m.nas_path).name, "folder": _folder_of(m, owners), "place": place_of(s, m),
+                "name": Path(m.nas_path).name, "folder": _folder_of(m, owners), "place": places.get(str(m.id)) or None,
                 "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
                 "deleted": m.status != "active", "rev": m.rev, "rot": m.rotation or 0, "pair": m.pair_key, "desc": m.description,
                 "space": "shared" if m.owner_id is None else ("mine" if m.owner_id == user.id else "granted"),

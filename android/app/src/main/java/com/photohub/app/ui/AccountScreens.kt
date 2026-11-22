@@ -97,7 +97,6 @@ val APP_DOWNLOAD_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/l
 
 /** Where the account hub's rows lead. */
 enum class Dest(val route: String, val title: String) {
-    NAS_BACKUP("backup_nas", "Synologyと同期"),
     DRIVE_BACKUP("backup_drive", "Googleドライブに保存する範囲"),
     SIMILAR("similar", "似ている写真"),
     CLEANUP("cleanup", "Googleフォトから消してよい写真"),
@@ -274,31 +273,6 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
     }
 }
 
-/** NAS backup: on/off, mobile data, run now. */
-@Composable
-fun NasBackupScreen() {
-    val ctx = LocalContext.current
-    val app = ctx.applicationContext as PhotoHubApp
-    val scope = rememberCoroutineScope()
-    val s by app.prefs.settings.collectAsState(initial = null)
-    val cur = s ?: return
-    fun save(n: Settings, run: Boolean = false) = scope.launch { app.prefs.save(n); if (run) BackupWorker.runNow(ctx) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-        Text("このスマホとSynologyの写真をそろえます。スマホで撮った写真はSynologyへ送り（Synology Photosと同じフォルダなので重複しません）、Synologyにある写真は一覧と縮小画像を受け取って、このアプリで見られるようにします。",
-            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(20.dp, 16.dp, 20.dp, 0.dp))
-        SectionTitle("送る（スマホ → Synology）")
-        Group {
-            SwitchRow(Icons.Default.Dns, "撮った写真と動画をSynologyへ送る", if (cur.backupNas) "オン" else "オフ", cur.backupNas) { save(cur.copy(backupNas = it), it) }
-            GroupDivider()
-            SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも送る", "オフならWi-Fiのときだけ（外出先はTailscale経由）",
-                cur.backupOnMobile, enabled = cur.backupNas) { save(cur.copy(backupOnMobile = it)) }
-        }
-        SectionTitle("受け取る（Synology → スマホ）")
-        Group { ReceiveRow() }
-        SectionTitle("状況")
-        Group { BackupNowRow(only = "nas", title = "今すぐ同期") }
-    }
-}
 
 /** Google Drive backup: connect, how much to keep, mobile data. */
 @Composable

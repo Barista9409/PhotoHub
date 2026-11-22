@@ -102,6 +102,27 @@ private data class Level(val cols: Int, val group: String)
 private val LEVELS = listOf(Level(3, "day"), Level(4, "day"), Level(6, "month"), Level(9, "year"))
 private const val DAY_LEVEL = 1
 
+/** Rows of the grid: a date header before each new year / month / day, then item indexes. */
+private fun buildRows(items: List<TimelineItem>, group: String): List<Any> {
+    val out = ArrayList<Any>(items.size + items.size / 8)
+    var last: Any? = null
+    val today = LocalDate.now()
+    items.forEachIndexed { i, it ->
+        val d = localDate(it)
+        val key: Any = when (group) { "year" -> d.year; "month" -> d.withDayOfMonth(1); else -> d }
+        if (key != last) {
+            out += when (group) {
+                "year" -> Header("${d.year}年", "y$key", i)
+                "month" -> Header("${d.year}年${d.monthValue}月", "m$key", i)
+                else -> Header(dayLabel(d, today), "d$key", i)
+            }
+            last = key
+        }
+        out += i
+    }
+    return out
+}
+
 private fun localDate(it: TimelineItem): LocalDate = Instant.ofEpochMilli(it.takenAt).atZone(zoneFor(it.tz)).toLocalDate()
 
 /** "今日" / "昨日" / "11月21日(土)" / "2023年11月21日(火)" */
@@ -153,25 +174,16 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         }
         return
     }
-    val rows = remember(items, level.group) {
-        val out = mutableListOf<Any>()
-        var last: Any? = null
-        val today = LocalDate.now()
-        items.forEachIndexed { i, it ->
-            val d = localDate(it)
-            val key: Any = when (level.group) { "year" -> d.year; "month" -> d.withDayOfMonth(1); else -> d }
-            if (key != last) {
-                out += when (level.group) {
-                    "year" -> Header("${d.year}年", "y$key", i)
-                    "month" -> Header("${d.year}年${d.monthValue}月", "m$key", i)
-                    else -> Header(dayLabel(d, today), "d$key", i)
-                }
-                last = key
-            }
-            out += i
-        }
-        out
+    // date headers are worked out away from the screen thread (tens of thousands of photos).
+    // The grid draws from the list the rows were made for, so an older list stays on screen
+    // (consistent) until the new one is ready.
+    var built by remember { mutableStateOf<Pair<List<TimelineItem>, List<Any>>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(items, level.group) {
+        val group = level.group
+        built = items to kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { buildRows(items, group) }
     }
+    val shown = built?.first ?: emptyList()
+    val rows = built?.second ?: emptyList()
     val grid = rememberLazyGridState()
     val headerOffset = 1   // the legend of the marks (and the screen's own header)
     androidx.compose.runtime.LaunchedEffect(rows) {
@@ -226,7 +238,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) { Column { if (legend) MarksLegend(); header?.invoke() } }
-            items(rows, key = { r -> if (r is Header) "h:${r.key}" else items[r as Int].itemKey },
+            items(rows, key = { r -> if (r is Header) "h:${r.key}" else shown[r as Int].itemKey },
                 span = { r -> if (r is Header) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { r ->
                 if (r is Header) {
                     // month / year headers are big and tappable: they open the finer view at that point
@@ -241,14 +253,14 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                     }
                 } else {
                     val idx = r as Int
-                    val it = items[idx]
+                    val it = shown[idx]
                     val isSel = it.itemKey in selected
                     Box(Modifier.aspectRatio(1f).background(Color(0x22888888))
                         .combinedClickable(
                             onClick = {
                                 if (selecting) selected = if (isSel) selected - it.itemKey else selected + it.itemKey
                                 else if (level.group != "day") setLevel(DAY_LEVEL, idx)   // like Google Photos: zoom into that day
-                                else onOpen(items, idx)
+                                else onOpen(shown, idx)
                             },
                             onLongClick = { selected = selected + it.itemKey },
                         )) {
@@ -277,7 +289,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         }
 
         // fast scroller with a date bubble
-        if (rows.size > 60) FastScroller(grid, rows, items, Modifier.align(Alignment.CenterEnd))
+        if (rows.size > 60) FastScroller(grid, rows, shown, Modifier.align(Alignment.CenterEnd))
 
         // selection bar
         androidx.compose.animation.AnimatedVisibility(visible = selecting, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {

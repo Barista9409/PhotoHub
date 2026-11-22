@@ -137,23 +137,6 @@ def test_drive_folder_found_automatically(settings, db):
     assert drive_dir(settings, u) == whole
 
 
-def test_takeout_zip_upload_resumable(settings, db, chie):
-    u, h, c = chie
-    data = b"PK" + bytes(range(256)) * 40
-    hd = {**h, "X-File-Name": "takeout-2026-001.zip", "X-Total": str(len(data))}
-    assert c.get("/api/takeout-upload?name=takeout-2026-001.zip", headers=h).json() == {"received": 0, "done": False}
-    r = c.post("/api/takeout-upload", content=data[:5000], headers={**hd, "X-Offset": "0"}).json()
-    assert r == {"received": 5000, "done": False}
-    # connection broke; the app asks where to continue
-    assert c.get("/api/takeout-upload?name=takeout-2026-001.zip", headers=h).json()["received"] == 5000
-    assert c.post("/api/takeout-upload", content=b"x", headers={**hd, "X-Offset": "0"}).status_code == 409
-    r = c.post("/api/takeout-upload", content=data[5000:], headers={**hd, "X-Offset": "5000"}).json()
-    assert r["done"] is True
-    assert (settings.inbox / "chie" / "takeout-2026-001.zip").read_bytes() == data
-    assert not list((settings.inbox / "chie").glob(".*.part"))
-    assert c.post("/api/takeout-upload", content=b"", headers={**h, "X-File-Name": "../../evil.sh", "X-Total": "1"}).status_code == 400
-
-
 def test_photo_already_backed_up_by_synology_photos_is_not_stored_twice(settings, db, chie):
     """Synology Photos put the file in Photos/MobileBackup before the nightly scan ran."""
     u, h, c = chie

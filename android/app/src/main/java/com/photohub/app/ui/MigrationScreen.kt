@@ -33,7 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.photohub.app.data.TakeoutUploadWorker
 
 /**
  * Google Photos -> Synology, once. Takeout is made into Google Drive and Cloud Sync brings it to the

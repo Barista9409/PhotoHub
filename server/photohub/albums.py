@@ -212,9 +212,9 @@ def pull(db: Database, settings: Settings, user: User) -> dict:
         albums = _list_all(ses, "SYNO.Foto.Browse.Album", "list")
         with db.session() as s:
             index: dict[tuple[str, int], Media] = {}
-            for m in s.execute(select(Media).where(Media.status == "active")).scalars():
-                if can_see(s, user, m):
-                    index[(Path(m.nas_path).name.lower(), m.bytes)] = m
+            from .db import visible_clause
+            for m in s.execute(select(Media).where(Media.status == "active", visible_clause(user))).scalars():
+                index[(Path(m.nas_path).name.lower(), m.bytes)] = m
             seen_ids = set()
             for alb in albums:
                 aid = alb.get("id")

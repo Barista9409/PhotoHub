@@ -18,10 +18,20 @@ class MediaFiles(ctx: Context) {
     fun thumb(hash: String) = File(thumbs, "${safe(hash).take(2)}/${safe(hash)}.webp")
     fun preview(hash: String) = File(previews, "${safe(hash).take(2)}/${safe(hash)}.webp")
 
-    fun hasThumb(hash: String) = thumb(hash).exists()
+    /** Which thumbnails are on the phone, kept in memory: the photo grid asks for every tile it
+     *  draws, and asking the disk each time made scrolling stutter. Filled once in the background. */
+    @Volatile private var known: MutableSet<String>? = null
+
+    fun loadIndex() {
+        val set = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        thumbs.listFiles()?.forEach { d -> d.list()?.forEach { n -> if (n.endsWith(".webp")) set += n.removeSuffix(".webp") } }
+        known = set
+    }
+
+    fun hasThumb(hash: String): Boolean = known?.contains(safe(hash)) ?: thumb(hash).exists()
     fun hasPreview(hash: String) = preview(hash).exists()
 
-    fun writeThumb(hash: String, data: ByteArray) = atomicWrite(thumb(hash), data)
+    fun writeThumb(hash: String, data: ByteArray) { atomicWrite(thumb(hash), data); known?.add(safe(hash)) }
     fun writePreview(hash: String, data: ByteArray) = atomicWrite(preview(hash), data)
 
     private fun atomicWrite(f: File, data: ByteArray) {
@@ -57,10 +67,10 @@ class MediaFiles(ctx: Context) {
         }
     }
 
-    fun removeFor(hashes: Collection<String>) = hashes.forEach { thumb(it).delete(); preview(it).delete() }
+    fun removeFor(hashes: Collection<String>) = hashes.forEach { thumb(it).delete(); preview(it).delete(); known?.remove(safe(it)) }
 
     /** Another person signs in on this phone: drop everything that came from the NAS. */
-    fun clearAll() { thumbs.deleteRecursively(); previews.deleteRecursively(); clearShare() }
+    fun clearAll() { thumbs.deleteRecursively(); previews.deleteRecursively(); clearShare(); known?.clear() }
 
     fun clearShare() { shareDir.deleteRecursively(); shareDir.mkdirs() }
 }
