@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ZoomOutMap
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
@@ -68,20 +69,41 @@ fun MapScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
             setMultiTouchControls(true)
             isTilesScaledToDpi = true
             minZoomLevel = 3.0
-            controller.setZoom(5.0)
-            controller.setCenter(GeoPoint(36.2, 138.2))
+            // back on the map tab: where you left it; the first time: Japan, then your position
+            val last = lastCamera
+            controller.setZoom(last?.second ?: 5.0)
+            controller.setCenter(last?.first ?: GeoPoint(36.2, 138.2))
             overlays.add(overlay)
         }
     }
     overlay.onOpen = onOpen
     overlay.base = base
     LaunchedEffect(located) {
-        val first = overlay.items.isEmpty()
         overlay.setItems(located)
-        if (first && located.isNotEmpty()) fit(map, located)
         map.invalidate()
     }
-    DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause() } }
+    // the map opens where you are (asks once for the location); without it, over Japan
+    fun goHere(animate: Boolean) = currentLocation(ctx) { here ->
+        if (here == null) return@currentLocation
+        map.post {
+            if (animate) map.controller.animateTo(here, 14.0, 500L)
+            else { map.controller.setZoom(14.0); map.controller.setCenter(here) }
+        }
+    }
+    val askLocation = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { goHere(false) }
+    LaunchedEffect(Unit) {
+        if (lastCamera != null) return@LaunchedEffect
+        if (hasLocation(ctx)) goHere(false)
+        else askLocation.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+    DisposableEffect(Unit) {
+        map.onResume()
+        onDispose {
+            lastCamera = GeoPoint(map.mapCenter.latitude, map.mapCenter.longitude) to map.zoomLevelDouble
+            map.onPause()
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         AndroidView(factory = { map }, modifier = Modifier.fillMaxSize())
         if (loaded == null) {
@@ -96,10 +118,35 @@ fun MapScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp))
-            SmallFloatingActionButton(onClick = { fit(map, located) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) { Icon(Icons.Default.ZoomOutMap, "全体を表示") }
+            androidx.compose.foundation.layout.Column(Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                SmallFloatingActionButton(onClick = {
+                    if (hasLocation(ctx)) goHere(true)
+                    else askLocation.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                }) { Icon(Icons.Default.MyLocation, "現在地") }
+                SmallFloatingActionButton(onClick = { fit(map, located) }) { Icon(Icons.Default.ZoomOutMap, "全体を表示") }
+            }
         }
     }
+}
+
+/** Where the map was when you left the tab (kept while the app runs). */
+private var lastCamera: Pair<GeoPoint, Double>? = null
+
+private fun hasLocation(ctx: android.content.Context) =
+    ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+        ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+/** Where the phone is: the newest known position at once, else one fresh fix; null without permission. */
+@android.annotation.SuppressLint("MissingPermission")
+private fun currentLocation(ctx: android.content.Context, done: (GeoPoint?) -> Unit) {
+    if (!hasLocation(ctx)) { done(null); return }
+    val lm = ctx.getSystemService(android.location.LocationManager::class.java)
+    val last = lm.getProviders(true).mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
+    if (last != null) { done(GeoPoint(last.latitude, last.longitude)); return }
+    val provider = listOf(android.location.LocationManager.NETWORK_PROVIDER, android.location.LocationManager.GPS_PROVIDER)
+        .firstOrNull { lm.isProviderEnabled(it) } ?: run { done(null); return }
+    lm.getCurrentLocation(provider, null, ctx.mainExecutor) { l -> done(l?.let { GeoPoint(it.latitude, it.longitude) }) }
 }
 
 /** Zoom to show all points; a single place gets a street-level zoom. */
