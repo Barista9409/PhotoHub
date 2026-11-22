@@ -147,7 +147,7 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
     val albums by app.lists.albums.collectAsState()
     val items by app.lists.shared.collectAsState()
     val folderOf by app.lists.sharedFolders.collectAsState()
-    var mode by rememberSaveable { mutableStateOf("folder") }
+    var mode by rememberSaveable { mutableStateOf("all") }
     var path by rememberSaveable { mutableStateOf("") }
     val all = items
     val fo = folderOf
@@ -161,7 +161,7 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
     }
     val switcher: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(12.dp, 8.dp), horizontalArrangement = Arrangement.Center) {
-            Segmented(listOf("folder" to "フォルダ", "album" to "アルバム", "all" to "すべての写真"), mode, { mode = it; path = "" })
+            Segmented(listOf("all" to "すべての写真", "folder" to "フォルダ", "album" to "アルバム"), mode, { mode = it; path = "" })
         }
     }
     when (mode) {
@@ -187,7 +187,7 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
                 val hs = fo.filter { it.folder == path }.map { it.hash }.toSet()
                 all.filter { it.hash in hs }
             }
-            MediaGrid(here, onOpen, header = {
+            MediaGrid(here, onOpen, zoomBar = true, header = {
                 Column {
                     switcher()
                     // where we are: 共有スペース > 2024 > 沖縄
