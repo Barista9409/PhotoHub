@@ -413,8 +413,16 @@ fun AppScreen() {
         Group {
             var server by remember { mutableStateOf<String?>("確認中…") }
             LaunchedEffect(Unit) {
-                server = try { app.net.api()?.status()?.let { it.build ?: "古い版（2026-11-22より前）" } ?: "Synologyにつながりません" }
-                    catch (e: Exception) { "Synologyにつながりません" }
+                val build = try { app.net.api()?.status()?.let { it.build ?: "" } } catch (e: Exception) { null }
+                if (build == null) { server = "Synologyにつながりません"; return@LaunchedEffect }
+                val latest = app.updater.latestServerSha()
+                val mine = build.substringAfterLast('-', "")
+                server = when {
+                    build.isEmpty() -> "古い版です（2026-11-22より前）。新しい版に更新してください"
+                    latest == null -> "$build（最新か確かめられませんでした）"
+                    mine == latest -> "最新です（$build）"
+                    else -> "古い版です（$build）。新しい版に更新してください"
+                }
             }
             SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
         }

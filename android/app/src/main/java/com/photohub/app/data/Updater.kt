@@ -28,6 +28,9 @@ import com.photohub.app.BuildConfig
 import com.photohub.app.data.api.AppRelease
 import com.photohub.app.data.api.GhRelease
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,6 +87,16 @@ class Updater(private val app: PhotoHubApp) {
             if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}")
             r.body!!.string()
         }
+
+    /** Commit (first 7 chars) of the newest server image that finished building on GitHub. */
+    suspend fun latestServerSha(): String? = withContext(Dispatchers.IO) {
+        try {
+            val body = get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/actions/workflows/server-image.yml/runs?branch=main&status=success&per_page=1",
+                "application/vnd.github+json")
+            val runs = json.parseToJsonElement(body).jsonObject["workflow_runs"]?.jsonArray
+            runs?.firstOrNull()?.jsonObject?.get("head_sha")?.jsonPrimitive?.content?.take(7)
+        } catch (e: Exception) { null }
+    }
 
     private fun fetchLatest(): AppRelease? {
         val body = try {
