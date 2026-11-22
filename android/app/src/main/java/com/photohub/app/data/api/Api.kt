@@ -285,6 +285,7 @@ interface PhotoHubApi {
     @POST("api/media/delete") suspend fun deleteMedia(@Body body: HashesBody): Map<String, Int>
     @POST("api/albums") suspend fun createAlbum(@Body body: AlbumNewBody): Map<String, Long>
     @retrofit2.http.PUT("api/albums/{id}") suspend fun renameAlbum(@retrofit2.http.Path("id") id: Long, @Body body: AlbumNameBody): Map<String, Boolean>
+    @GET("api/media/{hash}/probe") suspend fun probe(@Path("hash") hash: String): kotlinx.serialization.json.JsonObject
     @POST("api/albums/merge") suspend fun mergeAlbums(@Body body: AlbumMergeBody): Map<String, Long>
     @POST("api/albums/auto") suspend fun autoAlbums(): Map<String, Int>
     @retrofit2.http.DELETE("api/albums/{id}") suspend fun deleteAlbum(@retrofit2.http.Path("id") id: Long): Map<String, Boolean>

@@ -820,6 +820,29 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         return {"ok": True, "bytes": p.stat().st_size}
 
+    @app.get("/api/media/{content_hash}/probe")
+    def media_probe(content_hash: str, user: User = Depends(auth)) -> dict:
+        """What the Synology can tell about a video file (for "it does not play"): format, codecs,
+        length, whether the file is complete and where its index is."""
+        import json
+        import subprocess
+        from . import playable
+        with db.session() as s:
+            m = media_or_404(s, content_hash, user)
+        p = Path(m.nas_path)
+        if not p.exists():
+            return {"exists": False}
+        r = subprocess.run([settings.ffprobe_bin, "-v", "error", "-show_entries",
+                            "format=duration,bit_rate,format_name:stream=codec_type,codec_name,profile,pix_fmt,width,height,color_transfer",
+                            "-of", "json", str(p)], capture_output=True, text=True, timeout=120)
+        try:
+            info = json.loads(r.stdout or "{}")
+        except ValueError:
+            info = {}
+        return {"exists": True, "bytes": p.stat().st_size, "indexed_bytes": m.bytes, "path": str(p),
+                "faststart": playable.is_faststart(p), "ready_copy": playable.path_for(settings, m).exists(),
+                "streams": info.get("streams", []), "format": info.get("format", {}), "errors": r.stderr[-600:]}
+
     @app.head("/api/playable/{content_hash}")
     def playable_ready(content_hash: str, user: User = Depends(auth)) -> Response:
         """200 when the phone-friendly copy is already there (made ahead of time), 404 when not."""

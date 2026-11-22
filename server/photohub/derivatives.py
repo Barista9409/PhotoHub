@@ -42,17 +42,45 @@ def synology_thumb(original: Path, want: int = 1600) -> Path | None:
     return None
 
 
+def _video_duration(settings: Settings, path: Path) -> float:
+    try:
+        out = subprocess.run([settings.ffprobe_bin, "-v", "error", "-show_entries", "format=duration", "-of",
+                              "default=nw=1:nk=1", str(path)], capture_output=True, text=True, timeout=60).stdout
+        return float(out.strip() or 0)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0.0
+
+
+def _grab(settings: Settings, path: Path, ss: float) -> Image.Image | None:
+    try:
+        data = subprocess.run([settings.ffmpeg_bin, "-v", "error", "-nostdin", "-ss", f"{ss:.2f}", "-i", str(path),
+                               "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+                              capture_output=True, check=True, timeout=120).stdout
+        return Image.open(io.BytesIO(data)) if data else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _brightness(img: Image.Image) -> float:
+    small = img.convert("L").resize((32, 32))
+    return sum(small.getdata()) / (32 * 32)
+
+
 def _video_frame(settings: Settings, path: Path) -> Image.Image | None:
-    for ss in ("1", "0"):
-        try:
-            data = subprocess.run([settings.ffmpeg_bin, "-v", "error", "-nostdin", "-ss", ss, "-i", str(path),
-                                   "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
-                                  capture_output=True, check=True, timeout=120).stdout
-            if data:
-                return Image.open(io.BytesIO(data))
-        except (OSError, subprocess.SubprocessError):
+    """A frame that shows something: videos often start black (lens opening, in a pocket), so a
+    few moments are tried (1 s, a quarter, half way) and the brightest is used."""
+    dur = _video_duration(settings, path)
+    best, best_light = None, -1.0
+    for ss in [1.0] + ([dur * 0.25, dur * 0.5] if dur > 8 else []) + [0.0]:
+        img = _grab(settings, path, ss)
+        if img is None:
             continue
-    return None
+        light = _brightness(img)
+        if light > best_light:
+            best, best_light = img, light
+        if light > 40:   # bright enough: no need to look further
+            break
+    return best
 
 
 def _source_image(settings: Settings, m: Media, want: int) -> Image.Image | None:
@@ -112,3 +140,27 @@ def build_all(db: Database, settings: Settings, limit: int | None = None,
         for r in ex.map(one, media):
             ok, fail = (ok + 1, fail) if r else (ok, fail + 1)
     return ok, fail
+
+
+def refresh_dark_video_thumbs(db: Database, settings: Settings, limit: int = 300) -> int:
+    """Video thumbnails made from a black first second (before the frame was chosen by brightness):
+    made again once, and the video is marked changed so phones fetch the new picture."""
+    from .db import kv_get, kv_set, touch_media
+    n = 0
+    with db.session() as s:
+        for m in s.execute(select(Media).where(Media.kind == "video", Media.status == "active")).scalars():
+            if n >= limit or kv_get(s, f"thumbfix:{m.id}"):
+                continue
+            kv_set(s, f"thumbfix:{m.id}", "1")
+            t = path_for(settings, "thumb", m.content_hash)
+            if not t.exists():
+                continue
+            try:
+                with Image.open(t) as img:
+                    dark = _brightness(img) < 25
+            except OSError:
+                dark = True
+            if dark and make(settings, m, force=True):
+                touch_media(s, m)
+                n += 1
+    return n

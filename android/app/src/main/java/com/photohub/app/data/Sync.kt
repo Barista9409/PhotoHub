@@ -62,6 +62,8 @@ class SyncEngine(private val app: PhotoHubApp) {
                 dao.applySync(ups, dels, links, page.albums?.map { AlbumRow(it.id, it.name, it.origin, it.shared) })
                 page.albumsTag?.let { albumsTag = it; app.delta.setString("albums_tag", it) }
                 files.removeFor(dels)
+                // a changed video may have a new picture (e.g. a better frame than a black start): fetch it again
+                files.removeFor(ups.filter { it.kind == "video" && files.hasThumb(it.hash) }.map { it.hash })
                 changed += page.items.size
                 cursor = page.cursor
                 prefs.setCursor(cursor)

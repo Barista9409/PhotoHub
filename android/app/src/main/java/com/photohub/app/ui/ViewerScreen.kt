@@ -210,6 +210,39 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                         }
                     }
                 }
+                if (cur.kind == "video" && cur.hash != null) {
+                    var probe by remember { mutableStateOf<String?>(null) }
+                    androidx.compose.material3.TextButton({
+                        probe = "調べています…"
+                        scope.launch {
+                            probe = try {
+                                val j = app.net.api()!!.probe(cur.hash)
+                                fun str(e: kotlinx.serialization.json.JsonElement?) = (e as? kotlinx.serialization.json.JsonPrimitive)?.content
+                                val streams = (j["streams"] as? kotlinx.serialization.json.JsonArray)?.joinToString("\n") { st ->
+                                    val o = st as kotlinx.serialization.json.JsonObject
+                                    listOfNotNull(str(o["codec_type"]), str(o["codec_name"]), str(o["profile"]), str(o["pix_fmt"]),
+                                        str(o["color_transfer"]), str(o["width"])?.let { "${it}×${str(o["height"])}" }).joinToString(" ")
+                                } ?: ""
+                                val fmt = j["format"] as? kotlinx.serialization.json.JsonObject
+                                listOf("ファイル：${if (str(j["exists"]) == "true") "あり" else "Synologyにありません"}",
+                                    "大きさ：${str(j["bytes"])} バイト（一覧では ${str(j["indexed_bytes"])}）",
+                                    "長さ：${str(fmt?.get("duration"))} 秒・${str(fmt?.get("format_name"))}",
+                                    "目次が先頭：${if (str(j["faststart"]) == "true") "はい" else "いいえ（最後）"}",
+                                    "すぐ再生できるコピー：${if (str(j["ready_copy"]) == "true") "あり" else "まだ"}",
+                                    streams, str(j["errors"])?.takeIf { it.isNotBlank() }?.let { "エラー：$it" } ?: "")
+                                    .filter { it.isNotBlank() }.joinToString("\n")
+                            } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "調べられませんでした（HTTP ${e.code()}）" }
+                              catch (e: Exception) { "調べられませんでした（${e.message}）" }
+                        }
+                    }) { Text("この動画を調べる（再生できないとき）") }
+                    probe?.let { text ->
+                        androidx.compose.foundation.text.selection.SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall) }
+                        androidx.compose.material3.TextButton({
+                            ctx.getSystemService(android.content.ClipboardManager::class.java)
+                                .setPrimaryClip(android.content.ClipData.newPlainText("PhotoHub", "${cur.name}\n$text"))
+                        }) { Text("結果をコピー") }
+                    }
+                }
                 var legend by remember { mutableStateOf(false) }
                 androidx.compose.material3.TextButton({ legend = !legend }) { Text(if (legend) "印の見かたを閉じる" else "一覧の印の見かた") }
                 if (legend) PlaceLegend()
