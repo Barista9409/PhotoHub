@@ -82,8 +82,11 @@ class Updater(private val app: PhotoHubApp) {
     private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(120, TimeUnit.SECONDS).build()
     private val json = Json { ignoreUnknownKeys = true }
 
+    // small answers (version notes): give up after 15 seconds instead of hanging the screen
+    private val quick by lazy { http.newBuilder().callTimeout(15, TimeUnit.SECONDS).build() }
+
     private fun get(url: String, accept: String? = null): String =
-        http.newCall(Request.Builder().url(url).apply { if (accept != null) header("Accept", accept) }.build()).execute().use { r ->
+        quick.newCall(Request.Builder().url(url).apply { if (accept != null) header("Accept", accept) }.build()).execute().use { r ->
             if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}")
             r.body!!.string()
         }

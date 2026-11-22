@@ -776,24 +776,33 @@ fun BatteryRow() {
 }
 
 
-/** The Synology side's version, and whether it is the newest one. */
+/** The Synology side's version, and whether it is the newest one (each step has a time limit, and a tap checks again). */
 @Composable
 fun ServerVersionRow() {
     val app = LocalContext.current.applicationContext as PhotoHubApp
-    var server by remember { mutableStateOf<String?>("確認中…") }
-    LaunchedEffect(Unit) {
-        val build = try { app.net.api()?.status()?.let { it.build ?: "" } } catch (e: Exception) { null }
-        if (build == null) { server = "Synologyにつながりません"; return@LaunchedEffect }
-        val latest = app.updater.latestServer()
-        val mine = com.photohub.app.data.Updater.ServerBuild.parse(build)
+    var server by remember { mutableStateOf("確認中…") }
+    var round by remember { mutableIntStateOf(0) }
+    LaunchedEffect(round) {
         fun name(b: com.photohub.app.data.Updater.ServerBuild) =
             if (b.number == null && b.at != null) "${b.at.monthValue}月${b.at.dayOfMonth}日の版" else b.label()
+        // 1) what the Synology runs: the light health answer (the status page counts the whole library)
+        val build = try {
+            kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                app.net.api()?.health()?.get("build")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: ""
+            }
+        } catch (e: Throwable) { com.photohub.app.data.AppLog.error("Synology側の版", e); null }
+        if (build == null) { server = "Synologyにつながりません（押すともう一度）"; return@LaunchedEffect }
+        val mine = com.photohub.app.data.Updater.ServerBuild.parse(build)
+        if (mine == null) { server = "とても古い版です。新しい版に更新してください"; return@LaunchedEffect }
+        server = "${name(mine)}（最新か確認中…）"
+        // 2) the newest one published
+        val latest = try { kotlinx.coroutines.withTimeoutOrNull(15_000) { app.updater.latestServer() } }
+            catch (e: Throwable) { com.photohub.app.data.AppLog.error("Synology側の最新版", e); null }
         server = when {
-            mine == null -> "とても古い版です。新しい版に更新してください"
-            latest == null -> "${name(mine)}（最新か確かめられませんでした）"
+            latest == null -> "${name(mine)}（最新か確かめられませんでした。押すともう一度）"
             mine.sha == latest.sha -> "最新です（${name(latest)}）"
             else -> "古い版です（${name(mine)}）。最新は${name(latest)}。自動更新を入れていれば2〜3分で入れ替わります（入らないときは、タスクスケジューラの「最終実行時刻」が23:00になっているか確かめてください）"
         }
     }
-    SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
+    SettingRow(Icons.Default.Dns, "Synology側の版", server, onClick = { server = "確認中…"; round++ })
 }
