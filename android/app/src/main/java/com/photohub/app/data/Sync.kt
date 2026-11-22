@@ -213,3 +213,40 @@ class LocalIndexWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
         return androidx.work.ListenableWorker.Result.success()
     }
 }
+
+/**
+ * Wakes up a few seconds after the camera (or any app) adds a photo or video, and starts a backup,
+ * so new photos reach the Synology within minutes instead of at the next hourly run.
+ * Android delivers this only once per request, so it puts itself back in place every time.
+ * The backup itself keeps the usual rules (on/off, Wi-Fi only unless mobile data is allowed).
+ */
+class NewMediaWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
+    override suspend fun doWork(): androidx.work.ListenableWorker.Result {
+        val app = applicationContext as PhotoHubApp
+        try {
+            if (triggeredContentUris.isNotEmpty() || triggeredContentAuthorities.isNotEmpty()) {
+                app.indexer.scan()
+                val s = app.prefs.current()
+                if (s.configured && (s.backupNas || s.backupDrive)) BackupWorker.runNow(applicationContext)
+            }
+        } finally {
+            watch(applicationContext)   // next new photo
+        }
+        return androidx.work.ListenableWorker.Result.success()
+    }
+
+    companion object {
+        private const val NAME = "photohub-new-media"
+
+        fun watch(ctx: Context) {
+            val c = Constraints.Builder()
+                .addContentUriTrigger(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true)
+                .addContentUriTrigger(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true)
+                .setTriggerContentUpdateDelay(15, TimeUnit.SECONDS)   // a burst of shots: wait until it settles
+                .setTriggerContentMaxDelay(2, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(ctx).enqueueUniqueWork(NAME, ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<NewMediaWorker>().setConstraints(c).build())
+        }
+    }
+}

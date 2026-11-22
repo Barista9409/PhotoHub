@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -228,6 +229,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             }
             GroupDivider()
             if (live.running) BackupProgress(live) else RunNowRow()
+            BatteryRow()
         }
 
         CollapsibleGroup("library", "写真と容量", "整理・ゴミ箱・このスマホの容量・内訳", openByDefault = true) {
@@ -809,4 +811,31 @@ fun DateRepairRow() {
                 Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
             }
         })
+}
+
+
+/**
+ * Android may hold background work back for hours to save battery. When PhotoHub is not exempt,
+ * a row offers to exempt it (one tap; the system asks). Hidden once exempt.
+ */
+@Composable
+fun BatteryRow() {
+    val ctx = LocalContext.current
+    val pm = ctx.getSystemService(android.os.PowerManager::class.java)
+    var exempt by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(ctx.packageName)) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        exempt = pm.isIgnoringBatteryOptimizations(ctx.packageName)
+    }
+    if (exempt) return
+    GroupDivider()
+    SettingRow(Icons.Default.BatteryAlert, "電池の最適化から外す（おすすめ）",
+        "このままだと、Androidが自動のバックアップを何時間も後回しにすることがあります。押すと確認が出るので「許可」を選んでください",
+        onClick = {
+            try {
+                ask.launch(android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:${ctx.packageName}")))
+            } catch (_: Exception) {
+                ask.launch(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }) { Chevron() }
 }
