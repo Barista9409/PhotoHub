@@ -33,26 +33,27 @@ def incoming_dir(settings: Settings, user: User) -> Path:
 
 
 def drive_dir(settings: Settings, user: User) -> Path:
-    """Where the person's Drive folder "PhotoHub" shows up on the NAS:
-      1. set explicitly (photohub user set NAME --drive-dir ...)
-      2. <root>/inbox/drive/<name> if Cloud Sync writes there
-      3. otherwise found automatically when an existing Cloud Sync task mirrors their whole Drive
-         into their home folder: /volume1/homes/<name>/<anything>/PhotoHub"""
+    """Where the person's Drive folder "PhotoHub" shows up on the NAS (Cloud Sync):
+      1. set explicitly (photohub user set NAME --drive-dir ...) or chosen in the app (drive_root)
+      2. in their home folder, next to Takeout (the recommended place):
+         /volume1/homes/<name>/PhotoHub or /volume1/homes/<name>/<folder>/PhotoHub
+      3. older setups: <root>/inbox/drive/<name> (or its PhotoHub subfolder)"""
     if user.drive_dir:
         return Path(user.drive_dir)
-    if user.drive_root:
-        return settings.homes_root / user.name / user.drive_root / "PhotoHub"
-    default = settings.inbox.parent / "drive" / user.name
-    if (default / "PhotoHub").is_dir():
-        return default / "PhotoHub"  # the whole Drive is synced here, not just its PhotoHub folder
-    if default.exists() and any(default.iterdir()):
-        return default
     home = settings.homes_root / user.name
+    if user.drive_root:
+        return home / user.drive_root / "PhotoHub"
     try:
-        found = sorted(p for p in home.glob("*/PhotoHub") if p.is_dir() and p.parent.name != "Photos")
+        found = ([home / "PhotoHub"] if (home / "PhotoHub").is_dir() else []) + \
+            sorted(p for p in home.glob("*/PhotoHub") if p.is_dir() and p.parent.name != "Photos")
     except OSError:
         found = []
-    return found[0] if found else default
+    if found:
+        return found[0]
+    old = settings.inbox.parent / "drive" / user.name
+    if (old / "PhotoHub").is_dir():
+        return old / "PhotoHub"
+    return old
 
 
 class UploadRejected(ValueError):
