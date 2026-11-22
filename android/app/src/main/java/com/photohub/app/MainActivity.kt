@@ -107,7 +107,6 @@ private val tabs = listOf(
     Tab("albums", "アルバム", Icons.Default.PhotoAlbum),
     Tab("shared", "共有", Icons.Default.FamilyRestroom),
     Tab("map", "地図", Icons.Default.Map),
-    Tab("search", "検索", Icons.Default.Search),
     Tab("account", "設定", Icons.Default.Settings),   // bottom right: backup, tidy-up, migration, app, account
 )
 
@@ -145,6 +144,11 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 title = { Text(titleFor(route, entry?.arguments?.getString("name"))) },
                 navigationIcon = {
                     if (tabs.none { it.route == route }) IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る") }
+                },
+                actions = {
+                    // search sits on the photo pages (a magnifier at the top right), not in the tab bar
+                    if (route in setOf("timeline", "albums", "shared", "map"))
+                        IconButton({ nav.navigate("search") { launchSingleTop = true } }) { Icon(Icons.Default.Search, "検索") }
                 },
 
             )
@@ -226,6 +230,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
 private fun titleFor(route: String, name: String?) = when {
     route.startsWith("album/") || route.startsWith("folder/") -> name?.let { URLDecoder.decode(it, "UTF-8") } ?: "アルバム"
     route == "account" -> "設定"
+    route == "search" -> "検索"
     route.startsWith("suggest/") -> "消してもよさそうな写真"
     Dest.entries.any { it.route == route } -> Dest.entries.first { it.route == route }.title
     else -> tabs.firstOrNull { it.route == route }?.label ?: "PhotoHub"

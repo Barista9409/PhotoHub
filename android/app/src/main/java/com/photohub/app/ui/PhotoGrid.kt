@@ -149,7 +149,7 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
 @OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
-              zoomBar: Boolean = false, albumId: Long? = null, legend: Boolean = true) {
+              zoomBar: Boolean = false, albumId: Long? = null, legend: Boolean = true, refreshable: Boolean = false) {
     var kindFilter by rememberSaveable { mutableStateOf("") }   // "" / photo / video
     val items = remember(allItems, kindFilter) { if (kindFilter == "") allItems else allItems.filter { it.kind == kindFilter } }
     val ctx = LocalContext.current
@@ -221,6 +221,14 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
             Pills(listOf("すべて" to "", "写真" to "photo", "動画" to "video"), kindFilter) { kindFilter = it }
         }
     }
+    // pull down to fetch what is new from the Synology (like other photo apps)
+    val syncing by androidx.work.WorkManager.getInstance(ctx).getWorkInfosForUniqueWorkFlow(com.photohub.app.data.SyncWorker.ONCE)
+        .collectAsState(initial = emptyList())
+    val refreshing = refreshable && syncing.any { it.state == androidx.work.WorkInfo.State.RUNNING }
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(isRefreshing = refreshing,
+        onRefresh = { if (refreshable) com.photohub.app.data.SyncWorker.runNow(ctx, light = true) },
+        modifier = Modifier.fillMaxSize()) {
     Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols), state = grid,
@@ -365,6 +373,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
             }
         }
         busy?.let { Text(it, Modifier.align(Alignment.Center).background(Color(0xAA000000), RoundedCornerShape(8.dp)).padding(16.dp), color = Color.White) }
+    }
     }
     }
 
@@ -519,7 +528,7 @@ fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
         items.filter { val d = localDate(it); d.monthValue == today.monthValue && d.dayOfMonth == today.dayOfMonth && d.year < today.year }
             .groupBy { today.year - localDate(it).year }.toSortedMap()
     }
-    MediaGrid(items, onOpen, zoomBar = true, legend = false, header = {
+    MediaGrid(items, onOpen, zoomBar = true, legend = false, refreshable = true, header = {
       Column {
         MarksLegend()
         if (memories.isNotEmpty()) LazyRow(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

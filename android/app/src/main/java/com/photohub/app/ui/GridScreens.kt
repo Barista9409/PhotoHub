@@ -59,6 +59,7 @@ import com.photohub.app.PhotoHubApp
 import com.photohub.app.data.db.TimelineItem
 import java.time.LocalDate
 import kotlinx.coroutines.launch
+import androidx.compose.ui.focus.focusRequester
 import kotlinx.coroutines.flow.first
 import java.time.ZoneId
 
@@ -276,7 +277,7 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
                 items(family, key = { it.id }) { a -> AlbumCard(a) { onAlbum(a.id, a.name) } }
             }
         }
-        "all" -> MediaGrid(all, onOpen, zoomBar = true, header = switcher)
+        "all" -> MediaGrid(all, onOpen, zoomBar = true, header = switcher, refreshable = true)
         else -> {
             // folders one level below `path`, each with its photo count (including subfolders) and newest photo
             val byHash = remember(all) { all.associateBy { it.hash } }
@@ -434,13 +435,20 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
     val albums = app.lists.albums.collectAsState().value ?: emptyList()
     val places by app.db.media().places().collectAsState(initial = emptyList())
 
+    // opened from the magnifier: ready to type at once
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(150)
+        if (q.isEmpty()) try { focus.requestFocus() } catch (_: Exception) {}
+    }
     val box: @Composable () -> Unit = {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(q, { q = it }, placeholder = { Text("例：渋谷、沖縄、2023年8月、IMG_1234") }, singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = { if (active) androidx.compose.material3.IconButton({ q = ""; kind = ""; withPlace = false; favOnly = false; shots = false }) {
                     Icon(Icons.Default.Close, "条件を消す") } },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), modifier = Modifier.fillMaxWidth())
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus))
             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilterChip(kind == "video", { kind = if (kind == "video") "" else "video" }, label = { Text("動画") })
                 FilterChip(kind == "photo", { kind = if (kind == "photo") "" else "photo" }, label = { Text("写真だけ") })
