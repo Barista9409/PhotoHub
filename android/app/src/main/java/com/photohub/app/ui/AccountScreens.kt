@@ -197,8 +197,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 androidx.compose.material3.Button({ confirmLogout = true }) { Text("ログアウトしてログインし直す") }
             }
         }
-        SectionTitle("同期と保存")
-        Group {
+        CollapsibleGroup("sync", "同期と保存", "Synologyと同期・Googleドライブ・モバイル回線・今すぐ同期・保存場所", openByDefault = true) {
             SwitchRow(Icons.Default.Dns, "Synologyと同期",
                 if (cur.backupNas) "撮った写真を送り、Synologyの写真を受け取ります" else "オフ（Synologyの写真を見るだけ）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
@@ -217,8 +216,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
-        SectionTitle("ライブラリ")
-        Group {
+        CollapsibleGroup("library", "ライブラリ", "このスマホのデータ・内訳・似ている写真・空き容量・整理・ゴミ箱", openByDefault = true) {
             SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", "使う容量・外出先ですぐ開ける期間",
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
             GroupDivider()
@@ -237,8 +235,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             SettingRow(Icons.Default.Delete, "ゴミ箱", "消した写真は30日間ここから戻せます", onClick = { open(Dest.TRASH) }) { Chevron() }
         }
 
-        SectionTitle("Googleフォトからの移行")
-        Group {
+        CollapsibleGroup("migration", "Googleフォトからの移行", "移行の手順・反映状況・Googleフォトを空にする", openByDefault = false) {
             SettingRow(Icons.Default.PhotoLibrary, "移行の手順", "Takeoutをドライブに作るだけ。あとはSynologyが取り込みます",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
             GroupDivider()
@@ -249,15 +246,13 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 onClick = { open(Dest.CLEANUP) }) { Chevron() }
         }
 
-        SectionTitle("アプリ")
-        Group {
+        CollapsibleGroup("app", "アプリ", "更新と共有", openByDefault = false) {
             SettingRow(Icons.Default.SystemUpdate, "更新と共有",
                 when (updater) { is Updater.State.Available, is Updater.State.Ready -> "新しい版があります"; else -> "PhotoHub ${BuildConfig.VERSION_NAME}・家族に送る" },
                 onClick = { open(Dest.APP) }) { Chevron() }
         }
 
-        SectionTitle("アカウント")
-        Group {
+        CollapsibleGroup("account", "アカウント", "外出先からの接続・ログアウト", openByDefault = false) {
             RemoteAddressRow()
             GroupDivider()
             SettingRow(Icons.AutoMirrored.Filled.Logout, "ログアウト", "別の家族がこのスマホを使うとき", onClick = { confirmLogout = true })
