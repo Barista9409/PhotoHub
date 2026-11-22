@@ -118,9 +118,18 @@ class Settings:
         return self.root / "google-trash"
 
     def ensure_dirs(self) -> None:
-        for p in (self.inbox, self.work, self.processed, self.trash, self.db_dir,
-                  self.cache, self.outbox, self.google_trash, self.library):
+        """Only the folders PhotoHub always uses. Others (google-trash, amazon-outbox) are made
+        when something goes there; empty leftovers from older versions are removed."""
+        for p in (self.inbox, self.work, self.trash, self.db_dir, self.cache, self.library):
             p.mkdir(parents=True, exist_ok=True)
+        leftovers = [self.processed, self.google_trash, self.root / "google-locked"]
+        if not self.amazon_backup:
+            leftovers.append(self.outbox)
+        for p in leftovers:
+            try:
+                p.rmdir()  # only if empty
+            except OSError:
+                pass
 
     @classmethod
     def from_env(cls, **overrides) -> "Settings":
