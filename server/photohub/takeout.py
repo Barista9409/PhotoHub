@@ -194,6 +194,19 @@ def import_group(db: Database, settings: Settings, group: ArchiveGroup, *, apply
     _progress(user, archive=group.prefix, parts=len(group.parts), step="extract", done=0, total=0,
               new=0, duplicate=0, error=0, dry_run=not apply, finished=False)
     _extract(group, extracted)
+    if not collect_media(extracted):
+        # an export without photos or videos (e.g. only album/HTML files): nothing to import.
+        # Mark it done (so it is not retried every few minutes) and tidy up like a finished import.
+        with db.session() as s:
+            s.add(ImportJob(source="takeout", archive_name=", ".join(p.name for p in group.parts), archive_key=key,
+                            user_id=user.id if user else None, state="done" if apply else "dry_run",
+                            finished_at=utcnow(), message="no photos or videos in this archive"))
+            log_event(s, "info", "import_done", f"{rep.archive}: no photos or videos in this archive")
+        _progress(user, step="done", finished=True)
+        shutil.rmtree(workdir, ignore_errors=True)
+        if apply:
+            _archive_parts(db, settings, group)
+        return rep
     _progress(user, step="organize")
     run_gpth(settings, extracted, out)
 

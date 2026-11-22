@@ -224,3 +224,19 @@ def test_takeout_leftovers_can_be_deleted(settings, db):
     st = c.get("/api/me/takeout", headers=h).json()
     assert [d["name"] for d in st["deleted"]] == ["takeout-9-001.zip"] and st["leftover"] == []
     assert (src / "takeout-9-002.zip").exists()
+
+
+def test_archive_without_photos_is_done_not_retried(settings, db):
+    """A Takeout ZIP with no photos/videos (only HTML/JSON) is marked done and removed, not failed."""
+    import zipfile
+    from photohub.db import ImportJob
+    z = settings.inbox / "takeout-20260101T000000Z-001.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("Takeout/archive_browser.html", "<html></html>")
+        f.writestr("Takeout/Google Photos/user-generated-memory-titles.json", "{}")
+    settings.apply = True
+    rep = import_inbox(db, settings, apply=True)[0]
+    assert rep.new == 0 and rep.error == 0
+    assert not z.exists()
+    with db.session() as s:
+        assert s.execute(select(ImportJob)).scalar_one().state == "done"
