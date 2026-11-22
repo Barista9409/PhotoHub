@@ -57,6 +57,11 @@ class DateFixes(BaseModel):
     items: list[DateFix]
 
 
+class SetDate(BaseModel):
+    hashes: list[str]
+    date: str  # local "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
+
+
 class Hashes(BaseModel):
     hashes: list[str]
 
@@ -530,6 +535,22 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         """Read this person's Synology Photos albums now."""
         from . import albums
         return albums.pull(db, settings, user)
+
+    @app.post("/api/media/repair-dates")
+    def media_repair_dates(user: User = Depends(auth)) -> dict:
+        """Fix arrival-like dates of this person's and the family's photos from file names / file times."""
+        from .dates import repair
+        return repair(db, settings, {None, user.id})
+
+    @app.post("/api/media/set-date")
+    def media_set_date(body: SetDate, user: User = Depends(auth)) -> dict:
+        from datetime import datetime
+        from .dates import set_by_hand
+        try:
+            local = datetime.fromisoformat(body.date if "T" in body.date else body.date + "T12:00")
+        except ValueError as e:
+            raise HTTPException(400, "date must be YYYY-MM-DD") from e
+        return {"changed": set_by_hand(db, user.id, body.hashes, local, settings.default_tz_minutes)}
 
     @app.post("/api/media/dates")
     def media_dates(body: DateFixes, user: User = Depends(auth)) -> dict:

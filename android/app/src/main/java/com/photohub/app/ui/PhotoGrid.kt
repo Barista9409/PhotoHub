@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.PhotoAlbum
@@ -116,7 +117,7 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
  *  - drag the handle on the right edge to jump through the years
  *  - long-press to select; then share, favourite or delete from the phone
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
               zoomBar: Boolean = false, albumId: Long? = null) {
@@ -137,6 +138,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     var moveOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var albumOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var downloadOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
+    var dateOf by remember { mutableStateOf<List<TimelineItem>?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
 
@@ -301,6 +303,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                         selected = emptySet()
                     }) { Icon(Icons.Default.Favorite, "お気に入り") }
                     IconButton({ downloadOf = items.filter { it.itemKey in selected } }) { Icon(Icons.Default.Download, "このスマホに保存") }
+                    IconButton({ dateOf = items.filter { it.itemKey in selected && it.hash != null } }) { Icon(Icons.Default.Event, "日付を変更") }
                     IconButton({ albumOf = items.filter { it.itemKey in selected && it.hash != null } }) {
                         Icon(Icons.Default.PhotoAlbum, "アルバムに追加")
                     }
@@ -372,6 +375,23 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                     TextButton({ moveOf = null }) { Text("やめる") }
                 }
             })
+    }
+    dateOf?.let { list ->
+        val state = androidx.compose.material3.rememberDatePickerState(
+            initialSelectedDateMillis = list.minOfOrNull { it.takenAt }?.takeIf { it > 0 })
+        androidx.compose.material3.DatePickerDialog(onDismissRequest = { dateOf = null },
+            confirmButton = { TextButton(enabled = list.isNotEmpty() && state.selectedDateMillis != null, onClick = {
+                val day = java.time.Instant.ofEpochMilli(state.selectedDateMillis!!).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                dateOf = null; selected = emptySet()
+                scope.launch {
+                    toast = try { "${app.net.api()!!.setDate(com.photohub.app.data.api.SetDateBody(list.map { it.hash!! }, day))["changed"] ?: 0} 枚の日付を $day にしました" }
+                            catch (e: Exception) { "変更できませんでした（${e.message}）" }
+                    com.photohub.app.data.SyncWorker.runNow(ctx)
+                }
+            }) { Text(if (list.isEmpty()) "Synologyにある写真を選んでください" else "${list.size} 枚をこの日付にする") } },
+            dismissButton = { TextButton({ dateOf = null }) { Text("やめる") } }) {
+            androidx.compose.material3.DatePicker(state, title = { Text("撮影日を選ぶ", modifier = Modifier.padding(16.dp)) })
+        }
     }
     downloadOf?.let { list ->
         DownloadDialog(list, "保存した写真") { msg -> downloadOf = null; if (msg != null) { selected = emptySet(); toast = msg } }

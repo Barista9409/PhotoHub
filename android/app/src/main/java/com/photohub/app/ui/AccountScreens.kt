@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Delete
@@ -367,6 +368,19 @@ fun DeviceScreen() {
         }
         SectionTitle("困ったとき")
         Group {
+            SettingRow(Icons.Default.Event, "日付のおかしい写真を直す",
+                "「Synologyに届いた日」の日付になった写真を、ファイル名などの手がかりから直します。手がかりがない写真は、選んで「日付を変更」で直せます",
+                onClick = {
+                    scope.launch {
+                        val msg = try {
+                            val r = app.net.api()!!.repairDates()
+                            "ファイル名から ${r["from_name"] ?: 0} 枚・ファイルの日付から ${r["from_file"] ?: 0} 枚を直しました。手がかりなし ${r["no_clue"] ?: 0} 枚"
+                        } catch (e: Exception) { "直せませんでした（${e.message}）" }
+                        SyncWorker.runNow(ctx)
+                        Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+                    }
+                })
+            GroupDivider()
             SettingRow(Icons.Default.Build, "一覧を作り直す", "表示がおかしいときに。自宅のWi-Fiで行ってください", onClick = {
                 scope.launch { app.prefs.resetCursor(); app.db.media().clearRemote(); SyncWorker.runNow(ctx)
                     Toast.makeText(ctx, "作り直しを始めました", Toast.LENGTH_SHORT).show() }

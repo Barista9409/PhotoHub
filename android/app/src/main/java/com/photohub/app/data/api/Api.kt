@@ -74,6 +74,9 @@ data class DateFixItem(@SerialName("file_hash") val fileHash: String, @SerialNam
 data class DateFixBody(val items: List<DateFixItem>)
 
 @Serializable
+data class SetDateBody(val hashes: List<String>, val date: String)
+
+@Serializable
 data class MoveBody(val hashes: List<String>, val to: String)
 
 @Serializable
@@ -254,6 +257,8 @@ interface PhotoHubApi {
     @POST("api/albums/pull") suspend fun pullAlbums(): Map<String, kotlinx.serialization.json.JsonElement>
     @POST("api/media/move") suspend fun moveMedia(@Body body: MoveBody): Map<String, Int>
     @POST("api/media/dates") suspend fun fixDates(@Body body: DateFixBody): Map<String, Int>
+    @POST("api/media/repair-dates") suspend fun repairDates(): Map<String, Int>
+    @POST("api/media/set-date") suspend fun setDate(@Body body: SetDateBody): Map<String, Int>
     @GET("api/trash") suspend fun trash(): TrashList
     @POST("api/trash/restore") suspend fun restore(@Body body: HashesBody): Map<String, Int>
     @POST("api/trash/empty") suspend fun emptyTrash(@Body body: HashesBody): Map<String, Int>
