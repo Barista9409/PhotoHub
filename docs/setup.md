@@ -86,7 +86,7 @@ PhotoHubの新しい版は、GitHubに入ると自動で作られます（`ghcr.
 
 ```
 cd /volume1/docker/photohub || exit 1
-{ date; docker rm -f photohub; docker compose up -d || docker-compose up -d; } >> /volume1/docker/photohub/update.log 2>&1
+{ date; docker rm -f photohub; docker compose up -d || docker-compose up -d; } >> /volume1/docker/photohub/update.txt 2>&1
 ```
 
 ### 新しい版を自動で入れる（おすすめ・最初に1回だけ設定）
@@ -99,15 +99,24 @@ DSMの「タスクスケジューラ」に、1時間ごとに新しい版を確�
 4. 「タスク設定」タブ：「ユーザー指定のスクリプト」に下の4行をそのまま貼り付け →「OK」
 
 ```
+ID=<プロジェクトのID>
 cd /volume1/docker/photohub || exit 1
 docker pull -q ghcr.io/barista9409/photohub:latest >/dev/null 2>&1
 new=$(docker image inspect -f '{{.Id}}' ghcr.io/barista9409/photohub:latest)
 cur=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
 [ -n "$new" ] && [ "$new" = "$cur" ] && exit 0
-{ date; docker compose up -d || docker-compose up -d; docker image prune -f; } >> /volume1/docker/photohub/update.log 2>&1
+{
+date
+out=$(synowebapi --exec api=SYNO.Docker.Project method=build_stream version=1 id="$ID" 2>&1)
+echo "$out" | tail -5
+echo "$out" | grep -q '"success" : true' || synowebapi --exec api=SYNO.Docker.Project method=build version=1 id="$ID" 2>&1 | tail -5
+docker image prune -f
+} >> /volume1/docker/photohub/update.txt 2>&1
 ```
 
-> 動いている版とダウンロードした版を比べて、違うときだけ入れ替えます（途中で失敗しても、次の回にやり直します）。結果は `docker/photohub/update.log` に残ります。
+> 新しい版があるときだけ、Container Manager 自身にビルドさせます（Container Manager の記録とずれないので、「停止」などのボタンもそのまま使えます）。`<プロジェクトのID>` は、`synowebapi --exec api=SYNO.Docker.Project method=list version=1` を同じ方法で実行すると出る `"id"` です。結果は `docker/photohub/update.txt` に残ります
+
+> 動いている版とダウンロードした版を比べて、違うときだけ入れ替えます（途中で失敗しても、次の回にやり直します）。結果は `docker/photohub/update.txt` に残ります。
 
 5. すぐ試すには、一覧で `PhotoHub自動更新` を選んで「実行」。少し待ってアプリの「Synology側の版」が新しい日付になれば成功です
 
