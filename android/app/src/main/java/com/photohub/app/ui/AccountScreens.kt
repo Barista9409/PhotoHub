@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.automirrored.filled.Logout
@@ -749,8 +750,8 @@ fun DateRepairRow() {
 
 
 /**
- * Android may hold background work back for hours to save battery. When PhotoHub is not exempt,
- * a row offers to exempt it (one tap; the system asks). Hidden once exempt.
+ * Whether Android may hold back PhotoHub's background work to save battery. Always shown, with the
+ * current state: exempt (as recommended) or not; a tap opens the system screen to change it.
  */
 @Composable
 fun BatteryRow() {
@@ -760,15 +761,15 @@ fun BatteryRow() {
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         exempt = pm.isIgnoringBatteryOptimizations(ctx.packageName)
     }
-    if (exempt) return
     GroupDivider()
-    SettingRow(Icons.Default.BatteryAlert, "電池の最適化から外す（おすすめ）",
-        "このままだと、Androidが自動のバックアップを何時間も後回しにすることがあります。押すと確認が出るので「許可」を選んでください",
+    SettingRow(if (exempt) Icons.Default.BatteryFull else Icons.Default.BatteryAlert,
+        if (exempt) "電池の最適化：外しています" else "電池の最適化から外す（おすすめ）",
+        if (exempt) "自動のバックアップが後回しにされません（おすすめの状態）。押すとAndroidの設定で戻せます"
+        else "このままだと、Androidが自動のバックアップを何時間も後回しにすることがあります。押して「許可」を選んでください",
         onClick = {
-            try {
-                ask.launch(android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    android.net.Uri.parse("package:${ctx.packageName}")))
-            } catch (_: Exception) {
+            val intent = if (exempt) android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                else android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:${ctx.packageName}"))
+            try { ask.launch(intent) } catch (_: Exception) {
                 ask.launch(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
         }) { Chevron() }
