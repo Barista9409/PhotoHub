@@ -217,7 +217,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         }
 
         CollapsibleGroup("library", "ライブラリ", "このスマホのデータ・内訳・似ている写真・空き容量・整理・ゴミ箱", openByDefault = true) {
-            SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", "使う容量・外出先ですぐ開ける期間",
+            SettingRow(Icons.Default.PhoneAndroid, "このスマホに持つデータ", storageSummary() + "使う容量の上限・外出先ですぐ開ける期間",
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(), onClick = { open(Dest.LIBRARY) }) { Chevron() }
@@ -362,8 +362,7 @@ fun DeviceScreen() {
                 Slider(cur.storageCapMb.toFloat(), { save(cur.copy(storageCapMb = (it / 512).toInt() * 512)) }, valueRange = 1024f..16384f)
                 Text("外出先ですぐ開ける期間：直近 ${cur.previewMonths} か月", style = MaterialTheme.typography.titleSmall)
                 Slider(cur.previewMonths.toFloat(), { save(cur.copy(previewMonths = it.toInt())) }, valueRange = 0f..24f, steps = 23)
-                Text("今の使用量：縮小画像 ${humanBytes(app.files.thumbBytes())}・すぐ開ける画像 ${humanBytes(app.files.previewBytes())}",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                StorageUsage()
             }
         }
         SectionTitle("困ったとき")
@@ -708,4 +707,40 @@ fun UpdateBanner(onOpen: () -> Unit) {
             color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f))
         Text("更新する ›", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
+}
+
+
+/** What PhotoHub keeps on this phone, part by part, with a button to clear the temporary parts. */
+@Composable
+fun StorageUsage() {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    val scope = rememberCoroutineScope()
+    var u by remember { mutableStateOf<com.photohub.app.data.AppStorage.Usage?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refresh) { u = com.photohub.app.data.AppStorage.measure(app) }
+    val x = u
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("このアプリが使っている容量：" + (x?.let { humanBytes(it.total) } ?: "計算中…"), style = MaterialTheme.typography.titleSmall)
+        if (x != null) {
+            listOf("縮小画像（一覧用）" to x.thumbs, "すぐ開ける画像" to x.previews, "画像の一時保存" to x.imageCache,
+                "写真の一覧（データベース）" to x.database, "そのほか" to x.other).forEach { (label, b) ->
+                Row { Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Text(humanBytes(b), style = MaterialTheme.typography.bodySmall) }
+            }
+            TextButton({ scope.launch { com.photohub.app.data.AppStorage.clearTemporary(app); refresh++ } }) {
+                Text("一時保存を消す（${humanBytes(x.imageCache + x.other)}）")
+            }
+            Text("一時保存は、また必要になったときに取りに行くだけなので、消しても写真はなくなりません。", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** "使用中 1.2 GB" for the settings page. */
+@Composable
+fun storageSummary(): String {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    var t by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(Unit) { t = com.photohub.app.data.AppStorage.measure(app).total }
+    return t?.let { "使用中 ${humanBytes(it)}・" } ?: ""
 }
