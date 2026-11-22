@@ -1,5 +1,7 @@
 #!/bin/bash
-# PhotoHub auto-update for Synology (DSM Task Scheduler, user root, every minute).
+# PhotoHub auto-update for Synology (DSM Task Scheduler, user root, hourly 00:00-23:00).
+# DSM cannot start a task more often than hourly, so each run keeps checking once a minute
+# for 55 minutes: a new version is in within about a minute of being published.
 #
 # Lessons built in:
 # - Asks GHCR for the digest of :latest (a tiny request) instead of pulling every time,
@@ -22,11 +24,14 @@ now() { date '+%Y-%m-%d %H:%M'; }
 say() { echo "$(now) $1" > "$LAST"; }
 log() { echo "$(now) $1" >> "$LOG"; }
 
-# one at a time; a lock older than 30 minutes is left over from a crash
+# one at a time; the running one touches the lock every minute, so a lock untouched for
+# 10 minutes is left over from a crash
 if ! mkdir "$LOCK" 2>/dev/null; then
-  [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ] && rm -rf "$LOCK" && mkdir "$LOCK" 2>/dev/null || exit 0
+  [ -n "$(find "$LOCK" -maxdepth 0 -mmin +10 2>/dev/null)" ] && rm -rf "$LOCK" && mkdir "$LOCK" 2>/dev/null || exit 0
 fi
 trap 'rm -rf "$LOCK"' EXIT
+
+check() {
 
 # 1) what GHCR has now (digest only, no download)
 tok=$(curl -s --max-time 20 "https://ghcr.io/token?scope=repository:${IMG#ghcr.io/}:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
@@ -35,29 +40,29 @@ remote=$(curl -sI --max-time 20 -H "Authorization: Bearer $tok" \
   "https://ghcr.io/v2/${IMG#ghcr.io/}/manifests/latest" | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p')
 if [ -z "$remote" ]; then
   say "確認できませんでした（インターネットかGitHubにつながりません。次の回にもう一度確かめます）"
-  exit 0
+  return
 fi
 
 # 2) what is running (stopped on purpose, e.g. to edit the YAML: leave it alone)
 if [ "$(docker inspect -f '{{.State.Running}}' photohub 2>/dev/null)" != "true" ]; then
   say "PhotoHubが止まっているので、更新は休んでいます（起動すると、また確かめます）"
-  exit 0
+  return
 fi
 cur_img=$(docker inspect -f '{{.Image}}' photohub 2>/dev/null)
 cur_digests=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$cur_img" 2>/dev/null)
 if echo "$cur_digests" | grep -q "$remote"; then
   say "確認：最新です（入れ替えなし）"
-  exit 0
+  return
 fi
 if grep -qx "$remote" "$BAD" 2>/dev/null; then
   say "新しい版は起動しなかったため、前の版のままです（次に新しい版が出たら入れます）"
-  exit 0
+  return
 fi
 
 # 3) download and swap
 log "新しい版を見つけました: $remote"
 if ! docker pull -q "$IMG:latest" >> "$LOG" 2>&1; then
-  say "ダウンロードに失敗しました（次の回にもう一度やります）"; log "pull failed"; exit 0
+  say "ダウンロードに失敗しました（次の回にもう一度やります）"; log "pull failed"; return
 fi
 [ -n "$cur_img" ] && docker tag "$cur_img" photohub-previous:latest 2>/dev/null
 compose() { docker compose up -d "$@" >> "$LOG" 2>&1 || docker-compose up -d "$@" >> "$LOG" 2>&1; }
@@ -84,6 +89,17 @@ else
   fi
   say "新しい版が起動しなかったので、前の版に戻しました（update.txt を見てください）"
 fi
+
+}
+
+# check once a minute for 55 minutes (the next hourly run takes over)
+end=$(( $(date +%s) + ${RUN_MINUTES:-55} * 60 ))
+while :; do
+  touch "$LOCK"
+  check
+  [ "$(date +%s)" -ge "$end" ] && break
+  sleep 60
+done
 
 # keep the record short
 tail -n 400 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"

@@ -396,7 +396,7 @@ fun AppScreen() {
                     mine == null -> "とても古い版です。新しい版に更新してください"
                     latest == null -> "${name(mine)}（最新か確かめられませんでした）"
                     mine.sha == latest.sha -> "最新です（${name(latest)}）"
-                    else -> "古い版です（${name(mine)}）。最新は${name(latest)}。自動更新を入れていれば、数分で入れ替わります"
+                    else -> "古い版です（${name(mine)}）。最新は${name(latest)}。自動更新を入れていれば2〜3分で入れ替わります（入らないときは、タスクスケジューラの「最終実行時刻」が23:00になっているか確かめてください）"
                 }
             }
             SettingRow(Icons.Default.Dns, "Synology側の版", server ?: "", onClick = {})
