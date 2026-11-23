@@ -187,7 +187,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             items(mine, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (family.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("家族の共有アルバム", "家族みんなが見られるアルバム（「共有」タブにもあります）") }
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("家族の共有アルバム", "家族みんなが見られるアルバム（「ファミリー」タブにもあります）") }
             items(family, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (sharedFolders.isNotEmpty()) {

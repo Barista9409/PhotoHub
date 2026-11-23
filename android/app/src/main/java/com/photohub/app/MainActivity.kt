@@ -103,9 +103,9 @@ class MainActivity : ComponentActivity() {
 private data class Tab(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
 private val tabs = listOf(
-    Tab("timeline", "フォト", Icons.Default.PhotoLibrary),
-    Tab("shared", "共有", Icons.Default.FamilyRestroom),
-    Tab("map", "地図", Icons.Default.Map),
+    Tab("timeline", "マイフォト", Icons.Default.PhotoLibrary),
+    Tab("shared", "ファミリー", Icons.Default.FamilyRestroom),
+    Tab("map", "マップ", Icons.Default.Map),
     Tab("account", "設定", Icons.Default.Settings),   // bottom right: backup, tidy-up, migration, app, account
 )
 
