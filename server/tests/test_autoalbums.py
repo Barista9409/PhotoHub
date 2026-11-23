@@ -142,3 +142,18 @@ def test_places_favorites_growth_tags_memo_report(settings, db):
     assert c.post(f"/api/media/{hashes[0]}/memo", json={"text": "初めて歩いた日"}, headers=h).json()["ok"]
     rep = c.get("/api/me/report", headers=h).json()
     assert rep["photos"] == 25 and "free_gb" in rep
+
+
+def test_duplicate_automatic_albums_are_merged(settings, db):
+    with db.session() as s:
+        ms = [_media(s, settings, 800 + i, datetime(2014, 9, 1)) for i in range(4)]
+        a1 = Album(name="2014年9月 愛知県", origin="trip", owner_id=None)
+        a2 = Album(name="2014年9月 愛知県", origin="trip", owner_id=None)
+        s.add_all([a1, a2])
+        s.flush()
+        for m in ms[:3]:
+            s.add(AlbumItem(album_id=a1.id, media_id=m.id))
+        for m in ms[1:]:
+            s.add(AlbumItem(album_id=a2.id, media_id=m.id))
+    assert autoalbums.dedupe(db) == 1
+    assert _albums(db, "trip") == {"2014年9月 愛知県": 4}

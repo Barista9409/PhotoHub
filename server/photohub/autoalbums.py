@@ -371,8 +371,55 @@ def tags(db: Database, settings: Settings) -> dict:
     return {"stored": stored, "notes": notes}
 
 
+import threading
+
+_RUN = threading.Lock()   # the nightly run, the run after start and 「今すぐ作る」 never overlap
+
+
+def dedupe(db: Database) -> int:
+    """Automatic albums made twice (two runs at the same moment): keep one, move the photos into it,
+    delete the rest."""
+    from .db import KV
+    n = 0
+    with db.session() as s:
+        groups: dict[tuple, list[Album]] = defaultdict(list)
+        for a in s.execute(select(Album).where(Album.origin.in_(AUTO_ORIGINS)).order_by(Album.id)).scalars():
+            groups[(a.origin, a.owner_id, a.name)].append(a)
+        for (origin, owner, _name), albums in groups.items():
+            if len(albums) < 2:
+                continue
+            refd = {int(k.value) for k in s.execute(select(KV).where(KV.key.like(f"auto:{origin}:{owner}:%"))).scalars()
+                    if k.value.isdigit()}
+            keep = next((a for a in albums if a.id in refd), albums[0])
+            have = set(s.execute(select(AlbumItem.media_id).where(AlbumItem.album_id == keep.id)).scalars())
+            for a in albums:
+                if a.id == keep.id:
+                    continue
+                for ai in list(s.execute(select(AlbumItem).where(AlbumItem.album_id == a.id)).scalars()):
+                    if ai.media_id not in have:
+                        s.add(AlbumItem(album_id=keep.id, media_id=ai.media_id))
+                        have.add(ai.media_id)
+                    touch_media(s, s.get(Media, ai.media_id))
+                    s.delete(ai)
+                s.flush()
+                old = s.get(KV, f"autoref:{a.id}")
+                if old is not None:
+                    s.delete(old)
+                for k in s.execute(select(KV).where(KV.value == str(a.id), KV.key.like("auto:%"))).scalars():
+                    k.value = str(keep.id)   # its key now points at the one that is kept
+                s.delete(a)
+                n += 1
+            keep.rev = next_rev(s)
+    return n
+
+
 def run_all(db: Database, settings: Settings) -> dict:
-    out = {"digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
+    with _RUN:
+        return _run_all(db, settings)
+
+
+def _run_all(db: Database, settings: Settings) -> dict:
+    out = {"merged_duplicates": dedupe(db), "digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
            "place": places(db, settings), "favorite": favorites(db, settings)}
     p = people(db, settings)
     out["person"] = p["made"]
