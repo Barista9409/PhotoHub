@@ -632,6 +632,38 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e))
 
+    @app.post("/api/media/family")
+    def media_family(body: FavoriteSet, user: User = Depends(auth)) -> dict:
+        """「家族に共有」: own photos the whole family may see (no copy; the file stays where it is).
+        on=false stops sharing."""
+        n = 0
+        with db.session() as s:
+            for m in s.execute(select(Media).where(Media.content_hash.in_(body.hashes[:5000]), Media.owner_id == user.id,
+                                                   Media.status == "active")).scalars():
+                if bool(m.family_shared) != body.on:
+                    m.family_shared = body.on
+                    touch_media(s, m)
+                    n += 1
+        return {"changed": n}
+
+    @app.post("/api/albums/{album_id}/family")
+    def album_family(album_id: int, user: User = Depends(auth)) -> dict:
+        """An own album -> a family album with the same photos; the photos are shared (not copied)."""
+        from .albums import _album_name_free, create
+        with db.session() as s:
+            a = s.get(Album, album_id)
+            if a is None or a.owner_id != user.id:
+                raise HTTPException(404, "album not found")
+            ms = list(s.execute(select(Media).join(AlbumItem, AlbumItem.media_id == Media.id)
+                                .where(AlbumItem.album_id == a.id, Media.status == "active")).scalars())
+            for m in ms:
+                if m.owner_id == user.id and not m.family_shared:
+                    m.family_shared = True
+                    touch_media(s, m)
+            hashes, name = [m.content_hash for m in ms], a.name
+        new_id = create(db, settings, user, _album_name_free(db, name, True, user), hashes, shared=True)
+        return {"album_id": new_id, "shared": len(hashes)}
+
     @app.post("/api/albums/{album_id}/copy")
     def album_copy(album_id: int, body: CopyTo, user: User = Depends(auth)) -> dict:
         """An album to the family (a shared album with the same photos; own photos copied to the family
@@ -865,7 +897,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "name": Path(m.nas_path).name, "folder": _folder_of(m, owners), "place": places.get(str(m.id)) or None,
                 "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
                 "deleted": m.status != "active", "rev": m.rev, "rot": m.rotation or 0, "pair": m.pair_key, "desc": m.description,
-                "space": "shared" if m.owner_id is None else ("mine" if m.owner_id == user.id else "granted"),
+                "space": "shared" if m.owner_id is None else ("family" if m.family_shared
+                         else ("mine" if m.owner_id == user.id else "granted")),
             } for m in rows]
             albums = [{"id": a.id, "name": a.name, "origin": a.origin, "shared": a.owner_id is None}
                       for a in s.execute(select(Album).where(album_visible(user)).order_by(Album.id)).scalars()]

@@ -41,6 +41,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderShared
+import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Check
@@ -328,10 +330,23 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                     scope.launch {
                         toast = try {
                             val n = app.net.api()!!.copyMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, to))["copied"] ?: 0
-                            if (to == "shared") "$n 枚を家族に共有しました（自分の写真にも残っています）"
+                            if (to == "shared") "$n 枚を家族の共有フォルダにコピーしました（自分の写真にも残っています）"
                             else "$n 枚をマイフォトにコピーしました（家族の写真にも残っています）"
                         } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "コピーできませんでした（HTTP ${e.code()}）" }
                           catch (e: Exception) { "コピーできませんでした（${e.message}）" }
+                        com.photohub.app.data.SyncWorker.runNow(ctx, light = true)
+                    }
+                }
+                fun familyShare(list: List<TimelineItem>, on: Boolean) {
+                    selected = emptySet()
+                    if (list.isEmpty()) { toast = "Synologyにある写真を選んでください"; return }
+                    scope.launch {
+                        toast = try {
+                            val n = app.net.api()!!.familyShare(com.photohub.app.data.api.FavoriteBody(list.map { it.hash!! }, on))["changed"] ?: 0
+                            if (on) "$n 枚を家族に共有しました（ファイルは1つのまま。ファミリーに出ます）"
+                            else "$n 枚の家族への共有をやめました"
+                        } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "共有できませんでした（HTTP ${e.code()}）" }
+                          catch (e: Exception) { "共有できませんでした（${e.message}）" }
                         com.photohub.app.data.SyncWorker.runNow(ctx, light = true)
                     }
                 }
@@ -391,8 +406,10 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                                 scope.launch { toast = if (list.isEmpty()) "Synologyにある写真を選んでください" else rotatePhotos(app, list, 90) }
                             }
                             entry(Icons.Default.Event, "撮影日を変更") { dateOf = onSyno() }
-                            // copy: both stay (the original where it is, a copy on the other side)
-                            entry(Icons.Default.FamilyRestroom, "家族に共有（コピー）") { copyTo(onSyno(), "shared") }
+                            // share: one file, the family can see it; copy: both stay (a second file on the other side)
+                            entry(Icons.Default.FamilyRestroom, "家族に共有") { familyShare(onSyno(), true) }
+                            entry(Icons.Default.PersonOff, "家族への共有をやめる") { familyShare(onSyno(), false) }
+                            entry(Icons.Default.FolderShared, "家族の共有フォルダにコピー") { copyTo(onSyno(), "shared") }
                             entry(Icons.Default.ContentCopy, "マイフォトにコピー") { copyTo(onSyno(), "mine") }
                             entry(Icons.Default.DriveFileMove, "自分だけ／家族で共有へ移す") { moveOf = onSyno() }
                         }

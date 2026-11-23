@@ -193,7 +193,7 @@ interface MediaDao {
 
     /** Only the shared space: straight from remote_media (no union over the whole library). */
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
-    @Query("$REMOTE_PART WHERE r.space = 'shared' ORDER BY r.takenAt DESC")
+    @Query("$REMOTE_PART WHERE r.space IN ('shared', 'family') ORDER BY r.takenAt DESC")
     fun sharedSpace(): Flow<List<TimelineItem>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
@@ -202,7 +202,7 @@ interface MediaDao {
     fun places(): Flow<List<PlaceCount>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
-    @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space = 'shared'")
+    @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space IN ('shared', 'family')")
     fun sharedFolders(): Flow<List<FolderOf>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read

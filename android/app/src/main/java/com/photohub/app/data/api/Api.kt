@@ -327,6 +327,9 @@ interface PhotoHubApi {
     @POST("api/media/move") suspend fun moveMedia(@Body body: MoveBody): Map<String, Int>
     @POST("api/media/copy") suspend fun copyMedia(@Body body: MoveBody): Map<String, Int>
     @POST("api/albums/{id}/copy") suspend fun copyAlbum(@Path("id") id: Long, @Body body: CopyToBody): Map<String, Long>
+    // share without copying: the one file stays where it is, the family can see it
+    @POST("api/media/family") suspend fun familyShare(@Body body: FavoriteBody): Map<String, Int>
+    @POST("api/albums/{id}/family") suspend fun familyAlbum(@Path("id") id: Long): Map<String, Long>
     @POST("api/media/dates") suspend fun fixDates(@Body body: DateFixBody): Map<String, Int>
     @POST("api/media/repair-dates") suspend fun repairDates(): Map<String, Int>
     @POST("api/media/rotate") suspend fun rotate(@Body body: RotateBody): RotateResult

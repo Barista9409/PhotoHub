@@ -219,7 +219,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                     val out = mutableListOf<Pair<String, String>>()
                     cur.hash?.let { h -> app.db.media().remote(h) }?.let { r ->
                         // the folder as File Station shows it
-                        val root = when (r.space) { "shared" -> listOf("photo"); "mine" -> listOf("home", "Photos"); else -> listOf("homes", "（家族の個人フォルダ）", "Photos") }
+                        val root = when (r.space) { "shared" -> listOf("photo"); "mine" -> listOf("home", "Photos"); "family" -> listOf("（家族に共有中・元は個人フォルダ）", "Photos"); else -> listOf("homes", "（家族の個人フォルダ）", "Photos") }
                         out += "Synology（File Station）" to (root + r.folder.split('/').filter { it.isNotBlank() }).joinToString(" / ")
                     }
                     cur.localUri?.let { u -> out += "このスマホ" to (listOf("内部ストレージ") + (app.db.media().localRelPath(u) ?: "")

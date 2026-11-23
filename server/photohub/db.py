@@ -112,6 +112,8 @@ class Media(Base):
     # turn to show it upright, clockwise degrees (0/90/180/270), on top of the file's own orientation.
     # The file itself is left untouched; the app turns the picture when it shows it.
     rotation: Mapped[int] = mapped_column(Integer, default=0)
+    # 「家族に共有」: a person's own photo the whole family may see (the file stays in their Photos)
+    family_shared: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(16), default="active")  # active / trashed
     owner_id: Mapped[int | None] = mapped_column(Integer, index=True)  # NULL = shared space
     # True = PhotoHub wrote this file (Takeout / phone upload). If the same photo later turns up
@@ -427,12 +429,12 @@ def visible_clause(user: "User | None"):  # noqa: ANN201
     from sqlalchemy import or_
     if user is None:
         return Media.owner_id.is_(None)
-    return or_(Media.owner_id.is_(None), Media.owner_id == user.id,
+    return or_(Media.owner_id.is_(None), Media.owner_id == user.id, Media.family_shared.is_(True),
                Media.id.in_(select(MediaAccess.media_id).where(MediaAccess.user_id == user.id)))
 
 
 def can_see(s: Session, user: "User", m: Media) -> bool:
-    return (m.owner_id is None or m.owner_id == user.id
+    return (m.owner_id is None or m.owner_id == user.id or bool(m.family_shared)
             or s.get(MediaAccess, (m.id, user.id)) is not None)
 
 

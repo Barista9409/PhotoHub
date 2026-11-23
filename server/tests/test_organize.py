@@ -131,3 +131,31 @@ def test_copy_between_mine_and_family(settings, db):
     r = c.post(f"/api/albums/{aid}/copy", json={"to": "shared"}, headers=h).json()
     with db.session() as s:
         assert s.get(Album, r["album_id"]).owner_id is None
+
+
+def test_family_share_without_copy(settings, db):
+    from pathlib import Path
+    from fastapi.testclient import TestClient
+    from sqlalchemy import select
+    from photohub.api import create_app
+    from photohub.db import Media
+    from photohub.sample import make_image
+    from photohub.scanner import scan
+    from photohub.users import add_user, scan_roots
+    u, tok_u = add_user(db, settings, "reo")
+    v, tok_v = add_user(db, settings, "chie")
+    own = Path(u.personal_root) / "x.jpg"
+    own.parent.mkdir(parents=True, exist_ok=True)
+    own.write_bytes(make_image(81))
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    c = TestClient(create_app(settings, db))
+    hu, hv = {"Authorization": f"Bearer {tok_u}"}, {"Authorization": f"Bearer {tok_v}"}
+    with db.session() as s:
+        hx = s.execute(select(Media.content_hash)).scalar_one()
+    assert not c.get("/api/sync", headers=hv).json()["items"]          # chie cannot see reo's photo
+    assert c.post("/api/media/family", json={"hashes": [hx]}, headers=hu).json()["changed"] == 1
+    it = c.get("/api/sync", headers=hv).json()["items"]
+    assert [i["space"] for i in it] == ["family"]                       # now she can
+    assert own.exists() and len(list(settings.library.rglob("x*.jpg"))) == 0   # no copy was made
+    c.post("/api/media/family", json={"hashes": [hx], "on": False}, headers=hu)
+    assert [i["deleted"] or i["space"] for i in c.get("/api/sync", headers=hv).json()["items"]] in ([], [True])
