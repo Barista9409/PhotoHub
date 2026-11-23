@@ -99,11 +99,12 @@ import com.photohub.app.data.api.Status
 /** Link that always downloads the newest app (a fixed-name copy attached to every release). */
 val APP_DOWNLOAD_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/releases/latest/download/PhotoHub.apk"
 
-/** The setup guide (docs/setup.md), always the latest version, opened in the browser. */
-const val GUIDE_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/blob/main/docs/setup.md"
+/** The guides, always the latest version, opened in the browser: for the family, and for the administrator. */
+const val GUIDE_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/blob/main/docs/family.md"
+const val ADMIN_GUIDE_URL = "https://github.com/${BuildConfig.UPDATE_REPO}/blob/main/docs/setup.md"
 
-fun openGuide(ctx: android.content.Context) {
-    try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(GUIDE_URL))) }
+fun openGuide(ctx: android.content.Context, admin: Boolean = false) {
+    try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(if (admin) ADMIN_GUIDE_URL else GUIDE_URL))) }
     catch (_: Exception) { Toast.makeText(ctx, "ブラウザを開けませんでした", Toast.LENGTH_SHORT).show() }
 }
 
@@ -280,8 +281,13 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             GroupDivider()
             ShareAppRows()
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方（導入ガイド）", "Synologyの準備・家族の始め方・困ったとき",
+            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方", "はじめ方・ふだんの使い方・Googleフォトからの引っ越し・困ったとき",
                 onClick = { openGuide(ctx) }) { Chevron() }
+            if (me?.admin == true) {
+                GroupDivider()
+                SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "導入ガイド（管理者向け）", "Synologyの準備・自動更新・Cloud Sync・家族を迎える",
+                    onClick = { openGuide(ctx, admin = true) }) { Chevron() }
+            }
             GroupDivider()
             val crashed = remember { com.photohub.app.CrashLog.read(ctx) != null }
             SettingRow(Icons.Default.BugReport, "エラーの記録",

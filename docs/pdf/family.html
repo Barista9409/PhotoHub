@@ -1,0 +1,224 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><style>
+@page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+body { font-family: "IPAPGothic","IPAGothic",sans-serif; font-size: 12.5pt; line-height: 1.65; color: #1b1f24; }
+h1 { font-size: 21pt; margin: 0 0 4mm; color: #1e3a5f; border-bottom: 3px solid #3d7bd9; padding-bottom: 2mm; }
+h2 { font-size: 15pt; color: #fff; background: #2f64b0; padding: 2mm 3mm; border-radius: 2mm; margin: 8mm 0 3mm;
+      break-after: avoid; }
+h3 { font-size: 12.5pt; color: #1e3a5f; margin: 5mm 0 2mm; break-after: avoid; }
+p, li { break-inside: avoid; }
+ol, ul { padding-left: 7mm; }
+li { margin: 1.2mm 0; }
+ol > li::marker { font-weight: bold; color: #2f64b0; }
+table { border-collapse: collapse; width: 100%; margin: 3mm 0; font-size: 10pt; break-inside: avoid; }
+th, td { border: 1px solid #b8c4d2; padding: 1.6mm 2mm; vertical-align: top; }
+th { background: #e8eef6; }
+code { font-family: "IPAGothic",monospace; background: #f0f3f7; padding: 0 1mm; border-radius: 1mm; font-size: 9.5pt; }
+pre { background: #f4f6f9; border: 1px solid #d5dce5; border-radius: 2mm; padding: 3mm; font-size: 9pt;
+       white-space: pre-wrap; break-inside: avoid; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #f2b33d; background: #fff8e8; margin: 3mm 0; padding: 2mm 4mm; }
+hr { border: none; border-top: 1px dashed #b8c4d2; margin: 6mm 0; }
+strong { color: #b3261e; }
+.box { display: inline-block; width: 4.2mm; height: 4.2mm; border: 2px solid #fff; border-radius: 1mm; margin-right: 2mm;
+        vertical-align: -0.5mm; }
+.check { break-after: page; }
+.check td.b { width: 7mm; }
+.check td.b::before { content: ""; display: inline-block; width: 4.5mm; height: 4.5mm; border: 1.5px solid #2f64b0; border-radius: 1mm; }
+.memo { margin-top: 6mm; font-size: 11pt; }
+.appendix pre { font-size: 8.6pt; break-inside: auto; }
+a { color: #2f64b0; text-decoration: none; }
+</style></head><body><h1>PhotoHub 家族向けガイド</h1>
+<p>PhotoHub は、家族の写真を家の Synology（写真の保管庫）にしまって、いつでも見られるようにするアプリです。
+<strong>スマホで撮った写真は、アプリが自動で Synology にしまいます。</strong> むずかしい設定はいりません。</p>
+<blockquote>
+<p>Synology の準備は、管理者（家族の中で設定を担当する人）がすませてあります。わからないことは管理者に聞いてください。</p>
+</blockquote>
+<hr />
+<h2>1. アプリを入れる（5分）</h2>
+<ol>
+<li>
+<p>スマホのブラウザでこのリンクを開きます
+    <strong>https://github.com/Barista9409/PhotoHub/releases/latest/download/PhotoHub.apk</strong>
+    （管理者から LINE などでリンクが届いていれば、それを押します）</p>
+</li>
+<li>
+<p>ダウンロードしたファイルを開きます</p>
+</li>
+<li>「この提供元のアプリを許可」と出たら、<strong>許可</strong>します</li>
+</ol>
+<h2>2. ログインする</h2>
+<ol>
+<li><strong>家の Wi-Fi につないだまま</strong>、PhotoHub を開きます（家の Synology が自動で見つかります）</li>
+<li>
+<p>管理者から教えてもらった <strong>ユーザー名とパスワード</strong> を入れます</p>
+<ul>
+<li>
+<p>Synology Photos を使っている人は、それと同じです</p>
+</li>
+<li>
+<p>「Synology Photos のアルバムも同期する」には<strong>チェックを入れたまま</strong>にします</p>
+</li>
+</ul>
+</li>
+<li>
+<p>「写真へのアクセス」と「通知」を聞かれたら、<strong>許可</strong>します</p>
+</li>
+</ol>
+<h2>3. はじめに1回だけ</h2>
+<p>右下の「<strong>設定</strong>」を開いて、次の2つをします。</p>
+<ol>
+<li>
+<p>「同期設定」の「<strong>電池の最適化から外す（おすすめ）</strong>」を押して、「許可」を選びます
+    （これをしないと、写真がなかなか送られないことがあります）</p>
+</li>
+<li>
+<p><strong>Google フォトのアプリのバックアップをオフ</strong>にします
+    （Google フォトのアプリ →右上の自分のアイコン →「バックアップ」をオフ）</p>
+</li>
+</ol>
+<p>これで準備はおしまいです。</p>
+<hr />
+<h2>ふだんの使い方</h2>
+<table>
+<thead>
+<tr>
+<th>したいこと</th>
+<th>やりかた</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>写真をしまう</td>
+<td><strong>なにもしなくて大丈夫。</strong> 撮ると数分で Synology に送られます（Wi-Fi のとき）</td>
+</tr>
+<tr>
+<td>写真を見る</td>
+<td>下の「<strong>フォト</strong>」。上の「年・月・日」で並べ方を変えられます</td>
+</tr>
+<tr>
+<td>いちばん上に戻る</td>
+<td>下の「フォト」をもう一度押す</td>
+</tr>
+<tr>
+<td>新しい写真を取り込む</td>
+<td>フォト画面を<strong>下に引っぱる</strong></td>
+</tr>
+<tr>
+<td>探す</td>
+<td>右上の <strong>虫めがね</strong>。「犬」「海」「2023年8月」「沖縄」などで探せます</td>
+</tr>
+<tr>
+<td>家族の写真を見る</td>
+<td>下の「<strong>共有</strong>」</td>
+</tr>
+<tr>
+<td>アルバム</td>
+<td>下の「<strong>アルバム</strong>」。人ごと・旅行・毎月のふりかえりなどを、アプリが自動で作ります</td>
+</tr>
+<tr>
+<td>お気に入り</td>
+<td>写真を開いて <strong>♡</strong></td>
+</tr>
+<tr>
+<td>写真を消す</td>
+<td>写真を長押しして選び、上の<strong>赤いゴミ箱</strong>。30日間はゴミ箱から戻せます</td>
+</tr>
+<tr>
+<td>写真を回す</td>
+<td>写真を開いて、上の回転ボタン</td>
+</tr>
+<tr>
+<td>外で見る</td>
+<td>下の「Tailscale を入れる」を読んでください</td>
+</tr>
+</tbody>
+</table>
+<p><strong>スマホの容量が足りないとき</strong>：設定 →「データ管理」→「整理とゴミ箱」→「スマホの空き容量」。Synology にしまった古い写真をスマホから消します（PhotoHub ではそのまま見られます）。</p>
+<hr />
+<h2>外出先で見る（Tailscale を入れる）</h2>
+<p>家の外から見るには、「Tailscale」というアプリがいります。</p>
+<ol>
+<li>Google Play で「<strong>Tailscale</strong>」を入れます</li>
+<li>管理者から届いた招待を開いて、参加します（または、管理者に教えてもらったアカウントでログイン）</li>
+<li>Tailscale をオンにしたまま PhotoHub を開くと、外でも写真が見られます</li>
+</ol>
+<hr />
+<h2>Google フォトから引っ越す（一度だけ）</h2>
+<p>Google フォトにある昔の写真を、Synology に移します。<strong>かならずこの順番で</strong>してください。</p>
+<ol>
+<li><strong>アプリを最新にする</strong>（設定 →「アプリ」→「アプリの更新」）</li>
+<li>
+<p><strong>スマホの写真を先に送り終える</strong>
+    設定 →「データ管理」→「ライブラリの内訳」で、「このスマホにしかない」が <strong>0枚</strong> になるまで待ちます</p>
+</li>
+<li>
+<p><strong>Google から写真をまとめて出す</strong></p>
+<ol>
+<li>
+<p>ブラウザで <strong>https://takeout.google.com</strong> を開きます</p>
+</li>
+<li>
+<p>「選択をすべて解除」→「<strong>Google フォト</strong>」だけにチェック →「次のステップ」</p>
+</li>
+<li>
+<p>配信方法を「<strong>ドライブに追加</strong>」にして、「エクスポートを作成」</p>
+</li>
+<li>
+<p>あとは待つだけです。Synology が自動で受け取って取り込みます（数時間〜1日）</p>
+</li>
+</ol>
+<ul>
+<li>
+<p>進み具合：設定 →「データ管理」→「Google フォトからの移行」→「取り込みの状況」</p>
+</li>
+<li>
+<p>Synology への受け取りの設定がまだなら、管理者に「Takeout の受け取りをお願い」と伝えてください</p>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>最後に Google フォトを空にする</strong>
+    設定 →「データ管理」→「Google フォトからの移行」→「Google フォトを空にする」</p>
+<ul>
+<li>
+<p>画面の上が「<strong>確認OK</strong>」になっているときだけ、Google フォトのアプリで消してください</p>
+</li>
+<li>
+<p><strong>注意：Google フォトで消すと、スマホの中の写真も一緒に消えます。</strong> Synology にしまってあるので、PhotoHub では見られます</p>
+</li>
+</ul>
+</li>
+</ol>
+<hr />
+<h2>困ったとき</h2>
+<table>
+<thead>
+<tr>
+<th>こんなとき</th>
+<th>すること</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>「Synology が見つかりません」</td>
+<td>家の Wi-Fi につながっているか確かめて、「もう一度探す」</td>
+</tr>
+<tr>
+<td>ログインできない</td>
+<td>ユーザー名とパスワードを管理者に確かめる</td>
+</tr>
+<tr>
+<td>写真が送られない</td>
+<td>設定 →「同期設定」→「今すぐ同期・保存」を押す。「電池の最適化」を外したか確かめる</td>
+</tr>
+<tr>
+<td>外で見られない</td>
+<td>Tailscale がオンになっているか確かめる</td>
+</tr>
+<tr>
+<td>アプリが止まった</td>
+<td>設定 →「アプリ」→「エラーの記録」→「まとめてコピー」して、管理者に送る</td>
+</tr>
+</tbody>
+</table>
+<p>もっと詳しいこと（Synology の設定など）は、管理者向けの「導入ガイド」に書いてあります。</p></body></html>

@@ -37,14 +37,14 @@ checklist = """
 <table>
 <tr><th></th><th>やること</th><th>誰が</th></tr>
 <tr><td class="b"></td><td>1. NASの準備（タイムゾーン、ユーザーホーム、photohubフォルダとユーザー、uid/gid、パッケージ）</td><td>管理者</td></tr>
-<tr><td class="b"></td><td>2. Container Managerで PhotoHub を起動し、/api/health を確認</td><td>管理者</td></tr>
-<tr><td class="b"></td><td>3. アプリを入れて Synology のユーザー名でログイン、置き場所を選ぶ</td><td>家族それぞれ</td></tr>
-<tr><td class="b"></td><td>4-1. Google Cloud で Drive の利用を許可（1回だけ）</td><td>管理者</td></tr>
-<tr><td class="b"></td><td>4-2. アプリでバックアップをオン（NAS・ドライブ）、Googleフォトのバックアップはオフ</td><td>家族それぞれ</td></tr>
-<tr><td class="b"></td><td>4-3. Cloud Sync（ドライブ /PhotoHub → inbox/drive/名前）</td><td>管理者</td></tr>
-<tr><td class="b"></td><td>4-5. Googleフォトを Takeout で一度だけ取り込む</td><td>家族それぞれ</td></tr>
-<tr><td class="b"></td><td>5. 取り込み履歴で件数を確認 → PHOTOHUB_APPLY を "true" に</td><td>管理者</td></tr>
-<tr><td class="b"></td><td>6. Tailscale を入れて外出先から確認</td><td>家族それぞれ</td></tr>
+<tr><td class="b"></td><td>2. Container Managerで PhotoHub を起動し、/api/health を確認。自動更新のタスクを登録</td><td>管理者</td></tr>
+<tr><td class="b"></td><td>3. Google Cloud で Drive の利用を許可（1回だけ・使う場合）</td><td>管理者</td></tr>
+<tr><td class="b"></td><td>4-1. 家族にアカウントとアプリのリンク、家族向けガイドを渡す</td><td>管理者</td></tr>
+<tr><td class="b"></td><td>4-2. Cloud Sync（ドライブ /PhotoHub → homes/名前/PhotoHub）</td><td>管理者</td></tr>
+<tr><td class="b"></td><td>4-3. Cloud Sync（ドライブ /Takeout → homes/名前/Takeout）</td><td>管理者</td></tr>
+<tr><td class="b"></td><td>4-4. Tailscale に家族を招待</td><td>管理者</td></tr>
+<tr><td class="b"></td><td>家族向けガイドのとおりに、アプリを入れてログイン</td><td>家族それぞれ</td></tr>
+<tr><td class="b"></td><td>5. 取り込みの状況で件数を確認 → PHOTOHUB_APPLY を "true" に</td><td>管理者</td></tr>
 <tr><td class="b"></td><td>（Amazonなしの場合）Hyper Backup で USB などへ定期バックアップ</td><td>管理者</td></tr>
 </table>
 <p class="memo">メモ：uid:gid ＿＿＿＿＿＿＿　NASのIP ＿＿＿＿＿＿＿＿＿　管理者名 ＿＿＿＿＿＿</p>
@@ -93,6 +93,19 @@ a {{ color: #2f64b0; text-decoration: none; }}
 out_html = root / "docs/pdf/setup.html"
 out_html.write_text(page, encoding="utf-8")
 out_pdf = root / "docs" / "PhotoHub導入ガイド.pdf"
+
+# the family guide: same look, no checklist / appendix, bigger text
+fam_md = (root / "docs/family.md").read_text(encoding="utf-8").replace("](family.md)", "](PhotoHub家族向けガイド.pdf)")
+# a nested list right after a list item needs a blank line for python-markdown
+fam_md = re.sub(r"\n(\s{4,}(- |\d+\. ))", r"\n\n\1", fam_md)
+# and the next top-level item after a nested list needs one too
+fam_md = re.sub(r"(\n\s{4,}[^\n]*)\n(\d+\. )", r"\1\n\n\2", fam_md)
+fam_body = markdown.markdown(fam_md, extensions=["tables", "fenced_code", "sane_lists"])
+head = page[:page.index("<body>")].replace("font-size: 11pt;", "font-size: 12.5pt;", 1)
+fam_html = root / "docs/pdf/family.html"
+fam_html.write_text(head + "<body>" + fam_body + "</body></html>", encoding="utf-8")
+fam_pdf = root / "docs" / "PhotoHub家族向けガイド.pdf"
+
 with sync_playwright() as p:
     import os
     exe = os.environ.get("CHROMIUM_PATH") or ("/opt/pw-browsers/chromium" if Path("/opt/pw-browsers/chromium").exists() else None)
@@ -104,5 +117,13 @@ with sync_playwright() as p:
            footer_template='<div style="font-size:8pt;width:100%;text-align:center;color:#888">PhotoHub 導入ガイド　'
                            '<span class="pageNumber"></span> / <span class="totalPages"></span></div>',
            margin={"top": "16mm", "bottom": "18mm", "left": "14mm", "right": "14mm"})
+    pg2 = b.new_page()
+    pg2.goto(fam_html.as_uri())
+    pg2.pdf(path=str(fam_pdf), format="A4", print_background=True, display_header_footer=True,
+            header_template="<span></span>",
+            footer_template='<div style="font-size:8pt;width:100%;text-align:center;color:#888">PhotoHub 家族向けガイド　'
+                            '<span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+            margin={"top": "16mm", "bottom": "18mm", "left": "14mm", "right": "14mm"})
     b.close()
 print(out_pdf)
+print(fam_pdf)
