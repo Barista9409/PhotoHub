@@ -175,3 +175,12 @@ def test_trip_with_shared_photos_is_one_album_per_person(settings, db):
         trips = [(a.name, a.owner_id) for a in s.execute(select(Album).where(Album.origin == "trip")).scalars()]
     assert trips == [("2015年1月 愛知県 豊川市", u.id)]
     assert _albums(db, "trip") == {"2015年1月 愛知県 豊川市": 12}
+
+
+def test_folder_albums_one_per_hand_made_folder(settings, db):
+    with db.session() as s:
+        for i, sub in enumerate(["2026_ヨーロッパ旅行/London", "2026_ヨーロッパ旅行/Athens", "2026_ヨーロッパ旅行", "写真/iPhoto", "写真/iPhoto/2010"]):
+            for k in range(3):
+                _media(s, settings, 1000 + i * 10 + k, datetime(2026, 5, 1), folder=sub)
+    autoalbums.folders(db, settings)
+    assert _albums(db, "folder") == {"2026_ヨーロッパ旅行": 9, "iPhoto": 6}

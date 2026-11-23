@@ -176,8 +176,14 @@ def trips(db: Database, settings: Settings) -> int:
     return n
 
 
+_GENERIC_FOLDER = {"写真", "画像", "photo", "photos", "picture", "pictures", "image", "images", "dcim", "camera",
+                   "100apple", "my pictures", "マイピクチャ", "ピクチャ", "動画", "video", "videos", "movies"}
+
+
 def folders(db: Database, settings: Settings) -> int:
-    """Hand-made folders of the shared space -> shared albums named after the folder."""
+    """Hand-made folders of the shared space -> shared albums named after the folder. One album per
+    folder people made (「2026_ヨーロッパ旅行」), with the photos of its subfolders too; date folders and
+    plain containers (「写真」「DCIM」...) are looked through."""
     n = 0
     root = settings.library
     with db.session() as s:
@@ -187,15 +193,34 @@ def folders(db: Database, settings: Settings) -> int:
                 rel = Path(m.nas_path).parent.relative_to(root)
             except ValueError:
                 continue
-            parts = [p for p in rel.parts if not _DATE_FOLDER.match(p)]
+            parts = [p for p in rel.parts if not _DATE_FOLDER.match(p) and p.strip().lower() not in _GENERIC_FOLDER]
             if not parts:
                 continue
-            by_folder["/".join(parts)].append(m.id)
+            by_folder[parts[0]].append(m.id)
+        made = set()
         for key, ids in by_folder.items():
             if len(ids) < 3:
                 continue
-            if _upsert(s, "folder", None, key, key.replace("/", " / "), ids):
+            made.add(key)
+            if _upsert(s, "folder", None, key, key, ids):
                 n += 1
+        # folder albums an older version made per subfolder: gone (their photos are in the parent's album)
+        from .db import KV
+        for k in list(s.execute(select(KV).where(KV.key.like("auto:folder:None:%"))).scalars()):
+            key = k.key[len("auto:folder:None:"):]
+            if key in made or not k.value.isdigit():
+                continue
+            a = s.get(Album, int(k.value))
+            if a is not None and a.origin == "folder":
+                for ai in list(s.execute(select(AlbumItem).where(AlbumItem.album_id == a.id)).scalars()):
+                    touch_media(s, s.get(Media, ai.media_id))
+                    s.delete(ai)
+                s.flush()
+                ref = s.get(KV, f"autoref:{a.id}")
+                if ref is not None:
+                    s.delete(ref)
+                s.delete(a)
+            s.delete(k)
     return n
 
 
