@@ -151,7 +151,7 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) { StoreBadges(cur.stores); Gap(6); Text(cur.name, color = Color(0xCCFFFFFF), maxLines = 1) }
                 }
                 cur.hash?.let { h ->
-                    IconButton(onClick = { scope.launch { app.prefs.toggleFavorite(h) } }) {
+                    IconButton(onClick = { app.toggleFavorite(listOf(h)) }) {
                         Icon(if (h in favs) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "お気に入り", tint = Color.White)
                     }
                 }

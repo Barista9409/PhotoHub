@@ -502,17 +502,29 @@ fun UpdateRow() {
         else -> "確認中…" to {}
     }
     SettingRow(Icons.Default.SystemUpdate, "アプリの更新", sub, onClick = action)
-    notesOf?.let { r ->
-        AlertDialog(onDismissRequest = { notesOf = null },
-            title = { Text("PhotoHub ${r.versionName} の変更点") },
-            text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 400.dp)) {
-                item { Text(r.notes.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium) } } },
-            confirmButton = { TextButton({ notesOf = null
-                val x = st
-                if (x is Updater.State.Ready) { if (app.updater.canInstall()) app.updater.install(x.file) else ctx.startActivity(app.updater.installPermissionIntent()) }
-                else install(r) }) { Text("更新する") } },
-            dismissButton = { TextButton({ notesOf = null }) { Text("あとで") } })
-    }
+    notesOf?.let { r -> UpdateDialog(r) { notesOf = null } }
+}
+
+/** What changed in the new version, and the button that downloads and installs it. */
+@Composable
+fun UpdateDialog(r: com.photohub.app.data.api.AppRelease, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val scope = rememberCoroutineScope()
+    val st by app.updater.state.collectAsState()
+    AlertDialog(onDismissRequest = onDone,
+        title = { Text("PhotoHub ${r.versionName} の変更点") },
+        text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 400.dp)) {
+            item { Text(r.notes.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium) } } },
+        confirmButton = { TextButton({
+            onDone()
+            val x = st
+            if (x is Updater.State.Ready) { if (app.updater.canInstall()) app.updater.install(x.file) else ctx.startActivity(app.updater.installPermissionIntent()) }
+            else scope.launch {
+                app.updater.download(r)?.let { if (app.updater.canInstall()) app.updater.install(it) else ctx.startActivity(app.updater.installPermissionIntent()) }
+            }
+        }) { Text("更新する") } },
+        dismissButton = { TextButton(onDone) { Text("あとで") } })
 }
 
 /** This version's changes: a row on the app screen, and a dialog once right after an update. */
@@ -687,7 +699,11 @@ fun UpdateBanner(onOpen: () -> Unit) {
         is Updater.State.Ready -> x.release.versionName
         else -> return
     }
-    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer).clickable(onClick = onOpen)
+    // tapping it shows what changed and updates right there (it is also shown on the settings page)
+    var notes by remember { mutableStateOf<com.photohub.app.data.api.AppRelease?>(null) }
+    notes?.let { r -> UpdateDialog(r) { notes = null } }
+    val rel = when (val x = st) { is Updater.State.Available -> x.release; is Updater.State.Ready -> x.release; else -> null }
+    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer).clickable { notes = rel }
         .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("新しい版 $name があります", style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f))

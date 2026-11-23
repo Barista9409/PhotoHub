@@ -92,6 +92,28 @@ data class LogGroup(val what: String, val count: Int = 0, val last: Long = 0, va
 data class LogTiming(val name: String, val count: Int = 0, val median: Long = 0, val p95: Long = 0, val max: Long = 0)
 
 @Serializable
+data class TagCount(val name: String, val count: Int = 0)
+
+@Serializable
+data class TagSearch(val tags: List<TagCount> = emptyList(), val hashes: List<String> = emptyList())
+
+@Serializable
+data class HashList(val hashes: List<String> = emptyList())
+
+@Serializable
+data class FavoriteBody(val hashes: List<String>, val on: Boolean)
+
+@Serializable
+data class BirthdayBody(val date: String? = null)
+
+@Serializable
+data class MemoBody(val text: String)
+
+@Serializable
+data class Report(val days: Int = 7, val saved: Int = 0, val waiting: Int = 0, val photos: Int = 0, val videos: Int = 0,
+                  @SerialName("free_gb") val freeGb: Double = 0.0)
+
+@Serializable
 data class AlbumMergeBody(val ids: List<Long>, val name: String? = null)
 
 @Serializable
@@ -286,6 +308,13 @@ interface PhotoHubApi {
     @POST("api/albums") suspend fun createAlbum(@Body body: AlbumNewBody): Map<String, Long>
     @retrofit2.http.PUT("api/albums/{id}") suspend fun renameAlbum(@retrofit2.http.Path("id") id: Long, @Body body: AlbumNameBody): Map<String, Boolean>
     @GET("api/media/{hash}/probe") suspend fun probe(@Path("hash") hash: String): kotlinx.serialization.json.JsonObject
+    @GET("api/search/tags") suspend fun searchTags(@Query("q") q: String): TagSearch
+    @GET("api/favorites") suspend fun favorites(): HashList
+    @POST("api/favorites") suspend fun setFavorites(@Body body: FavoriteBody): Map<String, Int>
+    @GET("api/albums/{id}/birthday") suspend fun birthday(@Path("id") id: Long): BirthdayBody
+    @retrofit2.http.PUT("api/albums/{id}/birthday") suspend fun setBirthday(@Path("id") id: Long, @Body body: BirthdayBody): Map<String, Int>
+    @POST("api/media/{hash}/memo") suspend fun setMemo(@Path("hash") hash: String, @Body body: MemoBody): Map<String, Boolean>
+    @GET("api/me/report") suspend fun report(): Report
     @POST("api/albums/merge") suspend fun mergeAlbums(@Body body: AlbumMergeBody): Map<String, Long>
     @POST("api/albums/auto") suspend fun autoAlbums(): Map<String, kotlinx.serialization.json.JsonElement>
     @retrofit2.http.DELETE("api/albums/{id}") suspend fun deleteAlbum(@retrofit2.http.Path("id") id: Long): Map<String, Boolean>

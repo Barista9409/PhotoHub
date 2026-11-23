@@ -357,7 +357,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                             }
                             entry(Icons.Default.Favorite, "お気に入りにする") {
                                 val list = onSyno()
-                                scope.launch { list.forEach { app.prefs.toggleFavorite(it.hash!!) } }
+                                app.toggleFavorite(list.map { it.hash!! })
                                 selected = emptySet()
                             }
                             entry(Icons.Default.Rotate90DegreesCw, "右に回転") {

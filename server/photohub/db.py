@@ -256,6 +256,21 @@ class ScanState(Base):
     seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class MediaTag(Base):
+    """What is in a photo ("犬", "海", ...), from Synology Photos' recognition: for searching."""
+    __tablename__ = "media_tag"
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), primary_key=True)
+    tag: Mapped[str] = mapped_column(String(80), primary_key=True, index=True)
+
+
+class Favorite(Base):
+    """A person's ♡ (kept on the Synology, so it survives a new phone)."""
+    __tablename__ = "favorite"
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    media_id: Mapped[int] = mapped_column(ForeignKey("media.id"), primary_key=True, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class KV(Base):
     __tablename__ = "kv"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)

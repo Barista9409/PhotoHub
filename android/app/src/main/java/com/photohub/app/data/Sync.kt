@@ -70,6 +70,16 @@ class SyncEngine(private val app: PhotoHubApp) {
                 progress("Synologyの写真の一覧を読み込み中 $changed 件")
                 if (!page.hasMore) break
             }
+            // ♡: the Synology keeps them (a new phone gets them back); this phone's older ones go up once
+            try {
+                val server = api.favorites().hashes.toSet()
+                val local = prefs.favorites.first()
+                val up = local - server
+                if (up.isNotEmpty() && !app.delta.long("favorites_pushed").let { it > 0 })
+                    api.setFavorites(com.photohub.app.data.api.FavoriteBody(up.toList(), true))
+                app.delta.setLong("favorites_pushed", 1)
+                prefs.setFavorites(server + if (app.delta.long("favorites_pushed") > 0) up else emptySet())
+            } catch (_: Exception) {}   // older Synology
             // other files of the same photos (the phone's original in Drive vs. the Google Photos copy)
             // only the links made since the last look ("after" = the last answer's number)
             try {

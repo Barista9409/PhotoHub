@@ -24,7 +24,9 @@ from .config import Settings
 from .db import (Album, AlbumItem, Database, KV, Media, SimilarMember, User, kv_get, kv_set, next_rev, touch_media,
                  utcnow)
 
-AUTO_ORIGINS = ("digest", "trip", "folder", "person")
+AUTO_ORIGINS = ("digest", "trip", "folder", "person", "place", "growth", "favorite")
+PLACE_MIN_PHOTOS = 20
+PLACE_MAX = 30
 PERSON_MIN_PHOTOS = 5
 PERSON_MAX = 100
 DIGEST_MAX = 40
@@ -252,10 +254,131 @@ def people(db: Database, settings: Settings) -> dict:
     return {"made": made, "notes": notes}
 
 
+def places(db: Database, settings: Settings) -> int:
+    """「場所」: the towns where the most photos were taken (each ≥ 20 photos, 30 towns at most),
+    per owner and for the shared space - every visit, across the years."""
+    n = 0
+    with db.session() as s:
+        where = {int(k.key[6:]): k.value for k in s.execute(select(KV).where(KV.key.like("place:%"))).scalars()
+                 if k.key[6:].isdigit() and k.value}
+        owners: list[int | None] = [u.id for u in s.execute(select(User)).scalars()] + [None]
+        for owner in owners:
+            q = select(Media.id).where(Media.status == "active",
+                                       Media.owner_id.is_(None) if owner is None else Media.owner_id == owner)
+            by_place: dict[str, list[int]] = defaultdict(list)
+            for mid in s.execute(q).scalars():
+                if mid in where:
+                    by_place[where[mid]].append(mid)
+            top = sorted(by_place.items(), key=lambda kv: -len(kv[1]))[:PLACE_MAX]
+            for name, ids in top:
+                if len(ids) >= PLACE_MIN_PHOTOS and _upsert(s, "place", owner, name, name, ids):
+                    n += 1
+    return n
+
+
+def growth(db: Database, settings: Settings) -> int:
+    """「はると 1歳」: for a person album with a birthday (set in the app), one album per year of age."""
+    from .db import kv_get
+    n = 0
+    tz = settings.default_tz_minutes
+    with db.session() as s:
+        for a in s.execute(select(Album).where(Album.origin == "person")).scalars():
+            bd = kv_get(s, f"birthday:{a.id}")
+            if not bd:
+                continue
+            try:
+                born = datetime.strptime(bd, "%Y-%m-%d")
+            except ValueError:
+                continue
+            ages: dict[int, list[int]] = defaultdict(list)
+            for m in s.execute(select(Media).join(AlbumItem, AlbumItem.media_id == Media.id)
+                               .where(AlbumItem.album_id == a.id, Media.status == "active")).scalars():
+                if m.taken_at is None:
+                    continue
+                t = _local(m, tz)
+                age = t.year - born.year - ((t.month, t.day) < (born.month, born.day))
+                if age >= 0:
+                    ages[age].append(m.id)
+            for age, ids in ages.items():
+                if _upsert(s, "growth", a.owner_id, f"{a.id}:{age}", f"{a.name} {age}歳", ids):
+                    n += 1
+    return n
+
+
+def favorites(db: Database, settings: Settings) -> int:
+    """「お気に入り」 for each person (their ♡), and 「家族のお気に入り」 from the shared space."""
+    from .db import Favorite
+    n = 0
+    with db.session() as s:
+        favs = list(s.execute(select(Favorite.user_id, Favorite.media_id, Media.owner_id)
+                              .join(Media, Media.id == Favorite.media_id).where(Media.status == "active")).all())
+        mine: dict[int, list[int]] = defaultdict(list)
+        family: set[int] = set()
+        for uid, mid, owner in favs:
+            mine[uid].append(mid)
+            if owner is None:
+                family.add(mid)   # only the shared space: a personal photo stays personal
+        for uid, ids in mine.items():
+            if _upsert(s, "favorite", uid, "mine", "お気に入り", ids):
+                n += 1
+        if family and _upsert(s, "favorite", None, "family", "家族のお気に入り", sorted(family)):
+            n += 1
+    return n
+
+
+def tags(db: Database, settings: Settings) -> dict:
+    """What is in the photos ("犬", "海", ...) from Synology Photos' recognition, for searching.
+    Read as each linked person (their space); the shared space through the first linked admin."""
+    from .albums import _list_all
+    from .db import MediaTag, visible_clause
+    from .photos_link import PhotosError, Session
+    stored, notes = 0, []
+    with db.session() as s:
+        users = [u for u in s.execute(select(User)).scalars() if u.dsm_secret]
+        for u in users:
+            s.expunge(u)
+    for u in users:
+        try:
+            with Session(settings, u) as ses:
+                with db.session() as s:
+                    index = {(Path(m.nas_path).name.lower(), m.bytes): m.id for m in
+                             s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars()}
+                for api, key in (("SYNO.Foto.Browse.Concept", "concept_id"), ("SYNO.Foto.Browse.GeneralTag", "general_tag_id")):
+                    try:
+                        found = _list_all(ses, api, "list")
+                    except PhotosError as e:
+                        notes.append(f"{u.name}: {api}: {e}")
+                        continue
+                    for t in found[:300]:
+                        name = (t.get("name") or "").strip()
+                        if not name or t.get("id") is None:
+                            continue
+                        items = _list_all(ses, "SYNO.Foto.Browse.Item", "list", **{key: t["id"]})
+                        ids = {index[k] for k in (((it.get("filename") or "").lower(), int(it.get("filesize") or 0))
+                                                  for it in items) if k in index}
+                        with db.session() as s:
+                            have = set(s.execute(select(MediaTag.media_id).where(MediaTag.tag == name)).scalars())
+                            for mid in ids - have:
+                                s.add(MediaTag(media_id=mid, tag=name[:80]))
+                                stored += 1
+        except Exception as e:  # noqa: BLE001 - undocumented API
+            notes.append(f"{u.name}: {e}")
+    if notes:
+        from .db import log_event
+        with db.session() as s:
+            for t in notes[:20]:
+                log_event(s, "warn", "photo_tags", t[:500])
+    return {"stored": stored, "notes": notes}
+
+
 def run_all(db: Database, settings: Settings) -> dict:
-    out = {"digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings)}
+    out = {"digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
+           "place": places(db, settings), "favorite": favorites(db, settings)}
     p = people(db, settings)
     out["person"] = p["made"]
     if p["notes"]:
         out["person_note"] = p["notes"][0]
+    out["growth"] = growth(db, settings)   # after the person albums
+    t = tags(db, settings)
+    out["tags"] = t["stored"]
     return out

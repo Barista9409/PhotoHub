@@ -81,6 +81,19 @@ class LogBatch(BaseModel):
     items: list[LogItem] = []
 
 
+class FavoriteSet(BaseModel):
+    hashes: list[str]
+    on: bool = True
+
+
+class Birthday(BaseModel):
+    date: str | None = None   # "YYYY-MM-DD"; empty = none
+
+
+class Memo(BaseModel):
+    text: str = ""
+
+
 class AlbumMerge(BaseModel):
     ids: list[int]
     name: str | None = None
@@ -515,6 +528,96 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     def album_delete(album_id: int, user: User = Depends(auth)) -> dict:
         from . import albums
         return _album_call(lambda: (albums.delete(db, settings, user, album_id), {"ok": True})[1])
+
+    # ---- search by what is in the photo ("犬", "海" ...: Synology Photos' recognition) ----------
+    @app.get("/api/search/tags")
+    def search_tags(q: str = "", user: User = Depends(auth)) -> dict:
+        from .db import MediaTag
+        with db.session() as s:
+            base = (select(MediaTag.tag, func.count()).join(Media, Media.id == MediaTag.media_id)
+                    .where(Media.status == "active", visible_clause(user)).group_by(MediaTag.tag))
+            if not q.strip():   # the most common ones, as suggestions
+                top = s.execute(base.order_by(func.count().desc()).limit(30)).all()
+                return {"tags": [{"name": t, "count": n} for t, n in top], "hashes": []}
+            like = f"%{q.strip()}%"
+            found = s.execute(base.where(MediaTag.tag.like(like)).order_by(func.count().desc()).limit(20)).all()
+            hashes = list(s.execute(select(Media.content_hash).join(MediaTag, MediaTag.media_id == Media.id)
+                                    .where(MediaTag.tag.like(like), Media.status == "active", visible_clause(user))
+                                    .distinct().limit(5000)).scalars())
+        return {"tags": [{"name": t, "count": n} for t, n in found], "hashes": hashes}
+
+    # ---- ♡ kept on the Synology ----------------------------------------------------------------
+    @app.get("/api/favorites")
+    def favorites_list(user: User = Depends(auth)) -> dict:
+        from .db import Favorite
+        with db.session() as s:
+            return {"hashes": list(s.execute(select(Media.content_hash).join(Favorite, Favorite.media_id == Media.id)
+                                             .where(Favorite.user_id == user.id)).scalars())}
+
+    @app.post("/api/favorites")
+    def favorites_set(body: FavoriteSet, user: User = Depends(auth)) -> dict:
+        from .db import Favorite
+        n = 0
+        with db.session() as s:
+            for m in s.execute(select(Media).where(Media.content_hash.in_(body.hashes[:5000]), visible_clause(user))).scalars():
+                f = s.get(Favorite, (user.id, m.id))
+                if body.on and f is None:
+                    s.add(Favorite(user_id=user.id, media_id=m.id)); n += 1
+                elif not body.on and f is not None:
+                    s.delete(f); n += 1
+        return {"changed": n}
+
+    # ---- a person's birthday (growth albums 「はると 1歳」) -------------------------------------
+    @app.put("/api/albums/{album_id}/birthday")
+    def album_birthday(album_id: int, body: Birthday, user: User = Depends(auth)) -> dict:
+        from datetime import datetime as _dt
+        from .db import kv_set
+        with db.session() as s:
+            a = s.get(Album, album_id)
+            if a is None or a.origin != "person" or a.owner_id != user.id:
+                raise HTTPException(404, "person album not found")
+            if body.date:
+                try:
+                    _dt.strptime(body.date, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(400, "date must be YYYY-MM-DD")
+            kv_set(s, f"birthday:{album_id}", body.date or "")
+        from . import autoalbums
+        return {"albums": autoalbums.growth(db, settings)}
+
+    @app.get("/api/albums/{album_id}/birthday")
+    def album_birthday_get(album_id: int, user: User = Depends(auth)) -> dict:
+        from .db import kv_get
+        with db.session() as s:
+            return {"date": kv_get(s, f"birthday:{album_id}") or None}
+
+    # ---- a short note on a photo (searchable) ---------------------------------------------------
+    @app.post("/api/media/{content_hash}/memo")
+    def media_memo(content_hash: str, body: Memo, user: User = Depends(auth)) -> dict:
+        with db.session() as s:
+            m = media_or_404(s, content_hash, user)
+            m = s.get(Media, m.id)
+            m.description = body.text.strip()[:1000] or None
+            touch_media(s, m)
+        return {"ok": True}
+
+    # ---- the weekly report ----------------------------------------------------------------------
+    @app.get("/api/me/report")
+    def my_report(days: int = 7, user: User = Depends(auth)) -> dict:
+        from datetime import timedelta as _td
+        from .db import Upload, disk_free_gb
+        since = utcnow() - _td(days=max(1, min(days, 31)))
+        with db.session() as s:
+            saved = s.scalar(select(func.count()).select_from(Upload).where(Upload.user_id == user.id,
+                                                                             Upload.processed_at >= since)) or 0
+            waiting = s.scalar(select(func.count()).select_from(Upload).where(Upload.user_id == user.id,
+                                                                               Upload.processed_at.is_(None))) or 0
+            photos = s.scalar(select(func.count()).select_from(Media).where(Media.status == "active", Media.kind == "photo",
+                                                                             visible_clause(user))) or 0
+            videos = s.scalar(select(func.count()).select_from(Media).where(Media.status == "active", Media.kind == "video",
+                                                                             visible_clause(user))) or 0
+        return {"days": days, "saved": saved, "waiting": waiting, "photos": photos, "videos": videos,
+                "free_gb": round(disk_free_gb(settings.library), 1)}
 
     @app.post("/api/albums/merge")
     def albums_merge(body: AlbumMerge, user: User = Depends(auth)) -> dict:

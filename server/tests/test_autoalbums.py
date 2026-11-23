@@ -101,3 +101,44 @@ def test_people_albums_from_synology_photos(settings, db, monkeypatch):
     persons[1]["name"] = "ゆい"   # named later in Synology Photos
     autoalbums.people(db, settings)
     assert _albums(db, "person") == {"はると": 6, "ゆい": 5}
+
+
+def test_places_favorites_growth_tags_memo_report(settings, db):
+    from photohub.db import MediaTag
+    u, token = add_user(db, settings, "reo")
+    c = TestClient(create_app(settings, db))
+    h = {"Authorization": f"Bearer {token}"}
+    with db.session() as s:
+        ms = []
+        for i in range(25):
+            m = _media(s, settings, 700 + i, datetime(2020 + i % 5, 6, 1), owner=u.id)
+            kv_set(s, f"place:{m.id}", "新潟県 糸魚川市")
+            ms.append(m)
+        s.add(MediaTag(media_id=ms[0].id, tag="犬"))
+        s.add(MediaTag(media_id=ms[1].id, tag="犬"))
+        person = Album(name="はると", origin="person", owner_id=u.id)
+        s.add(person)
+        s.flush()
+        for m in ms[:10]:
+            s.add(AlbumItem(album_id=person.id, media_id=m.id))
+        pid = person.id
+        hashes = [m.content_hash for m in ms]
+    # place album
+    assert autoalbums.places(db, settings) == 1
+    assert _albums(db, "place") == {"新潟県 糸魚川市": 25}
+    # ♡ on the Synology -> お気に入り album
+    assert c.post("/api/favorites", json={"hashes": hashes[:3]}, headers=h).json()["changed"] == 3
+    assert sorted(c.get("/api/favorites", headers=h).json()["hashes"]) == sorted(hashes[:3])
+    autoalbums.favorites(db, settings)
+    assert _albums(db, "favorite") == {"お気に入り": 3}
+    # birthday -> growth albums (photos from 2020..2024, born 2020-01-01)
+    r = c.put(f"/api/albums/{pid}/birthday", json={"date": "2020-01-01"}, headers=h).json()
+    assert r["albums"] >= 1
+    assert set(_albums(db, "growth")) <= {f"はると {a}歳" for a in range(5)}
+    # search by what is in the photo
+    t = c.get("/api/search/tags?q=犬", headers=h).json()
+    assert t["tags"][0] == {"name": "犬", "count": 2} and len(t["hashes"]) == 2
+    # memo, weekly report
+    assert c.post(f"/api/media/{hashes[0]}/memo", json={"text": "初めて歩いた日"}, headers=h).json()["ok"]
+    rep = c.get("/api/me/report", headers=h).json()
+    assert rep["photos"] == 25 and "free_gb" in rep

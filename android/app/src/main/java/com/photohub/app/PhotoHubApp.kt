@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.retryWhen
 import okhttp3.OkHttpClient
 import org.osmdroid.config.Configuration as OsmConfig
@@ -87,6 +88,16 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
             "photohub-local-index", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<LocalIndexWorker>(1, TimeUnit.HOURS).build(),
         )
+    }
+
+    /** ♡ on this phone at once, and on the Synology (kept there across phones). */
+    fun toggleFavorite(hashes: List<String>) {
+        scope.launch {
+            val now = prefs.favorites.first()
+            val on = hashes.any { it !in now }   // like the button: all on, unless all were on
+            hashes.forEach { h -> if ((h in now) != on) prefs.toggleFavorite(h) }
+            try { net.api()?.setFavorites(com.photohub.app.data.api.FavoriteBody(hashes, on)) } catch (_: Exception) {}
+        }
     }
 
     /** A different family member's token: forget the previous person's NAS index and copies. */

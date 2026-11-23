@@ -257,14 +257,14 @@ class Updater(private val app: PhotoHubApp) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "アプリの更新", NotificationManager.IMPORTANCE_DEFAULT))
         }
 
-        fun notify(ctx: Context, title: String, text: String, intent: Intent) {
+        fun notify(ctx: Context, title: String, text: String, intent: Intent, id: Int = NOTIFY_ID) {
             ensureChannel(ctx)
             val pi = PendingIntent.getActivity(ctx, 0, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val n = NotificationCompat.Builder(ctx, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_update).setContentTitle(title).setContentText(text)
                 .setContentIntent(pi).setAutoCancel(true).build()
-            try { ctx.getSystemService(NotificationManager::class.java).notify(NOTIFY_ID, n) } catch (_: SecurityException) {}
+            try { ctx.getSystemService(NotificationManager::class.java).notify(id, n) } catch (_: SecurityException) {}
         }
 
         fun schedule(ctx: Context) {

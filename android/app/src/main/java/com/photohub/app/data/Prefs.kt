@@ -107,6 +107,8 @@ class Prefs(private val ctx: Context) {
 
     suspend fun resetCursor() = ctx.store.edit { it[K.cursor] = 0 }
 
+    suspend fun setFavorites(hashes: Set<String>) = ctx.store.edit { it[K.favorites] = hashes }
+
     suspend fun toggleFavorite(hash: String) = ctx.store.edit { p ->
         val cur = p[K.favorites] ?: emptySet()
         p[K.favorites] = if (hash in cur) cur - hash else cur + hash
