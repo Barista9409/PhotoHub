@@ -236,41 +236,54 @@ def people(db: Database, settings: Settings) -> dict:
         users = [u for u in s.execute(select(User)).scalars() if u.dsm_secret]
         for u in users:
             s.expunge(u)
-    for u in users:
+    def one_space(ses, u: User, list_api: str, item_api: str, owner: int | None, prefix: str, label: str) -> None:  # noqa: ANN001
+        nonlocal made
+        persons, last = None, None
+        for params in ({"show_more": True, "show_hidden": False}, {}):
+            try:
+                persons = _list_all(ses, list_api, "list", **params)
+                break
+            except PhotosError as e:
+                last = e
+        if persons is None:
+            notes.append(f"{u.name}（{label}）: 人物の一覧を読めません（Synology Photosの顔認識がオフかもしれません）: {last}")
+            return
+        persons = sorted(persons, key=lambda p: -int(p.get("item_count") or 0))[:PERSON_MAX]
+        with db.session() as s:
+            index = {(Path(m.nas_path).name.lower(), m.bytes): m.id for m in
+                     s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars()}
+        for n, p in enumerate(persons, 1):
+            pid = p.get("id")
+            if pid is None or int(p.get("item_count") or 0) < PERSON_MIN_PHOTOS:
+                continue
+            items = _list_all(ses, item_api, "list", person_id=pid)
+            ids = [index[k] for k in (((it.get("filename") or "").lower(), int(it.get("filesize") or 0)) for it in items)
+                   if k in index]
+            if len(ids) < PERSON_MIN_PHOTOS:
+                continue
+            name = (p.get("name") or "").strip()
+            key = f"{prefix}:{pid}"
+            with db.session() as s:
+                if _upsert(s, "person", owner, key, name or f"人物 {n}" + ("（家族）" if owner is None else ""), ids):
+                    made += 1
+                    # Synology Photos gave the person a name later: use it (unless renamed in PhotoHub)
+                    a = s.get(Album, int(kv_get(s, f"auto:person:{owner}:{key}") or 0))
+                    if a is not None and name and a.name.startswith("人物 ") and a.name != name:
+                        a.name = name
+                        a.rev = next_rev(s)
+
+    team_done = False
+    # admins first: the shared space's people are read once, through the first admin who linked
+    for u in sorted(users, key=lambda x: not x.is_admin):
         try:
             with Session(settings, u) as ses:
-                persons = None
-                for params in ({"show_more": True, "show_hidden": False}, {}):
+                one_space(ses, u, "SYNO.Foto.Browse.Person", "SYNO.Foto.Browse.Item", u.id, "syno", "個人スペース")
+                if not team_done:
                     try:
-                        persons = _list_all(ses, "SYNO.Foto.Browse.Person", "list", **params)
-                        break
-                    except PhotosError as e:
-                        last = e
-                if persons is None:
-                    notes.append(f"{u.name}: 人物の一覧を読めません（Synology Photosの「人物」がオフかもしれません）: {last}")
-                    continue
-                persons = sorted(persons, key=lambda p: -int(p.get("item_count") or 0))[:PERSON_MAX]
-                with db.session() as s:
-                    index = {(Path(m.nas_path).name.lower(), m.bytes): m.id for m in
-                             s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars()}
-                for n, p in enumerate(persons, 1):
-                    pid = p.get("id")
-                    if pid is None or int(p.get("item_count") or 0) < PERSON_MIN_PHOTOS:
-                        continue
-                    items = _list_all(ses, "SYNO.Foto.Browse.Item", "list", person_id=pid)
-                    ids = [index[k] for k in (((it.get("filename") or "").lower(), int(it.get("filesize") or 0)) for it in items)
-                           if k in index]
-                    if len(ids) < PERSON_MIN_PHOTOS:
-                        continue
-                    name = (p.get("name") or "").strip()
-                    with db.session() as s:
-                        if _upsert(s, "person", u.id, f"syno:{pid}", name or f"人物 {n}", ids):
-                            made += 1
-                            # Synology Photos gave the person a name later: use it (unless renamed in PhotoHub)
-                            a = s.get(Album, int(kv_get(s, f"auto:person:{u.id}:syno:{pid}") or 0))
-                            if a is not None and name and a.name.startswith("人物 ") and a.name != name:
-                                a.name = name
-                                a.rev = next_rev(s)
+                        one_space(ses, u, "SYNO.FotoTeam.Browse.Person", "SYNO.FotoTeam.Browse.Item", None, "team", "共有スペース")
+                        team_done = True
+                    except Exception as e:  # noqa: BLE001
+                        notes.append(f"{u.name}（共有スペース）: {e}")
         except Exception as e:  # noqa: BLE001 - undocumented API: never stop the other albums
             notes.append(f"{u.name}: {e}")
     if notes:
@@ -369,7 +382,10 @@ def tags(db: Database, settings: Settings) -> dict:
                 with db.session() as s:
                     index = {(Path(m.nas_path).name.lower(), m.bytes): m.id for m in
                              s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars()}
-                for api, key in (("SYNO.Foto.Browse.Concept", "concept_id"), ("SYNO.Foto.Browse.GeneralTag", "general_tag_id")):
+                for api, key, item_api in (("SYNO.Foto.Browse.Concept", "concept_id", "SYNO.Foto.Browse.Item"),
+                                           ("SYNO.Foto.Browse.GeneralTag", "general_tag_id", "SYNO.Foto.Browse.Item"),
+                                           ("SYNO.FotoTeam.Browse.Concept", "concept_id", "SYNO.FotoTeam.Browse.Item"),
+                                           ("SYNO.FotoTeam.Browse.GeneralTag", "general_tag_id", "SYNO.FotoTeam.Browse.Item")):
                     try:
                         found = _list_all(ses, api, "list")
                     except PhotosError as e:
@@ -379,7 +395,7 @@ def tags(db: Database, settings: Settings) -> dict:
                         name = (t.get("name") or "").strip()
                         if not name or t.get("id") is None:
                             continue
-                        items = _list_all(ses, "SYNO.Foto.Browse.Item", "list", **{key: t["id"]})
+                        items = _list_all(ses, item_api, "list", **{key: t["id"]})
                         ids = {index[k] for k in (((it.get("filename") or "").lower(), int(it.get("filesize") or 0))
                                                   for it in items) if k in index}
                         with db.session() as s:

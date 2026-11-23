@@ -88,6 +88,8 @@ def test_people_albums_from_synology_photos(settings, db, monkeypatch):
         f = {k: v[0] for k, v in parse_qs(req.content.decode()).items()}
         if f["api"] == "SYNO.API.Auth":
             return httpx.Response(200, json={"success": True, "data": {"sid": "S"}})
+        if f["api"] == "SYNO.FotoTeam.Browse.Person":   # the shared space: nobody yet
+            return httpx.Response(200, json={"success": True, "data": {"list": []}})
         if f["api"] == "SYNO.Foto.Browse.Person":
             return httpx.Response(200, json={"success": True, "data": {"list": persons if f.get("offset") == "0" else []}})
         if f["api"] == "SYNO.Foto.Browse.Item":
