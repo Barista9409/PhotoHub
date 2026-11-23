@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Deselect
@@ -218,7 +219,16 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Pills(listOf("年" to 3, "月" to 2, "日" to DAY_LEVEL), if (colIdx <= DAY_LEVEL) DAY_LEVEL else colIdx) { setLevel(it) }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-            Pills(listOf("すべて" to "", "写真" to "photo", "動画" to "video"), kindFilter) { kindFilter = it }
+            // two check filters: both on = everything; turning the only one left off turns the other on
+            val photosOn = kindFilter != "video"
+            val videosOn = kindFilter != "photo"
+            androidx.compose.material3.FilterChip(photosOn, onClick = {
+                kindFilter = when { photosOn && videosOn -> "video"; photosOn -> "video"; else -> "" }
+            }, label = { Text("写真") }, leadingIcon = if (photosOn) { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null)
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            androidx.compose.material3.FilterChip(videosOn, onClick = {
+                kindFilter = when { photosOn && videosOn -> "photo"; videosOn -> "photo"; else -> "" }
+            }, label = { Text("動画") }, leadingIcon = if (videosOn) { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null)
         }
     }
     // pull down to fetch what is new from the Synology (like other photo apps)
