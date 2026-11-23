@@ -104,7 +104,6 @@ private data class Tab(val route: String, val label: String, val icon: androidx.
 
 private val tabs = listOf(
     Tab("timeline", "フォト", Icons.Default.PhotoLibrary),
-    Tab("albums", "アルバム", Icons.Default.PhotoAlbum),
     Tab("shared", "共有", Icons.Default.FamilyRestroom),
     Tab("map", "地図", Icons.Default.Map),
     Tab("account", "設定", Icons.Default.Settings),   // bottom right: backup, tidy-up, migration, app, account
@@ -147,7 +146,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 },
                 actions = {
                     // search sits on the photo pages (a magnifier at the top right), not in the tab bar
-                    if (route in setOf("timeline", "albums", "shared", "map"))
+                    if (route in setOf("timeline", "shared", "map"))
                         IconButton({ nav.navigate("search") { launchSingleTop = true } }) { Icon(Icons.Default.Search, "検索") }
                 },
 
@@ -174,7 +173,11 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
             if (tabs.any { it.route == route }) com.photohub.app.ui.UpdateBanner { nav.navigate("account") { launchSingleTop = true } }
             androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
             NavHost(nav, startDestination = "timeline") {
-                composable("timeline") { TimelineScreen(open) }
+                composable("timeline") {
+                    com.photohub.app.ui.PhotosHome(open,
+                        onAlbum = { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") },
+                        onFolder = { b -> nav.navigate("folder/${URLEncoder.encode(b, "UTF-8")}") })
+                }
                 composable("albums") {
                     AlbumsScreen(onAlbum = { id, name -> nav.navigate("album/$id/${URLEncoder.encode(name, "UTF-8")}") },
                         onFolder = { b -> nav.navigate("folder/${URLEncoder.encode(b, "UTF-8")}") })

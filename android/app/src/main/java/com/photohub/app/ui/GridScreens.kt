@@ -337,7 +337,7 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
     val albums by app.lists.albums.collectAsState()
     val items by app.lists.shared.collectAsState()
     val folderOf by app.lists.sharedFolders.collectAsState()
-    var mode by rememberSaveable { mutableStateOf("all") }
+    var mode by rememberSaveable { mutableStateOf("album") }
     var path by rememberSaveable { mutableStateOf("") }
     val all = items
     val fo = folderOf
@@ -349,18 +349,16 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
         }
         return
     }
-    val switcher: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().padding(12.dp, 8.dp), horizontalArrangement = Arrangement.Center) {
-            Segmented(listOf("all" to "すべての写真", "folder" to "フォルダ", "album" to "アルバム"), mode, { mode = it; path = "" })
-        }
-    }
+    // the switch sits above everything and never moves, whichever view is chosen
+    Column(Modifier.fillMaxSize()) {
+    ViewSwitch(listOf("album" to "アルバム", "folder" to "フォルダ", "all" to "すべての写真"), mode) { mode = it; path = "" }
+    Box(Modifier.weight(1f)) {
     when (mode) {
         "album" -> Column(Modifier.fillMaxSize()) {
-            switcher()
             if (family.isEmpty()) Text("家族の共有アルバムはまだありません", modifier = Modifier.padding(24.dp))
             SelectableAlbumGrid(family, onAlbum)
         }
-        "all" -> MediaGrid(all, onOpen, zoomBar = true, header = switcher, refreshable = true)
+        "all" -> MediaGrid(all, onOpen, zoomBar = true, refreshable = true)
         else -> {
             // folders one level below `path`, each with its photo count (including subfolders) and newest photo
             val byHash = remember(all) { all.associateBy { it.hash } }
@@ -377,7 +375,6 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
             }
             MediaGrid(here, onOpen, zoomBar = true, header = {
                 Column {
-                    switcher()
                     // where we are: 共有スペース > 2024 > 沖縄
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         val parts = if (path.isEmpty()) emptyList() else path.split('/')
@@ -399,6 +396,31 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
                     else if (children.isEmpty()) Text("このフォルダに写真はありません", modifier = Modifier.padding(16.dp))
                 }
             })
+        }
+    }
+    }
+    }
+}
+
+/** The view switch at the very top of a tab (アルバム / フォルダ / すべての写真): fixed, it never scrolls away. */
+@Composable
+fun ViewSwitch(options: List<Pair<String, String>>, current: String, onChange: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(12.dp, 8.dp), horizontalArrangement = Arrangement.Center) {
+        Segmented(options, current, onChange)
+    }
+}
+
+/**
+ * The フォト tab: the person's albums and all their photos in one place, with the same fixed switch
+ * as the 共有 tab. It opens on the albums.
+ */
+@Composable
+fun PhotosHome(open: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit) {
+    var mode by rememberSaveable { mutableStateOf("album") }
+    Column(Modifier.fillMaxSize()) {
+        ViewSwitch(listOf("album" to "アルバム", "all" to "すべての写真"), mode) { mode = it }
+        Box(Modifier.weight(1f)) {
+            if (mode == "album") AlbumsScreen(onAlbum = onAlbum, onFolder = onFolder) else TimelineScreen(open)
         }
     }
 }
