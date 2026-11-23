@@ -84,13 +84,14 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     val localBuckets = remember(folders) { folders.map { it.bucket }.toSet() }
     val folderAlbums = remember(albums) { albums.filter { it.origin == "device" }.associateBy { it.name } }
     // albums PhotoHub makes by itself come first, newest first: the month's look-back and trips
-    val auto = setOf("digest", "trip", "folder")
+    val auto = setOf("digest", "trip", "folder", "person")
+    val people = albums.filter { it.origin == "person" }.sortedByDescending { it.count }
     val digests = albums.filter { it.origin == "digest" }.sortedByDescending { it.name }
     val trips = albums.filter { it.origin == "trip" }.sortedByDescending { it.name }
     val sharedFolders = albums.filter { it.origin == "folder" }
     val mine = albums.filter { !it.shared && it.origin !in auto && !(it.origin == "device" && it.name in localBuckets) }
     val family = albums.filter { it.shared && it.origin !in auto }
-    val shownAlbums = digests + trips + mine + family + sharedFolders
+    val shownAlbums = people + digests + trips + mine + family + sharedFolders
     var mergeOf by remember { mutableStateOf<List<com.photohub.app.data.db.AlbumWithCount>?>(null) }
     var picked by remember { mutableStateOf(emptySet<Long>()) }
     var folderMenu by remember { mutableStateOf<String?>(null) }
@@ -139,7 +140,9 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     scope.launch {
                         pullMsg = try {
                             val r = app.net.api()!!.autoAlbums()
-                            "ふりかえり ${r["digest"] ?: 0}・旅行 ${r["trip"] ?: 0}・共有フォルダ ${r["folder"] ?: 0} 件を作りました（毎晩自動で更新します）"
+                            fun n(k: String) = (r[k] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "0"
+                            "人物 ${n("person")}・ふりかえり ${n("digest")}・旅行 ${n("trip")}・共有フォルダ ${n("folder")} 件を作りました（毎晩自動で更新します）" +
+                                ((r["person_note"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { "\n人物：$it" } ?: "")
                         } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "作れませんでした（HTTP ${e.code()}）" }
                           catch (e: Exception) { "作れませんでした（${e.message}）" }
                         com.photohub.app.data.SyncWorker.runNow(app)
@@ -149,6 +152,10 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                 Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除や、2つ以上を1つにまとめることができます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        if (people.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("人物", "Synology Photosが見分けた人ごと。名前はSynology Photosで付けると反映されます") }
+            items(people, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (digests.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("ふりかえり", "毎月のいい写真を、PhotoHubがえらんでまとめます") }
@@ -298,7 +305,7 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
         Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder" -> "・おまかせ"; else -> "" },
+        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder", "person" -> "・おまかせ"; else -> "" },
             style = MaterialTheme.typography.bodySmall)
     }
 }

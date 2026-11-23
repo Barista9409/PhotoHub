@@ -24,7 +24,9 @@ from .config import Settings
 from .db import (Album, AlbumItem, Database, KV, Media, SimilarMember, User, kv_get, kv_set, next_rev, touch_media,
                  utcnow)
 
-AUTO_ORIGINS = ("digest", "trip", "folder")
+AUTO_ORIGINS = ("digest", "trip", "folder", "person")
+PERSON_MIN_PHOTOS = 5
+PERSON_MAX = 100
 DIGEST_MAX = 40
 DIGEST_PER_DAY = 4
 TRIP_MIN_PHOTOS = 10
@@ -193,5 +195,67 @@ def folders(db: Database, settings: Settings) -> int:
     return n
 
 
+def people(db: Database, settings: Settings) -> dict:
+    """「人物」 albums from Synology Photos' own face grouping (its 人物 feature), for everyone who
+    linked their Synology Photos login. Photos are matched by file name and size, like album pulls.
+    Synology Photos' name for the person is used when there is one (else 「人物 1」...)."""
+    from .albums import _list_all
+    from .db import visible_clause
+    from .photos_link import PhotosError, Session
+    made, notes = 0, []
+    with db.session() as s:
+        users = [u for u in s.execute(select(User)).scalars() if u.dsm_secret]
+        for u in users:
+            s.expunge(u)
+    for u in users:
+        try:
+            with Session(settings, u) as ses:
+                persons = None
+                for params in ({"show_more": True, "show_hidden": False}, {}):
+                    try:
+                        persons = _list_all(ses, "SYNO.Foto.Browse.Person", "list", **params)
+                        break
+                    except PhotosError as e:
+                        last = e
+                if persons is None:
+                    notes.append(f"{u.name}: 人物の一覧を読めません（Synology Photosの「人物」がオフかもしれません）: {last}")
+                    continue
+                persons = sorted(persons, key=lambda p: -int(p.get("item_count") or 0))[:PERSON_MAX]
+                with db.session() as s:
+                    index = {(Path(m.nas_path).name.lower(), m.bytes): m.id for m in
+                             s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars()}
+                for n, p in enumerate(persons, 1):
+                    pid = p.get("id")
+                    if pid is None or int(p.get("item_count") or 0) < PERSON_MIN_PHOTOS:
+                        continue
+                    items = _list_all(ses, "SYNO.Foto.Browse.Item", "list", person_id=pid)
+                    ids = [index[k] for k in (((it.get("filename") or "").lower(), int(it.get("filesize") or 0)) for it in items)
+                           if k in index]
+                    if len(ids) < PERSON_MIN_PHOTOS:
+                        continue
+                    name = (p.get("name") or "").strip()
+                    with db.session() as s:
+                        if _upsert(s, "person", u.id, f"syno:{pid}", name or f"人物 {n}", ids):
+                            made += 1
+                            # Synology Photos gave the person a name later: use it (unless renamed in PhotoHub)
+                            a = s.get(Album, int(kv_get(s, f"auto:person:{u.id}:syno:{pid}") or 0))
+                            if a is not None and name and a.name.startswith("人物 ") and a.name != name:
+                                a.name = name
+                                a.rev = next_rev(s)
+        except Exception as e:  # noqa: BLE001 - undocumented API: never stop the other albums
+            notes.append(f"{u.name}: {e}")
+    if notes:
+        from .db import log_event
+        with db.session() as s:
+            for t in notes:
+                log_event(s, "warn", "people_albums", t[:500])
+    return {"made": made, "notes": notes}
+
+
 def run_all(db: Database, settings: Settings) -> dict:
-    return {"digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings)}
+    out = {"digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings)}
+    p = people(db, settings)
+    out["person"] = p["made"]
+    if p["notes"]:
+        out["person_note"] = p["notes"][0]
+    return out

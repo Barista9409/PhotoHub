@@ -67,3 +67,37 @@ def test_digest_trip_folder_and_merge(settings, db):
         left = {a.name: a.origin for a in s.execute(select(Album)).scalars()}
     assert left.get("思い出") == "manual" and "2025年8月 沖縄県 那覇市" not in left and "運動会" not in left
     assert _albums(db, "manual") == {"思い出": 16}
+
+
+def test_people_albums_from_synology_photos(settings, db, monkeypatch):
+    import httpx
+    from urllib.parse import parse_qs
+    from photohub.db import User
+    from photohub.vault import seal
+    u, _ = add_user(db, settings, "reo")
+    with db.session() as s:
+        s.execute(select(User)).scalar_one().dsm_secret = seal(settings, {"account": "reo", "password": "x"})
+        for i in range(8):
+            _media(s, settings, 600 + i, datetime(2025, 1, 1), owner=u.id)
+    persons = [{"id": 1, "name": "はると", "item_count": 6}, {"id": 2, "name": "", "item_count": 5},
+               {"id": 3, "name": "", "item_count": 2}]
+    items = {1: [{"filename": f"IMG_{600 + i}.jpg", "filesize": 1000} for i in range(6)],
+             2: [{"filename": f"IMG_{602 + i}.jpg", "filesize": 1000} for i in range(5)]}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        f = {k: v[0] for k, v in parse_qs(req.content.decode()).items()}
+        if f["api"] == "SYNO.API.Auth":
+            return httpx.Response(200, json={"success": True, "data": {"sid": "S"}})
+        if f["api"] == "SYNO.Foto.Browse.Person":
+            return httpx.Response(200, json={"success": True, "data": {"list": persons if f.get("offset") == "0" else []}})
+        if f["api"] == "SYNO.Foto.Browse.Item":
+            return httpx.Response(200, json={"success": True, "data": {"list": items[int(f["person_id"])] if f.get("offset") == "0" else []}})
+        return httpx.Response(200, json={"success": False, "error": {"code": 102}})
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    r = autoalbums.people(db, settings)
+    assert r["made"] == 2 and not r["notes"]
+    assert _albums(db, "person") == {"はると": 6, "人物 2": 5}
+    persons[1]["name"] = "ゆい"   # named later in Synology Photos
+    autoalbums.people(db, settings)
+    assert _albums(db, "person") == {"はると": 6, "ゆい": 5}

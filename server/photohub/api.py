@@ -526,7 +526,7 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             raise HTTPException(400, str(e))
 
     @app.post("/api/albums/auto")
-    def albums_auto(user: User = Depends(auth)) -> dict:
+    def albums_auto(user: User = Depends(auth)) -> dict:  # noqa: D401
         """Make / refresh the automatic albums now (otherwise every night)."""
         from . import autoalbums
         return autoalbums.run_all(db, settings)

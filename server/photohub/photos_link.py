@@ -79,7 +79,7 @@ def probe(settings: Settings, user: User) -> dict:
         with Session(settings, user) as ses:
             info = ses.info()
             out["apis"] = {k: [v.get("minVersion"), v.get("maxVersion")] for k, v in sorted(info.items())
-                           if any(w in k for w in ("Album", "Item", "Folder", "Sharing", "Index"))}
+                           if any(w in k for w in ("Album", "Item", "Folder", "Sharing", "Index", "Person"))}
 
             def ver(api: str) -> list[int]:
                 v = info.get(api) or {}
@@ -100,6 +100,10 @@ def probe(settings: Settings, user: User) -> dict:
             tryit("sharing_with_me", "SYNO.Foto.Sharing.Misc", "list_shared_with_me_album", offset=0, limit=20)
             tryit("team_root_folders", "SYNO.FotoTeam.Browse.Folder", "list", id=0, offset=0, limit=10)
             tryit("my_root_folders", "SYNO.Foto.Browse.Folder", "list", id=0, offset=0, limit=10)
+            people = tryit("people", "SYNO.Foto.Browse.Person", "list", offset=0, limit=5, show_more=True)
+            first_person = next(iter(people.get("list") or []), None)
+            if first_person:
+                tryit("person_items", "SYNO.Foto.Browse.Item", "list", person_id=first_person.get("id"), offset=0, limit=3)
             first = next(iter((albums.get("list") or [])), None)
             if first:
                 items = tryit("first_album_items", "SYNO.Foto.Browse.Item", "list", album_id=first.get("id"),
