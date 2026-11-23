@@ -358,9 +358,7 @@ fun SharedScreen(onAlbum: (Long, String) -> Unit, onOpen: (List<TimelineItem>, I
         "album" -> Column(Modifier.fillMaxSize()) {
             switcher()
             if (family.isEmpty()) Text("家族の共有アルバムはまだありません", modifier = Modifier.padding(24.dp))
-            LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
-                items(family, key = { it.id }) { a -> AlbumCard(a) { onAlbum(a.id, a.name) } }
-            }
+            SelectableAlbumGrid(family, onAlbum)
         }
         "all" -> MediaGrid(all, onOpen, zoomBar = true, header = switcher, refreshable = true)
         else -> {
@@ -719,4 +717,84 @@ fun AddToAlbumDialog(items: List<TimelineItem>, onDone: (String?) -> Unit) {
             }) { Text("新しいアルバムを作る") }
         },
         dismissButton = { androidx.compose.material3.TextButton({ onDone(null) }) { Text("やめる") } })
+}
+
+
+/**
+ * A grid of albums where a long press starts choosing: then 「1つにまとめる」 (two or more) and
+ * 「削除」 (the albums only; photos stay). Used on the 共有 tab's album view.
+ */
+@Composable
+fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, onAlbum: (Long, String) -> Unit) {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var picked by remember { mutableStateOf(emptySet<Long>()) }
+    var mergeOf by remember { mutableStateOf<List<com.photohub.app.data.db.AlbumWithCount>?>(null) }
+    var askDelete by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    val picking = picked.isNotEmpty()
+    Column(Modifier.fillMaxSize()) {
+        if (picking) androidx.compose.material3.Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton({ picked = emptySet() }) { Icon(Icons.Default.Close, "選択をやめる") }
+                Text("${picked.size} 件", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                val all = picked.size == albums.size
+                androidx.compose.material3.TextButton({ picked = if (all) emptySet() else albums.map { it.id }.toSet() }) {
+                    Text(if (all) "すべて解除" else "すべて選択")
+                }
+                if (picked.size >= 2) androidx.compose.material3.IconButton({ mergeOf = albums.filter { it.id in picked } }) {
+                    Icon(Icons.AutoMirrored.Filled.MergeType, "1つにまとめる")
+                }
+                androidx.compose.material3.IconButton({ askDelete = true }) { Icon(Icons.Default.Delete, "アルバムを削除", tint = MaterialTheme.colorScheme.error) }
+            }
+        }
+        msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp, 4.dp)) }
+        if (!picking) Text("長押しで選ぶと、2つ以上を1つにまとめたり、削除したりできます", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp, 4.dp))
+        LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
+            items(albums, key = { it.id }) { a ->
+                AlbumCard(a, selected = if (picking) a.id in picked else null, onLongClick = { picked = picked + a.id }) {
+                    if (picking) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
+                }
+            }
+        }
+    }
+    mergeOf?.let { list ->
+        var name by remember { mutableStateOf(list.first().name) }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { mergeOf = null },
+            title = { Text("${list.size} 件のアルバムを1つにまとめる") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("写真をすべて1つのアルバムに入れ、ほかのアルバムは消します。写真は消えません。家族みんなに反映されます。", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(name, { name = it }, label = { Text("まとめたアルバムの名前") }, singleLine = true)
+            } },
+            confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = {
+                val ids = list.map { it.id }
+                mergeOf = null; picked = emptySet()
+                scope.launch {
+                    msg = try { app.net.api()!!.mergeAlbums(com.photohub.app.data.api.AlbumMergeBody(ids, name.trim())); "「${name.trim()}」にまとめました" }
+                          catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "まとめられませんでした（HTTP ${e.code()}）" }
+                          catch (e: Exception) { "まとめられませんでした（${e.message}）" }
+                    com.photohub.app.data.SyncWorker.runNow(app)
+                }
+            }) { Text("まとめる") } },
+            dismissButton = { androidx.compose.material3.TextButton({ mergeOf = null }) { Text("やめる") } })
+    }
+    if (askDelete) {
+        val chosen = albums.filter { it.id in picked }
+        androidx.compose.material3.AlertDialog(onDismissRequest = { askDelete = false },
+            title = { Text(if (chosen.size == 1) "「${chosen[0].name}」を削除しますか？" else "アルバム ${chosen.size} 件を削除しますか？") },
+            text = { Text("アルバムだけを消します。写真は消えません。家族みんなのアルバムから消えます。") },
+            confirmButton = { androidx.compose.material3.TextButton({
+                askDelete = false
+                val ids = chosen.map { it.id }
+                picked = emptySet()
+                scope.launch {
+                    var gone = 0
+                    ids.forEach { id -> try { app.net.api()!!.deleteAlbum(id); gone++ } catch (_: Exception) {} }
+                    msg = "アルバム $gone 件を削除しました"
+                    com.photohub.app.data.SyncWorker.runNow(app)
+                }
+            }) { Text("削除", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { androidx.compose.material3.TextButton({ askDelete = false }) { Text("やめる") } })
+    }
 }
