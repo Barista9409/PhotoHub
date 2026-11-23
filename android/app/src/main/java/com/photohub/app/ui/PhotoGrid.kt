@@ -41,6 +41,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelectAll
@@ -320,6 +322,19 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         androidx.compose.animation.AnimatedVisibility(visible = selecting, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                 var more by remember { mutableStateOf(false) }
+                fun copyTo(list: List<TimelineItem>, to: String) {
+                    selected = emptySet()
+                    if (list.isEmpty()) { toast = "Synologyにある写真を選んでください"; return }
+                    scope.launch {
+                        toast = try {
+                            val n = app.net.api()!!.copyMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, to))["copied"] ?: 0
+                            if (to == "shared") "$n 枚を家族に共有しました（自分の写真にも残っています）"
+                            else "$n 枚をマイフォトにコピーしました（家族の写真にも残っています）"
+                        } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "コピーできませんでした（HTTP ${e.code()}）" }
+                          catch (e: Exception) { "コピーできませんでした（${e.message}）" }
+                        com.photohub.app.data.SyncWorker.runNow(ctx, light = true)
+                    }
+                }
                 fun chosen() = items.filter { it.itemKey in selected }
                 fun onSyno() = chosen().filter { it.hash != null }
                 Row(Modifier.padding(horizontal = 4.dp).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -376,7 +391,10 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                                 scope.launch { toast = if (list.isEmpty()) "Synologyにある写真を選んでください" else rotatePhotos(app, list, 90) }
                             }
                             entry(Icons.Default.Event, "撮影日を変更") { dateOf = onSyno() }
-                            entry(Icons.Default.FamilyRestroom, "自分だけ／家族で共有へ移す") { moveOf = onSyno() }
+                            // copy: both stay (the original where it is, a copy on the other side)
+                            entry(Icons.Default.FamilyRestroom, "家族に共有（コピー）") { copyTo(onSyno(), "shared") }
+                            entry(Icons.Default.ContentCopy, "マイフォトにコピー") { copyTo(onSyno(), "mine") }
+                            entry(Icons.Default.DriveFileMove, "自分だけ／家族で共有へ移す") { moveOf = onSyno() }
                         }
                     }
                 }

@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from .config import Settings
 from .db import Database, ImportItem, Media, User, can_see, kv_get, kv_set, log_event, set_location, touch_media, utcnow
-from .fileops import library_dir, move_verified, unique_in
+from .fileops import copy_verified, library_dir, move_verified, unique_in
 from .xmp import sidecar_path
 
 
@@ -167,6 +167,55 @@ def move_space(db: Database, settings: Settings, user: User, hashes: list[str], 
     return n
 
 
+def _copy_key(path: Path) -> str:
+    import hashlib
+    return "keepcopy:" + hashlib.sha1(str(path).encode()).hexdigest()[:24]
+
+
+def copy_space(db: Database, settings: Settings, user: User, hashes: list[str], to: str) -> int:
+    """Copy photos between the person's own photos and the family's shared space; both copies stay.
+    to="shared": an own photo gets a copy in the family folder (photo/YYYY/YYYY-MM) and becomes a
+    family photo in PhotoHub (everyone sees it; the person's own copy stays in their Photos).
+    to="mine": a family photo gets a copy in the person's Photos/PhotoHub/YYYY/YYYY-MM (kept even if
+    the family one is deleted later). Copies made on purpose are not offered as 「同じ写真が2か所に」."""
+    if to not in ("shared", "mine"):
+        raise ValueError("to must be shared or mine")
+    if to == "mine" and not (user.personal_root and Path(user.personal_root).is_dir()):
+        raise ValueError("your Photos folder was not found")
+    n = 0
+    with db.session() as s:
+        for m in s.execute(select(Media).where(Media.content_hash.in_(hashes[:5000]), Media.status == "active")).scalars():
+            if to == "shared" and m.owner_id != user.id:
+                continue   # already the family's, or someone else's
+            if to == "mine" and (m.owner_id is not None or not can_see(s, user, m)):
+                continue
+            src = Path(m.nas_path)
+            if not src.exists():
+                continue
+            base = settings.library if to == "shared" else Path(user.personal_root) / "PhotoHub"
+            dst = unique_in(library_dir(base, m.taken_at, m.tz_offset, utcnow()), src.name)
+            copy_verified(src, dst, m.file_hash)
+            sc = sidecar_path(src)
+            if sc.exists():
+                try:
+                    copy_verified(sc, sidecar_path(dst))
+                except Exception:  # noqa: BLE001 - the sidecar is optional
+                    pass
+            if to == "shared":
+                kv_set(s, _copy_key(src), "1")     # the person's own copy stays, on purpose
+                m.nas_path = str(dst)
+                m.owner_id = None
+                m.placed = False
+                set_location(s, m.id, "nas", "present", source_ref=str(dst))
+            else:
+                kv_set(s, _copy_key(dst), "1")     # the copy in their Photos, on purpose
+            touch_media(s, m)
+            n += 1
+        if n:
+            log_event(s, "info", "copied", f"{user.name}: {n} item(s) copied to {to}")
+    return n
+
+
 def duplicate_files(db: Database, settings: Settings, user: User) -> list[dict]:
     """Files that are an exact second copy of a photo in the library (found by the folder checks)."""
     out, seen = [], set()
@@ -178,6 +227,8 @@ def duplicate_files(db: Database, settings: Settings, user: User) -> list[dict]:
             p = Path(item.original_path)
             if str(p) in seen or not p.is_absolute() or not p.exists() or str(p) == m.nas_path:
                 continue
+            if kv_get(s, _copy_key(p)):
+                continue   # a copy someone made on purpose (家族に共有 / マイフォトにコピー)
             seen.add(str(p))
             if not can_see(s, user, m):
                 continue

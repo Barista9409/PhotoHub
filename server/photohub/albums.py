@@ -37,6 +37,19 @@ def _media(s, user: User, hashes: list[str]) -> list[Media]:  # noqa: ANN001
 
 
 # ---- app actions -------------------------------------------------------------------------------
+def _album_name_free(db: Database, name: str, shared: bool, user: User) -> str:
+    """The name, or 「name (2)」... when an album of that name is already there (names are unique)."""
+    with db.session() as s:
+        cond = Album.owner_id.is_(None) if shared else Album.owner_id == user.id
+        taken = set(s.execute(select(Album.name).where(Album.origin == "manual", cond)).scalars())
+    if name not in taken:
+        return name
+    i = 2
+    while f"{name} ({i})" in taken:
+        i += 1
+    return f"{name} ({i})"
+
+
 def create(db: Database, settings: Settings, user: User, name: str, hashes: list[str], shared: bool) -> int:
     name = name.strip()[:100]
     if not name:

@@ -90,3 +90,44 @@ def test_sharpness_is_low_for_flat_images(tmp_path):
     soft = tmp_path / "b.png"
     Image.open(sharp).filter(ImageFilter.GaussianBlur(6)).save(soft)
     assert sharpness(sharp) > 1000 > 60 > sharpness(soft)
+
+
+def test_copy_between_mine_and_family(settings, db):
+    from pathlib import Path
+    from fastapi.testclient import TestClient
+    from sqlalchemy import select
+    from photohub.api import create_app
+    from photohub.db import Album, Media
+    from photohub.sample import make_image
+    from photohub.scanner import scan
+    from photohub.users import add_user, scan_roots
+    u, token = add_user(db, settings, "reo")
+    own = Path(u.personal_root) / "a.jpg"
+    own.parent.mkdir(parents=True, exist_ok=True)
+    own.write_bytes(make_image(71))
+    fam = settings.library / "b.jpg"
+    fam.parent.mkdir(parents=True, exist_ok=True)
+    fam.write_bytes(make_image(72))
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    c = TestClient(create_app(settings, db))
+    h = {"Authorization": f"Bearer {token}"}
+    with db.session() as s:
+        ha = s.execute(select(Media.content_hash).where(Media.nas_path == str(own))).scalar_one()
+        hb = s.execute(select(Media.content_hash).where(Media.nas_path == str(fam))).scalar_one()
+    # mine -> family: both files stay, the photo is now the family's
+    assert c.post("/api/media/copy", json={"hashes": [ha], "to": "shared"}, headers=h).json()["copied"] == 1
+    assert own.exists()
+    with db.session() as s:
+        m = s.execute(select(Media).where(Media.content_hash == ha)).scalar_one()
+        assert m.owner_id is None and Path(m.nas_path).is_relative_to(settings.library) and Path(m.nas_path).exists()
+    # family -> mine: a copy in their Photos, the family one stays
+    assert c.post("/api/media/copy", json={"hashes": [hb], "to": "mine"}, headers=h).json()["copied"] == 1
+    assert fam.exists() and list((Path(u.personal_root) / "PhotoHub").rglob("b*.jpg"))
+    # the copies made on purpose are not offered as duplicates
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    assert c.get("/api/duplicates", headers=h).json()["items"] == []
+    # an album to the family
+    aid = c.post("/api/albums", json={"name": "旅行", "hashes": [hb]}, headers=h).json()["id"]
+    r = c.post(f"/api/albums/{aid}/copy", json={"to": "shared"}, headers=h).json()
+    with db.session() as s:
+        assert s.get(Album, r["album_id"]).owner_id is None

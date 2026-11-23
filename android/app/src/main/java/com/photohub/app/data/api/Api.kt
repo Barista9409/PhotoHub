@@ -114,6 +114,9 @@ data class Report(val days: Int = 7, val saved: Int = 0, val waiting: Int = 0, v
                   @SerialName("free_gb") val freeGb: Double = 0.0)
 
 @Serializable
+data class CopyToBody(val to: String)
+
+@Serializable
 data class AlbumMergeBody(val ids: List<Long>, val name: String? = null)
 
 @Serializable
@@ -322,6 +325,8 @@ interface PhotoHubApi {
     @POST("api/albums/{id}/remove") suspend fun removeFromAlbum(@retrofit2.http.Path("id") id: Long, @Body body: HashesBody): Map<String, Int>
     @POST("api/albums/pull") suspend fun pullAlbums(): Map<String, kotlinx.serialization.json.JsonElement>
     @POST("api/media/move") suspend fun moveMedia(@Body body: MoveBody): Map<String, Int>
+    @POST("api/media/copy") suspend fun copyMedia(@Body body: MoveBody): Map<String, Int>
+    @POST("api/albums/{id}/copy") suspend fun copyAlbum(@Path("id") id: Long, @Body body: CopyToBody): Map<String, Long>
     @POST("api/media/dates") suspend fun fixDates(@Body body: DateFixBody): Map<String, Int>
     @POST("api/media/repair-dates") suspend fun repairDates(): Map<String, Int>
     @POST("api/media/rotate") suspend fun rotate(@Body body: RotateBody): RotateResult

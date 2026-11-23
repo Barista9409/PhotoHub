@@ -39,6 +39,10 @@ class AlbumName(BaseModel):
     name: str
 
 
+class CopyTo(BaseModel):
+    to: str  # shared / mine
+
+
 class Move(BaseModel):
     hashes: list[str]
     to: str  # shared / mine
@@ -618,6 +622,37 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                                                                              visible_clause(user))) or 0
         return {"days": days, "saved": saved, "waiting": waiting, "photos": photos, "videos": videos,
                 "free_gb": round(disk_free_gb(settings.library), 1)}
+
+    @app.post("/api/media/copy")
+    def media_copy(body: Move, user: User = Depends(auth)) -> dict:
+        """Copy (not move) to the family's shared space ("shared") or to the person's own photos ("mine")."""
+        from . import organize
+        try:
+            return {"copied": organize.copy_space(db, settings, user, body.hashes, body.to)}
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/albums/{album_id}/copy")
+    def album_copy(album_id: int, body: CopyTo, user: User = Depends(auth)) -> dict:
+        """An album to the family (a shared album with the same photos; own photos copied to the family
+        folder) or to the person (an own album with the same photos; family photos copied to their Photos)."""
+        from . import organize
+        from .albums import _album_name_free
+        with db.session() as s:
+            a = s.get(Album, album_id)
+            if a is None or not (a.owner_id is None or a.owner_id == user.id):
+                raise HTTPException(404, "album not found")
+            hashes = [m.content_hash for m in s.execute(select(Media).join(AlbumItem, AlbumItem.media_id == Media.id)
+                                                         .where(AlbumItem.album_id == a.id, Media.status == "active")).scalars()]
+            name = a.name
+        try:
+            copied = organize.copy_space(db, settings, user, hashes, body.to)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        from . import albums as al
+        new_id = al.create(db, settings, user, _album_name_free(db, name, body.to == "shared", user), hashes,
+                           shared=body.to == "shared")
+        return {"album_id": new_id, "copied": copied}
 
     @app.post("/api/albums/merge")
     def albums_merge(body: AlbumMerge, user: User = Depends(auth)) -> dict:
