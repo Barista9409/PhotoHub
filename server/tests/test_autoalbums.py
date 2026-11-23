@@ -131,6 +131,10 @@ def test_places_favorites_growth_tags_memo_report(settings, db):
     # ♡ on the Synology -> お気に入り album
     assert c.post("/api/favorites", json={"hashes": hashes[:3]}, headers=h).json()["changed"] == 3
     assert sorted(c.get("/api/favorites", headers=h).json()["hashes"]) == sorted(hashes[:3])
+    assert _albums(db, "favorite") == {"お気に入り": 3}   # at once, no night run needed
+    c.post("/api/favorites", json={"hashes": hashes[:3], "on": False}, headers=h)
+    assert _albums(db, "favorite") == {"お気に入り": 0}   # every ♡ off: the album empties, not stale
+    c.post("/api/favorites", json={"hashes": hashes[:3]}, headers=h)
     autoalbums.favorites(db, settings)
     assert _albums(db, "favorite") == {"お気に入り": 3}
     # birthday -> growth albums (photos from 2020..2024, born 2020-01-01)

@@ -97,7 +97,10 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
             val now = prefs.favorites.first()
             val on = hashes.any { it !in now }   // like the button: all on, unless all were on
             hashes.forEach { h -> if ((h in now) != on) prefs.toggleFavorite(h) }
-            try { net.api()?.setFavorites(com.photohub.app.data.api.FavoriteBody(hashes, on)) } catch (_: Exception) {}
+            try {
+                net.api()?.setFavorites(com.photohub.app.data.api.FavoriteBody(hashes, on))
+                com.photohub.app.data.SyncWorker.runNow(this@PhotoHubApp, light = true)   // the お気に入り album at once
+            } catch (_: Exception) {}
         }
     }
 

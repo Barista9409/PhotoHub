@@ -6,6 +6,7 @@ shared space, their own personal space, and personal items they were granted (me
 Admins additionally organise the shared space and see every import job and the event log."""
 from __future__ import annotations
 
+import logging
 import json
 import os
 
@@ -569,6 +570,12 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                     s.add(Favorite(user_id=user.id, media_id=m.id)); n += 1
                 elif not body.on and f is not None:
                     s.delete(f); n += 1
+        if n:   # the お気に入り album follows the ♡ at once, not at night
+            from . import autoalbums
+            try:
+                autoalbums.favorites(db, settings)
+            except Exception:  # noqa: BLE001 - the ♡ itself is saved; the night run catches up
+                logging.getLogger(__name__).exception("favorite albums")
         return {"changed": n}
 
     # ---- a person's birthday (growth albums 「はると 1歳」) -------------------------------------

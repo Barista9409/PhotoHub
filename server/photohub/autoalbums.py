@@ -348,19 +348,24 @@ def favorites(db: Database, settings: Settings) -> int:
     """「お気に入り」 for each person (their ♡), and 「家族のお気に入り」 from the shared space."""
     from .db import Favorite
     n = 0
-    with db.session() as s:
+    with _FAV, db.session() as s:
         favs = list(s.execute(select(Favorite.user_id, Favorite.media_id, Media.owner_id)
                               .join(Media, Media.id == Favorite.media_id).where(Media.status == "active")).all())
         mine: dict[int, list[int]] = defaultdict(list)
+        for uid in s.execute(select(User.id)).scalars():
+            mine[uid]   # a person who took every ♡ off gets an empty album, not a stale one
         family: set[int] = set()
+        shared_ok = {mid for (mid,) in s.execute(select(Media.id).where(Media.family_shared.is_(True)))} if favs else set()
         for uid, mid, owner in favs:
             mine[uid].append(mid)
-            if owner is None:
+            if owner is None or mid in shared_ok:
                 family.add(mid)   # only the shared space: a personal photo stays personal
         for uid, ids in mine.items():
+            if not ids and not kv_get(s, f"auto:favorite:{uid}:mine"):
+                continue   # never had one: do not make an empty album
             if _upsert(s, "favorite", uid, "mine", "お気に入り", ids):
                 n += 1
-        if family and _upsert(s, "favorite", None, "family", "家族のお気に入り", sorted(family)):
+        if (family or kv_get(s, "auto:favorite:None:family")) and _upsert(s, "favorite", None, "family", "家族のお気に入り", sorted(family)):
             n += 1
     return n
 
@@ -415,6 +420,7 @@ def tags(db: Database, settings: Settings) -> dict:
 
 import threading
 
+_FAV = threading.Lock()   # ♡ refreshes the favorite albums at once; never two at a time
 _RUN = threading.Lock()   # the nightly run, the run after start and 「今すぐ作る」 never overlap
 
 
