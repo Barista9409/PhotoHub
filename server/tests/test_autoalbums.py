@@ -157,3 +157,21 @@ def test_duplicate_automatic_albums_are_merged(settings, db):
             s.add(AlbumItem(album_id=a2.id, media_id=m.id))
     assert autoalbums.dedupe(db) == 1
     assert _albums(db, "trip") == {"2014年9月 愛知県": 4}
+
+
+def test_trip_with_shared_photos_is_one_album_per_person(settings, db):
+    u, _ = add_user(db, settings, "reo")
+    with db.session() as s:
+        for i in range(30):   # home: Tokyo (own photos)
+            m = _media(s, settings, 900 + i, datetime(2015, 3, 1) + timedelta(days=i % 20), owner=u.id)
+            kv_set(s, f"place:{m.id}", "東京都 渋谷区")
+        for i in range(12):   # the trip: half the photos put in the shared space
+            m = _media(s, settings, 950 + i, datetime(2015, 1, 10) + timedelta(hours=4 * i), owner=u.id if i % 2 else None)
+            kv_set(s, f"place:{m.id}", "愛知県 豊川市")
+        old = Album(name="2015年1月 愛知県 豊川市", origin="trip", owner_id=None)   # made by an older version
+        s.add(old)
+    autoalbums.run_all(db, settings)
+    with db.session() as s:
+        trips = [(a.name, a.owner_id) for a in s.execute(select(Album).where(Album.origin == "trip")).scalars()]
+    assert trips == [("2015年1月 愛知県 豊川市", u.id)]
+    assert _albums(db, "trip") == {"2015年1月 愛知県 豊川市": 12}

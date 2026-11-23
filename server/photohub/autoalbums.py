@@ -138,10 +138,12 @@ def trips(db: Database, settings: Settings) -> int:
     with db.session() as s:
         places = {int(k.key[6:]): k.value for k in s.execute(select(KV).where(KV.key.like("place:%"))).scalars()
                   if k.key[6:].isdigit()}
-        owners: list[int | None] = [u.id for u in s.execute(select(User)).scalars()] + [None]
+        # one album per person, from their own photos and the family's shared ones (a trip the
+        # family put in the shared space must not show up twice)
+        owners = [u.id for u in s.execute(select(User)).scalars()]
         for owner in owners:
             q = select(Media).where(Media.status == "active", Media.taken_at.is_not(None),
-                                    Media.owner_id.is_(None) if owner is None else Media.owner_id == owner)
+                                    (Media.owner_id == owner) | Media.owner_id.is_(None))
             ms = [m for m in s.execute(q).scalars() if m.id in places]
             if not ms:
                 continue
@@ -261,10 +263,9 @@ def places(db: Database, settings: Settings) -> int:
     with db.session() as s:
         where = {int(k.key[6:]): k.value for k in s.execute(select(KV).where(KV.key.like("place:%"))).scalars()
                  if k.key[6:].isdigit() and k.value}
-        owners: list[int | None] = [u.id for u in s.execute(select(User)).scalars()] + [None]
-        for owner in owners:
-            q = select(Media.id).where(Media.status == "active",
-                                       Media.owner_id.is_(None) if owner is None else Media.owner_id == owner)
+        owners = [u.id for u in s.execute(select(User)).scalars()]
+        for owner in owners:   # as for trips: one album per person, own + shared photos
+            q = select(Media.id).where(Media.status == "active", (Media.owner_id == owner) | Media.owner_id.is_(None))
             by_place: dict[str, list[int]] = defaultdict(list)
             for mid in s.execute(q).scalars():
                 if mid in where:
@@ -376,6 +377,25 @@ import threading
 _RUN = threading.Lock()   # the nightly run, the run after start and 「今すぐ作る」 never overlap
 
 
+def drop_shared_trip_place(db: Database) -> int:
+    """Trip / place albums made for the shared space by an older version (each person now has one
+    with the shared photos in it): removed, so nothing shows twice."""
+    from .db import KV
+    n = 0
+    with db.session() as s:
+        for a in list(s.execute(select(Album).where(Album.origin.in_(["trip", "place"]), Album.owner_id.is_(None))).scalars()):
+            for ai in list(s.execute(select(AlbumItem).where(AlbumItem.album_id == a.id)).scalars()):
+                touch_media(s, s.get(Media, ai.media_id))
+                s.delete(ai)
+            s.flush()
+            for k in list(s.execute(select(KV).where((KV.key == f"autoref:{a.id}") |
+                                                    (KV.key.like("auto:%") & (KV.value == str(a.id))))).scalars()):
+                s.delete(k)
+            s.delete(a)
+            n += 1
+    return n
+
+
 def dedupe(db: Database) -> int:
     """Automatic albums made twice (two runs at the same moment): keep one, move the photos into it,
     delete the rest."""
@@ -419,7 +439,7 @@ def run_all(db: Database, settings: Settings) -> dict:
 
 
 def _run_all(db: Database, settings: Settings) -> dict:
-    out = {"merged_duplicates": dedupe(db), "digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
+    out = {"merged_duplicates": dedupe(db) + drop_shared_trip_place(db), "digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
            "place": places(db, settings), "favorite": favorites(db, settings)}
     p = people(db, settings)
     out["person"] = p["made"]
