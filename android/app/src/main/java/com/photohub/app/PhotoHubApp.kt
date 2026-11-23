@@ -83,7 +83,8 @@ class PhotoHubApp : Application(), Configuration.Provider, SingletonImageLoader.
         SyncWorker.schedule(this)
         Updater.schedule(this)
         com.photohub.app.data.BackupWorker.schedule(this)
-        com.photohub.app.data.NewMediaWorker.watch(this)   // send new photos minutes after they are taken
+        com.photohub.app.data.NewMediaWorker.watch(this)
+        com.photohub.app.data.MemoriesWorker.schedule(this)   // 「◯年前の今日」, the widget, the weekly report   // send new photos minutes after they are taken
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "photohub-local-index", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<LocalIndexWorker>(1, TimeUnit.HOURS).build(),

@@ -121,5 +121,17 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+        <!-- home screen widget: a photo from this day in past years (or a favourite) -->
+        <receiver
+            android:name=".data.MemoriesWidget"
+            android:exported="false"
+            android:label="PhotoHub の思い出">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_memories_info" />
+        </receiver>
     </application>
 </manifest>

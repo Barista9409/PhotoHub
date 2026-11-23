@@ -183,6 +183,31 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
                 Text(listOfNotNull(cur.w?.let { w -> cur.h?.let { "${w}×${it}" } }, humanBytes(cur.bytes),
                     cur.duration?.let { "%d:%02d".format((it / 60).toInt(), (it % 60).toInt()) }).joinToString("・"))
                 cur.place?.let { Text("撮った場所：$it", style = MaterialTheme.typography.bodyMedium) }
+                // a short note (searchable), kept on the Synology
+                if (cur.hash != null) {
+                    var memo by remember(cur.itemKey) { mutableStateOf<String?>(null) }
+                    var editing by remember(cur.itemKey) { mutableStateOf(false) }
+                    androidx.compose.runtime.LaunchedEffect(cur.itemKey) { memo = app.db.media().remote(cur.hash)?.description ?: "" }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (memo.isNullOrBlank()) "メモ：なし" else "メモ：$memo", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        TextButton({ editing = true }) { Text(if (memo.isNullOrBlank()) "メモを書く" else "直す") }
+                    }
+                    if (editing) {
+                        var v by remember { mutableStateOf(memo ?: "") }
+                        androidx.compose.material3.AlertDialog(onDismissRequest = { editing = false },
+                            title = { Text("この写真のメモ") },
+                            text = { androidx.compose.material3.OutlinedTextField(v, { v = it }, placeholder = { Text("例：初めて歩いた日") }) },
+                            confirmButton = { TextButton({
+                                editing = false
+                                scope.launch {
+                                    try { app.net.api()!!.setMemo(cur.hash, com.photohub.app.data.api.MemoBody(v)); memo = v.trim()
+                                          com.photohub.app.data.SyncWorker.runNow(ctx, light = true) }
+                                    catch (e: Exception) { message = "メモを保存できませんでした（Synologyにつながると保存できます）" }
+                                }
+                            }) { Text("保存") } },
+                            dismissButton = { TextButton({ editing = false }) { Text("やめる") } })
+                    }
+                }
                 Text("保存されている場所", style = MaterialTheme.typography.labelLarge)
                 androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {

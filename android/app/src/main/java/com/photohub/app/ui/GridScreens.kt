@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
@@ -84,14 +85,18 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     val localBuckets = remember(folders) { folders.map { it.bucket }.toSet() }
     val folderAlbums = remember(albums) { albums.filter { it.origin == "device" }.associateBy { it.name } }
     // albums PhotoHub makes by itself come first, newest first: the month's look-back and trips
-    val auto = setOf("digest", "trip", "folder", "person")
+    val auto = setOf("digest", "trip", "folder", "person", "place", "growth", "favorite")
     val people = albums.filter { it.origin == "person" }.sortedByDescending { it.count }
+    val growthAlbums = albums.filter { it.origin == "growth" }.sortedWith(compareBy({ it.name.substringBeforeLast(' ') },
+        { it.name.substringAfterLast(' ').removeSuffix("歳").toIntOrNull() ?: 0 }))
+    val placeAlbums = albums.filter { it.origin == "place" }.sortedByDescending { it.count }
+    val favAlbums = albums.filter { it.origin == "favorite" }
     val digests = albums.filter { it.origin == "digest" }.sortedByDescending { it.name }
     val trips = albums.filter { it.origin == "trip" }.sortedByDescending { it.name }
     val sharedFolders = albums.filter { it.origin == "folder" }
     val mine = albums.filter { !it.shared && it.origin !in auto && !(it.origin == "device" && it.name in localBuckets) }
     val family = albums.filter { it.shared && it.origin !in auto }
-    val shownAlbums = people + digests + trips + mine + family + sharedFolders
+    val shownAlbums = favAlbums + people + growthAlbums + digests + trips + placeAlbums + mine + family + sharedFolders
     var mergeOf by remember { mutableStateOf<List<com.photohub.app.data.db.AlbumWithCount>?>(null) }
     var picked by remember { mutableStateOf(emptySet<Long>()) }
     var folderMenu by remember { mutableStateOf<String?>(null) }
@@ -141,7 +146,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                         pullMsg = try {
                             val r = app.net.api()!!.autoAlbums()
                             fun n(k: String) = (r[k] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "0"
-                            "人物 ${n("person")}・ふりかえり ${n("digest")}・旅行 ${n("trip")}・共有フォルダ ${n("folder")} 件を作りました（毎晩自動で更新します）" +
+                            "人物 ${n("person")}・ふりかえり ${n("digest")}・旅行 ${n("trip")}・場所 ${n("place")}・お気に入り ${n("favorite")}・成長 ${n("growth")}・共有フォルダ ${n("folder")} 件を作りました（毎晩自動で更新します）" +
                                 ((r["person_note"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { "\n人物：$it" } ?: "")
                         } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "作れませんでした（HTTP ${e.code()}）" }
                           catch (e: Exception) { "作れませんでした（${e.message}）" }
@@ -153,9 +158,17 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        if (favAlbums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("お気に入り", "♡を付けた写真（家族のお気に入りは、共有スペースの写真だけ）") }
+            items(favAlbums, key = { "a${it.id}" }) { a -> card(a)() }
+        }
         if (people.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("人物", "Synology Photosが見分けた人ごと。名前はSynology Photosで付けると反映されます") }
             items(people, key = { "a${it.id}" }) { a -> card(a)() }
+        }
+        if (growthAlbums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("成長", "人物アルバムに誕生日を入れると、年齢ごとにまとめます") }
+            items(growthAlbums, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (digests.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("ふりかえり", "毎月のいい写真を、PhotoHubがえらんでまとめます") }
@@ -164,6 +177,10 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
         if (trips.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("旅行", "家から離れた場所で撮った日々を、まとめます") }
             items(trips, key = { "a${it.id}" }) { a -> card(a)() }
+        }
+        if (placeAlbums.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("場所", "写真をたくさん撮った町ごと（何年分でも）") }
+            items(placeAlbums, key = { "a${it.id}" }) { a -> card(a)() }
         }
         if (mine.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) { SectionHead("自分のアルバム", "Synologyにある、自分だけのアルバム") }
@@ -305,7 +322,7 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
         Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder", "person" -> "・おまかせ"; else -> "" },
+        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder", "person", "place", "growth", "favorite" -> "・おまかせ"; else -> "" },
             style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -421,6 +438,26 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
     var rename by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var download by remember { mutableStateOf(false) }
+    var askBirthday by remember { mutableStateOf(false) }
+    if (askBirthday) {
+        val st = androidx.compose.material3.rememberDatePickerState()
+        androidx.compose.material3.DatePickerDialog(onDismissRequest = { askBirthday = false },
+            confirmButton = { androidx.compose.material3.TextButton(enabled = st.selectedDateMillis != null, onClick = {
+                askBirthday = false
+                val day = java.time.Instant.ofEpochMilli(st.selectedDateMillis!!).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                scope.launch {
+                    val msg = try { val r = app.net.api()!!.setBirthday(albumId, com.photohub.app.data.api.BirthdayBody(day))
+                        "誕生日を $day にしました。成長アルバムを ${r["albums"] ?: 0} 件作りました" }
+                        catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "設定できませんでした（HTTP ${e.code()}）" }
+                        catch (e: Exception) { "設定できませんでした（${e.message}）" }
+                    android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
+                    com.photohub.app.data.SyncWorker.runNow(ctx)
+                }
+            }) { Text("この日にする") } },
+            dismissButton = { androidx.compose.material3.TextButton({ askBirthday = false }) { Text("やめる") } }) {
+            androidx.compose.material3.DatePicker(st, title = { Text("${album?.name ?: ""}の誕生日", Modifier.padding(16.dp)) })
+        }
+    }
     MediaGrid(items, onOpen, albumId = albumId, header = {
         Row(Modifier.fillMaxWidth().padding(12.dp, 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(listOfNotNull(if (album?.shared == true) "家族で共有" else "自分だけ",
@@ -435,6 +472,8 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
             Box {
                 androidx.compose.material3.IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, "ほかの操作") }
                 androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    if (album?.origin == "person") androidx.compose.material3.DropdownMenuItem(text = { Text("誕生日を設定（成長アルバム）") },
+                        leadingIcon = { Icon(Icons.Default.Cake, null) }, onClick = { menu = false; askBirthday = true })
                     androidx.compose.material3.DropdownMenuItem(text = { Text("ダウンロード") }, leadingIcon = { Icon(Icons.Default.Download, null) },
                         onClick = { menu = false; download = true })
                     androidx.compose.material3.DropdownMenuItem(text = { Text("名前を変える") }, leadingIcon = { Icon(Icons.Default.Edit, null) },
@@ -507,10 +546,22 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
         app.db.media().search(parsed.text, from, to, kind, if (withPlace) 1 else 0)
     }.collectAsState(initial = emptyList())
     val favs by app.prefs.favorites.collectAsState(initial = emptySet())
-    val results = remember(raw, favOnly, shots, favs) {
-        raw.filter { (!favOnly || (it.hash != null && it.hash in favs)) && (!shots || it.name.contains("screenshot", ignoreCase = true)) }
-    }
     val all = app.lists.timeline.collectAsState().value ?: emptyList()
+    // what is in the photos ("犬", "海" ...): Synology Photos' recognition, asked on the Synology
+    var tagHits by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var tagSuggest by remember { mutableStateOf<List<com.photohub.app.data.api.TagCount>>(emptyList()) }
+    androidx.compose.runtime.LaunchedEffect(parsed.text) {
+        kotlinx.coroutines.delay(300)
+        val r = try { app.net.api()?.searchTags(parsed.text) } catch (_: Exception) { null }
+        tagHits = r?.hashes?.toSet() ?: emptySet()
+        if (parsed.text.isBlank()) tagSuggest = r?.tags ?: emptyList()
+    }
+    val results = remember(raw, favOnly, shots, favs, tagHits, all) {
+        val byTag = if (tagHits.isEmpty()) emptyList() else all.filter { it.hash != null && it.hash in tagHits &&
+            it.takenAt in from..to && (kind == "" || it.kind == kind) && (!withPlace || it.lat != null) }
+        (raw + byTag).distinctBy { it.itemKey }.sortedByDescending { it.takenAt }
+            .filter { (!favOnly || (it.hash != null && it.hash in favs)) && (!shots || it.name.contains("screenshot", ignoreCase = true)) }
+    }
     val years = remember(all) {
         all.groupBy { java.time.Instant.ofEpochMilli(it.takenAt).atZone(zoneFor(it.tz)).year }.toSortedMap(compareByDescending { it })
     }
@@ -525,7 +576,7 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
     }
     val box: @Composable () -> Unit = {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(q, { q = it }, placeholder = { Text("例：渋谷、沖縄、2023年8月、IMG_1234") }, singleLine = true,
+            OutlinedTextField(q, { q = it }, placeholder = { Text("例：犬、海、渋谷、2023年8月、メモの言葉") }, singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = { if (active) androidx.compose.material3.IconButton({ q = ""; kind = ""; withPlace = false; favOnly = false; shots = false }) {
                     Icon(Icons.Default.Close, "条件を消す") } },
@@ -538,10 +589,19 @@ fun SearchScreen(onOpen: (List<TimelineItem>, Int) -> Unit, onAlbum: (Long, Stri
                 FilterChip(withPlace, { withPlace = !withPlace }, label = { Text("場所あり") })
                 FilterChip(shots, { shots = !shots }, label = { Text("スクリーンショット") })
             }
+            // suggestions from what Synology Photos recognised in the photos
+            if (q.isBlank() && tagSuggest.isNotEmpty()) {
+                Text("写っているもので探す", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    tagSuggest.take(20).forEach { t ->
+                        androidx.compose.material3.AssistChip({ q = t.name }, label = { Text("${t.name} ${t.count}") })
+                    }
+                }
+            }
             if (active) {
                 val cond = buildList {
                     parsed.year?.let { add(if (parsed.month != null) "${it}年${parsed.month}月" else "${it}年") }
-                    if (parsed.text.isNotBlank()) add("「${parsed.text}」（場所・ファイル名・アルバム名・説明）")
+                    if (parsed.text.isNotBlank()) add("「${parsed.text}」（写っているもの・場所・ファイル名・アルバム名・メモ）")
                 }
                 Text((if (cond.isEmpty()) "" else cond.joinToString("・") + "　") + "${results.size} 件",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
