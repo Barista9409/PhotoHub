@@ -128,6 +128,7 @@ class Service:
 
     def job_trash(self) -> None:
         from . import organize
+        organize.move_pending(self.db, self.s)
         organize.purge(self.db, self.s, older_than_days=self.s.trash_days)
 
     def job_health(self) -> None:

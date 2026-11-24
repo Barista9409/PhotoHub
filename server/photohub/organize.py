@@ -10,13 +10,16 @@ Shared photos may be deleted or moved by anyone in the family (they can be resto
 from __future__ import annotations
 
 import json
+import logging
+import os
+import threading
 from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import select
 
 from .config import Settings
-from .db import Database, ImportItem, Media, User, can_see, kv_get, kv_set, log_event, set_location, touch_media, utcnow
+from .db import KV, Database, ImportItem, Media, User, can_see, kv_get, kv_set, log_event, set_location, touch_media, utcnow
 from .fileops import copy_verified, library_dir, move_verified, unique_in
 from .xmp import sidecar_path
 
@@ -41,8 +44,33 @@ def _may_change(s, user: User | None, m: Media) -> bool:  # noqa: ANN001
     return user is None or m.owner_id is None or m.owner_id == user.id
 
 
+def _quick_move(src: Path, dst: Path) -> bool:
+    """A rename when the trash is on the same volume (instant); False when the file would have to be
+    copied (another shared folder is another volume on a Synology), so it is moved in the background."""
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            return False
+        os.rename(src, dst)
+    except OSError:
+        return False
+    sc = sidecar_path(src)
+    if sc.exists():
+        try:
+            os.rename(sc, sidecar_path(dst))
+        except OSError:
+            pass
+    return True
+
+
+_MOVER = threading.Lock()
+
+
 def trash(db: Database, settings: Settings, user: User | None, hashes: list[str]) -> int:
+    """Gone at once for everyone (status), the file goes into PhotoHub's trash right away when that is a
+    rename, otherwise a moment later in the background: the person never waits for a video to copy."""
     n = 0
+    pending = False
     with db.session() as s:
         for m in s.execute(select(Media).where(Media.content_hash.in_(hashes[:5000]), Media.status == "active")).scalars():
             if not _may_change(s, user, m):
@@ -51,8 +79,11 @@ def trash(db: Database, settings: Settings, user: User | None, hashes: list[str]
             info = {"from": str(src), "by": user.name if user else "PhotoHub", "owner": m.owner_id}
             if src.exists():
                 dst = unique_in(_bin(settings) / f"{m.id}", src.name)
-                _move_with_sidecar(src, dst)
-                m.nas_path = str(dst)
+                if _quick_move(src, dst):
+                    m.nas_path = str(dst)
+                else:
+                    kv_set(s, f"trashmove:{m.id}", "1")
+                    pending = True
             m.status = "trashed"
             kv_set(s, f"trash:{m.id}", json.dumps({**info, "at": utcnow().isoformat()}))
             set_location(s, m.id, "nas", "removed")
@@ -60,6 +91,41 @@ def trash(db: Database, settings: Settings, user: User | None, hashes: list[str]
             n += 1
         if n:
             log_event(s, "info", "trash", f"{user.name if user else 'PhotoHub'}: {n} item(s) moved to the trash")
+    if pending:
+        threading.Thread(target=move_pending, args=(db, settings), daemon=True).start()
+    return n
+
+
+def move_pending(db: Database, settings: Settings) -> int:
+    """Finish the trash moves left for the background (also run by the daemon, e.g. after a restart)."""
+    if not _MOVER.acquire(blocking=False):
+        return 0
+    n = 0
+    try:
+        with db.session() as s:
+            ids = [int(k.split(":", 1)[1]) for k in s.execute(select(KV.key).where(KV.key.like("trashmove:%"), KV.value == "1")).scalars()]
+        for mid in ids:
+            try:
+                with db.session() as s:
+                    m = s.get(Media, mid)
+                    kv_set(s, f"trashmove:{mid}", "")
+                    if m is None or m.status not in ("trashed", "deleted"):
+                        continue   # restored meanwhile: the file is where it was
+                    src = Path(m.nas_path)
+                    if src.exists() and not src.is_relative_to(_bin(settings)):
+                        dst = unique_in(_bin(settings) / f"{m.id}", src.name)
+                        _move_with_sidecar(src, dst)
+                        m.nas_path = str(dst)
+                        if m.status == "deleted":   # emptied from the trash before the move finished
+                            dst.unlink(missing_ok=True)
+                            sidecar_path(dst).unlink(missing_ok=True)
+                    n += 1
+            except Exception:  # noqa: BLE001 - try again on the next run
+                logging.getLogger(__name__).exception("trash move %s", mid)
+                with db.session() as s:
+                    kv_set(s, f"trashmove:{mid}", "1")
+    finally:
+        _MOVER.release()
     return n
 
 
@@ -90,7 +156,10 @@ def restore(db: Database, settings: Settings, user: User, hashes: list[str]) -> 
             info = json.loads(kv_get(s, f"trash:{m.id}") or "{}")
             back = Path(info.get("from") or "")
             src = Path(m.nas_path)
-            if src.exists() and back.name:
+            if kv_get(s, f"trashmove:{m.id}") == "1" and src == back:
+                kv_set(s, f"trashmove:{m.id}", "")   # never moved: it is already where it belongs
+                set_location(s, m.id, "nas", "present", source_ref=str(src))
+            elif src.exists() and back.name:
                 dst = unique_in(back.parent, back.name)
                 _move_with_sidecar(src, dst)
                 m.nas_path = str(dst)

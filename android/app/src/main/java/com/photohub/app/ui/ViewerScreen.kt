@@ -82,10 +82,13 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf<Confirm?>(null) }
     var deleteOf by remember { mutableStateOf<TimelineItem?>(null) }
+    var phonePending by remember { mutableStateOf<com.photohub.app.data.Deleter.Outcome?>(null) }
     val phoneDelete = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) {
-        scope.launch { app.indexer.scan() }
-        onBack()
+        androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val ok = r.resultCode == android.app.Activity.RESULT_OK
+        phonePending?.let { o -> com.photohub.app.data.Deleter.phoneDone(app, o.phoneUris, o.hiddenKeys, ok) }
+        phonePending = null
+        if (ok) onBack()
     }
     var playing by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -288,16 +291,15 @@ fun ViewerScreen(start: Int, onBack: () -> Unit) {
     deleteOf?.let { item ->
         DeleteDialog(listOf(item), onDismiss = { deleteOf = null }) { nas, drive, phone ->
             deleteOf = null
-            scope.launch {
-                val o = com.photohub.app.data.Deleter.everywhere(app, listOf(item), nas, drive, phone)
-                if (o.phoneUris.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
-                    val pi = android.provider.MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
-                    phoneDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
-                }
-                message = o.error
-                com.photohub.app.data.SyncWorker.runNow(ctx)
-                if (o.error == null && o.phoneUris.isEmpty()) onBack()
+            // back to the grid at once; a refusal from the Synology shows there as a short message
+            val o = com.photohub.app.data.Deleter.start(app, listOf(item), nas, drive, phone) { msg ->
+                if (msg != null && msg.contains("できません")) android.widget.Toast.makeText(app, msg, android.widget.Toast.LENGTH_LONG).show()
             }
+            if (o.phoneUris.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
+                phonePending = o
+                val pi = android.provider.MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
+                phoneDelete.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+            } else onBack()
         }
     }
     confirm?.let { c ->

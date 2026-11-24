@@ -204,6 +204,14 @@ fun DeleteDialog(items: List<com.photohub.app.data.db.TimelineItem>, onDismiss: 
                 if (phone && phoneN > 0 && !(nas && nasN > 0) && nasN < phoneN)
                     Text("Synologyにまだない写真をスマホから消すと、元に戻せません。", fontSize = 12.sp,
                         color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+                if (phone && phoneN > 0 && android.os.Build.VERSION.SDK_INT >= 31) {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    if (!android.provider.MediaStore.canManageMedia(ctx))
+                        androidx.compose.material3.TextButton(onClick = {
+                            ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_REQUEST_MANAGE_MEDIA,
+                                android.net.Uri.parse("package:${ctx.packageName}")))
+                        }) { Text("次から Android の確認を省く（「メディアの管理」を許可）", fontSize = 12.sp) }
+                }
                 if (drive && driveN > 0 && !phone && phoneN > 0)
                     Text("スマホに残っている写真は、次の保存でまたドライブに入ります。", fontSize = 12.sp,
                         color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)

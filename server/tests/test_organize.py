@@ -159,3 +159,22 @@ def test_family_share_without_copy(settings, db):
     assert own.exists() and len(list(settings.library.rglob("x*.jpg"))) == 0   # no copy was made
     c.post("/api/media/family", json={"hashes": [hx], "on": False}, headers=hu)
     assert [i["deleted"] or i["space"] for i in c.get("/api/sync", headers=hv).json()["items"]] in ([], [True])
+
+
+def test_trash_on_another_volume_moves_in_background(settings, db, monkeypatch):
+    from photohub import organize
+    c, hr, hc, h, mine, shared, theirs = _setup(settings, db)
+    monkeypatch.setattr(organize, "_quick_move", lambda src, dst: False)   # as if the trash were another volume
+    monkeypatch.setattr(organize.threading, "Thread", lambda **kw: type("T", (), {"start": lambda self: None})())
+    # answered at once: gone for everyone, the file still waiting to be moved
+    assert c.post("/api/media/delete", json={"hashes": [h["a.jpg"], h["b.jpg"]]}, headers=hr).json()["trashed"] == 2
+    assert mine.exists()
+    assert {i["name"]: i["deleted"] for i in c.get("/api/sync", headers=hr).json()["items"]}["a.jpg"]
+    # restored before the move: stays where it was (no "a.1.jpg")
+    assert c.post("/api/trash/restore", json={"hashes": [h["a.jpg"]]}, headers=hr).json()["restored"] == 1
+    assert mine.exists() and not list(mine.parent.glob("a.1.jpg"))
+    # the background move finishes the other one
+    assert organize.move_pending(db, settings) == 1
+    assert not shared.exists() and list((settings.trash / "bin").rglob("b.jpg"))
+    assert c.post("/api/trash/restore", json={"hashes": [h["b.jpg"]]}, headers=hr).json()["restored"] == 1
+    assert shared.exists()

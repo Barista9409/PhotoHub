@@ -156,7 +156,10 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
 fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
               zoomBar: Boolean = false, albumId: Long? = null, legend: Boolean = true, refreshable: Boolean = false) {
     var kindFilter by rememberSaveable { mutableStateOf("") }   // "" / photo / video
-    val items = remember(allItems, kindFilter) { if (kindFilter == "") allItems else allItems.filter { it.kind == kindFilter } }
+    val gone by com.photohub.app.data.Deleter.hidden.collectAsState()   // deleted a moment ago: off the screen at once
+    val items = remember(allItems, kindFilter, gone) {
+        allItems.filter { (kindFilter == "" || it.kind == kindFilter) && it.itemKey !in gone }
+    }
     val ctx = LocalContext.current
     val app = ctx.applicationContext as PhotoHubApp
     val base by UiState.base.collectAsState()
@@ -212,9 +215,11 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
             ?.let { r -> if (r is Header) r.first else r as Int })
         colIdx = i
     }
-    val deleter = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+    var phonePending by remember { mutableStateOf<com.photohub.app.data.Deleter.Outcome?>(null) }
+    val deleter = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         selected = emptySet()
-        scope.launch { app.indexer.scan() }
+        phonePending?.let { o -> com.photohub.app.data.Deleter.phoneDone(app, o.phoneUris, o.hiddenKeys, r.resultCode == android.app.Activity.RESULT_OK) }
+        phonePending = null
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -426,17 +431,11 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         DeleteDialog(list, onDismiss = { confirmDelete = null }) { nas, drive, phone ->
             confirmDelete = null
             selected = emptySet()
-            scope.launch {
-                busy = "削除しています…"
-                val o = com.photohub.app.data.Deleter.everywhere(app, list, nas, drive, phone)
-                busy = null
-                toast = o.error ?: listOfNotNull(if (nas) "Synologyのゴミ箱に ${o.trashed} 件" else null,
-                    if (o.fromDrive > 0) "ドライブから ${o.fromDrive} 件" else null).joinToString("・").ifBlank { null }
-                if (o.phoneUris.isNotEmpty() && Build.VERSION.SDK_INT >= 30) {
-                    val pi = MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
-                    deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
-                }
-                com.photohub.app.data.SyncWorker.runNow(ctx)
+            val o = com.photohub.app.data.Deleter.start(app, list, nas, drive, phone) { msg -> toast = msg }
+            if (o.phoneUris.isNotEmpty() && Build.VERSION.SDK_INT >= 30) {
+                phonePending = o
+                val pi = MediaStore.createDeleteRequest(ctx.contentResolver, o.phoneUris)
+                deleter.launch(IntentSenderRequest.Builder(pi.intentSender).build())
             }
         }
     }
