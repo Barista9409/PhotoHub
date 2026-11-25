@@ -280,6 +280,11 @@ tail -n 400 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
 ### 4-4. 外出先から見る（Tailscale）
 1. Tailscale の管理画面から、家族を Tailnet に招待する（または家族用の共有アカウントを渡す）
 2. Synology の Tailscale のアドレス（`100.` で始まる）が自動で取れない場合は、家族のアプリの「設定」→「同期設定」→「外出先からの接続（Tailscale）」に入れてもらう
+3. **PhotoHub に必要なのは Synology の `100.` のアドレスだけ**です。次の3つは使いません（オンだと、Tailscale をオンにしたときにほかのアプリがネットにつながらなくなることがあります）
+    - **Exit Node（出口ノード）**：スマホの Tailscale で「なし（None）」にする。Synology を Exit Node として公開していたら、Synology の Tailscale で止める
+    - **サブネットルート**（自宅の 192.168.x.x を Tailscale に流す設定）：公開しない。スマホ側も「Use Tailscale subnets」をオフ
+    - **DNS**：管理画面（login.tailscale.com →「DNS」）で、ネームサーバーに Synology や自宅の機器を入れない。スマホの「Use Tailscale DNS」はオフでよい
+4. それでもつながりにくいスマホは、Tailscale の設定の「Split tunneling（アプリ別）」で、PhotoHub だけを Tailscale に通す
 
 ## 5. 確認してから本番にする（管理者）
 
