@@ -31,6 +31,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,6 +91,26 @@ class Updater(private val app: PhotoHubApp) {
             if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}")
             r.body!!.string()
         }
+
+    data class Change(val version: String, val date: String, val notes: String)
+
+    /** Every app version's notes, newest first (the GitHub releases; read only when the page opens). */
+    suspend fun history(): List<Change> = withContext(Dispatchers.IO) {
+        val out = mutableListOf<Change>()
+        for (page in 1..2) {
+            val arr = json.parseToJsonElement(get("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases?per_page=100&page=$page",
+                "application/vnd.github+json")).jsonArray
+            arr.forEach { e ->
+                val o = e.jsonObject
+                val tag = o["tag_name"]?.jsonPrimitive?.content ?: return@forEach
+                if (!tag.startsWith("v")) return@forEach   // server-latest etc. are not app versions
+                val date = o["published_at"]?.jsonPrimitive?.content?.take(10)?.replace('-', '/') ?: ""
+                out += Change(tag.removePrefix("v"), date, (o["body"]?.jsonPrimitive?.contentOrNull ?: "").trim())
+            }
+            if (arr.size < 100) break
+        }
+        out
+    }
 
     /** Commit (first 7 chars) of the newest server image that finished building on GitHub. */
     suspend fun latestServer(): ServerBuild? = withContext(Dispatchers.IO) {

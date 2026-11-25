@@ -99,6 +99,9 @@ def test_people_albums_from_synology_photos(settings, db, monkeypatch):
     monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     r = autoalbums.people(db, settings)
     assert r["made"] == 2 and not r["notes"]
+    assert r["status"] == ["個人スペース：人物 3 人 → アルバム 2 個",
+                           "共有スペース：Synology Photos がまだ顔を見分けていません（写真が多いと数日かかります。"
+                           "Synology Photos の「人物」に顔が並んだら、ここにも出ます）"]
     assert _albums(db, "person") == {"はると": 6, "人物 2": 5}
     persons[1]["name"] = "ゆい"   # named later in Synology Photos
     autoalbums.people(db, settings)

@@ -231,9 +231,11 @@ def people(db: Database, settings: Settings) -> dict:
     from .albums import _list_all
     from .db import visible_clause
     from .photos_link import PhotosError, Session
-    made, notes = 0, []
+    made, notes, status = 0, [], []
     with db.session() as s:
         users = [u for u in s.execute(select(User)).scalars() if u.dsm_secret]
+    if not users:
+        status.append("Synology Photos とつながっている人がいません（ログイン時に「Synology Photos のアルバムも同期する」をオンにしてください）")
         for u in users:
             s.expunge(u)
     def one_space(ses, u: User, list_api: str, item_api: str, owner: int | None, prefix: str, label: str) -> None:  # noqa: ANN001
@@ -247,20 +249,37 @@ def people(db: Database, settings: Settings) -> dict:
                 last = e
         if persons is None:
             notes.append(f"{u.name}（{label}）: 人物の一覧を読めません（Synology Photosの顔認識がオフかもしれません）: {last}")
+            status.append(f"{label}：人物の一覧を読めません（Synology Photos の設定で「人物」がオフかもしれません）")
             return
+        total = len(persons)
         persons = sorted(persons, key=lambda p: -int(p.get("item_count") or 0))[:PERSON_MAX]
         with db.session() as s:
-            index = {(Path(m.nas_path).name.lower(), m.bytes): m.id for m in
-                     s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars()}
+            index: dict[tuple[str, int], int] = {}
+            by_name: dict[str, list[int]] = defaultdict(list)
+            for m in s.execute(select(Media).where(Media.status == "active", visible_clause(u))).scalars():
+                nm = Path(m.nas_path).name.lower()
+                index[(nm, m.bytes)] = m.id
+                by_name[nm].append(m.id)
+        big = matched = albums_here = 0
         for n, p in enumerate(persons, 1):
             pid = p.get("id")
-            if pid is None or int(p.get("item_count") or 0) < PERSON_MIN_PHOTOS:
+            cnt = p.get("item_count")   # not in every DSM's answer: then count the photos themselves
+            if pid is None or (cnt is not None and int(cnt) < PERSON_MIN_PHOTOS):
                 continue
+            big += 1
             items = _list_all(ses, item_api, "list", person_id=pid)
-            ids = [index[k] for k in (((it.get("filename") or "").lower(), int(it.get("filesize") or 0)) for it in items)
-                   if k in index]
+            ids = []
+            for it in items:
+                nm = (it.get("filename") or "").lower()
+                mid = index.get((nm, int(it.get("filesize") or 0)))
+                if mid is None and len(by_name.get(nm, ())) == 1:
+                    mid = by_name[nm][0]   # no size in the answer: a file name found only once is enough
+                if mid is not None:
+                    ids.append(mid)
+            matched += len(ids)
             if len(ids) < PERSON_MIN_PHOTOS:
                 continue
+            albums_here += 1
             name = (p.get("name") or "").strip()
             key = f"{prefix}:{pid}"
             with db.session() as s:
@@ -271,6 +290,15 @@ def people(db: Database, settings: Settings) -> dict:
                     if a is not None and name and a.name.startswith("人物 ") and a.name != name:
                         a.name = name
                         a.rev = next_rev(s)
+        if total == 0:
+            status.append(f"{label}：Synology Photos がまだ顔を見分けていません（写真が多いと数日かかります。"
+                          "Synology Photos の「人物」に顔が並んだら、ここにも出ます）")
+        elif big == 0:
+            status.append(f"{label}：人物 {total} 人。写真 {PERSON_MIN_PHOTOS} 枚以上の人がまだいません（顔を調べ中です）")
+        elif albums_here == 0:
+            status.append(f"{label}：人物 {total} 人を見つけましたが、PhotoHub の写真と結びつけられませんでした（{matched} 枚）")
+        else:
+            status.append(f"{label}：人物 {total} 人 → アルバム {albums_here} 個")
 
     team_done = False
     # admins first: the shared space's people are read once, through the first admin who linked
@@ -286,12 +314,16 @@ def people(db: Database, settings: Settings) -> dict:
                         notes.append(f"{u.name}（共有スペース）: {e}")
         except Exception as e:  # noqa: BLE001 - undocumented API: never stop the other albums
             notes.append(f"{u.name}: {e}")
+            status.append(f"{u.name}：Synology Photos に入れません（{e}）")
+    with db.session() as s:   # shown under the albums (人物アルバムの状況)
+        import json as _json
+        kv_set(s, "people_status", _json.dumps({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "lines": status}, ensure_ascii=False))
     if notes:
         from .db import log_event
         with db.session() as s:
             for t in notes:
                 log_event(s, "warn", "people_albums", t[:500])
-    return {"made": made, "notes": notes}
+    return {"made": made, "notes": notes, "status": status}
 
 
 def places(db: Database, settings: Settings) -> int:
@@ -478,6 +510,32 @@ def dedupe(db: Database) -> int:
                 n += 1
             keep.rev = next_rev(s)
     return n
+
+
+_PEOPLE = threading.Event()   # set while a 「人物」 run started from the app is going
+
+
+def people_running() -> bool:
+    return _PEOPLE.is_set()
+
+
+def people_in_background(db: Database, settings: Settings) -> bool:
+    if _PEOPLE.is_set():
+        return False
+    _PEOPLE.set()
+
+    def go() -> None:
+        try:
+            with _RUN:
+                people(db, settings)
+                growth(db, settings)
+        except Exception:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception("people albums")
+        finally:
+            _PEOPLE.clear()
+    threading.Thread(target=go, daemon=True).start()
+    return True
 
 
 def run_all(db: Database, settings: Settings) -> dict:

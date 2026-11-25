@@ -104,12 +104,13 @@ fun <T> Segmented(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> 
 }
 
 @Composable
-fun StatusPill(text: String, ok: Boolean) {
+fun StatusPill(text: String, ok: Boolean, busy: Boolean = false) {
     val bg = if (ok) Color(0x332E7D32) else Color(0x33B3261E)
     val fg = if (ok) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
     Row(Modifier.background(bg, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.size(8.dp).background(fg, CircleShape))
+        if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(10.dp), color = fg, strokeWidth = 1.5.dp)
+        else Box(Modifier.size(8.dp).background(fg, CircleShape))
         Text(text, style = MaterialTheme.typography.labelMedium, color = fg, fontWeight = FontWeight.Medium)
     }
 }

@@ -162,6 +162,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        if (people.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "s:人物の状況") { PeopleStatusCard() }
         if (favAlbums.isNotEmpty()) {
             // one row per kind, scrolling sideways: the page stays short however many albums there are
             item(span = { GridItemSpan(maxLineSpan) }, key = "s:お気に入り") {
@@ -929,5 +930,48 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
                 }
             }) { Text("削除", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { androidx.compose.material3.TextButton({ askDelete = false }) { Text("やめる") } })
+    }
+}
+
+
+/** No 人物 albums yet: why (from the Synology's last try) and a button to try again now. */
+@Composable
+fun PeopleStatusCard() {
+    val app = LocalContext.current.applicationContext as com.photohub.app.PhotoHubApp
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var st by remember { mutableStateOf<com.photohub.app.data.api.PeopleStatus?>(null) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var tick by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(tick) {
+        while (true) {
+            st = try { app.net.api()?.peopleStatus() } catch (e: retrofit2.HttpException) {
+                err = if (e.code() == 404) "Synology側が古い版です（新しい版に入れ替わると表示されます）" else "HTTP ${e.code()}"; null
+            } catch (e: Exception) { null }
+            if (st?.running != true) break
+            kotlinx.coroutines.delay(3_000)   // a run is going: follow it, then show the new albums
+        }
+        if (tick > 0) com.photohub.app.data.SyncWorker.runNow(app, light = true)
+    }
+    Column(Modifier.fillMaxWidth().padding(8.dp)
+        .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).padding(14.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+        Text("人物アルバムの状況", style = MaterialTheme.typography.titleSmall)
+        val s = st
+        when {
+            err != null -> Text(err!!, style = MaterialTheme.typography.bodySmall)
+            s == null -> Text("確認しています…", style = MaterialTheme.typography.bodySmall)
+            s.running -> Text("Synology Photos の人物を読んでいます…（1〜数分）", style = MaterialTheme.typography.bodySmall)
+            s.lines.isEmpty() -> Text("まだ一度も作っていません。下のボタンで作れます（毎晩も自動で作ります）。", style = MaterialTheme.typography.bodySmall)
+            else -> {
+                s.lines.forEach { Text("・$it", style = MaterialTheme.typography.bodySmall) }
+                s.at?.let { Text("確認：$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+        if (st?.running != true && err == null) androidx.compose.material3.TextButton({
+            scope.launch {
+                try { app.net.api()?.peopleNow() } catch (_: Exception) {}
+                tick++
+            }
+        }) { Text("人物アルバムを今すぐ作る") }
     }
 }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
@@ -123,6 +124,7 @@ enum class Dest(val route: String, val title: String) {
     TRASH("trash", "ゴミ箱"),
     DUPLICATES("duplicates", "まったく同じ写真"),
     LOGS("logs", "エラーの記録"),
+    HISTORY("history", "変更履歴"),
 }
 
 @Composable
@@ -188,6 +190,17 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                     true -> StatusPill("Google Drive：接続済", true)
                     false -> StatusPill("Google Drive：未接続", false)
                 }
+                // is everything sent? (running now / N waiting on this phone / done, with the time)
+                val only by app.db.media().phoneOnlyCounts().collectAsState(initial = emptyList())
+                val waiting = only.sumOf { it.n }
+                when {
+                    live.running -> StatusPill("同期：同期中…", true, busy = true)
+                    waiting > 0 && cur.backupNas -> StatusPill("同期：未送信 $waiting 件", false)
+                    last.first > 0 -> StatusPill("同期：完了 " + java.text.SimpleDateFormat(
+                        if (System.currentTimeMillis() - last.first < 86_400_000L) "H:mm" else "M/d H:mm", java.util.Locale.JAPAN)
+                        .format(java.util.Date(last.first)), true)
+                    else -> StatusPill("同期：まだです", false)
+                }
                 if (status?.apply == false) StatusPill("試運転中", false)
             }
             if (base == null && cur.remoteUrl.isBlank())
@@ -229,76 +242,74 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
         // a row opens a page only for a tool (tidy up, migration, folders, records). Order = how often it is needed.
         // 同期設定: what to send where (on/off) -> when (mobile data, battery) -> how to reach the Synology
         // (away from home, its folders); "sync now" with the last result at the top, the most used row
-        CollapsibleGroup("sync", "同期設定", "今すぐ同期・Synology・Googleドライブ・モバイル回線・電池・外出先・保存場所", openByDefault = true) {
+        CollapsibleGroup("sync", "同期設定", "送り先・通信・電池・外出先", openByDefault = true) {
             if (live.running) BackupProgress(live) else RunNowRow()
             GroupDivider()
             SwitchRow(Icons.Default.Dns, "Synologyに保存",
-                if (cur.backupNas) "撮った写真を数分でSynologyに送り、Synologyの写真をこのスマホで見られます" else "オフ：Synologyの写真を見るだけ（このスマホの写真は送りません）", cur.backupNas) {
+                if (cur.backupNas) "撮った写真を数分で送ります" else "オフ：見るだけ（送りません）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
             }
             GroupDivider()
             DriveToggleRow(onOpen = { open(Dest.DRIVE_BACKUP) })
             GroupDivider()
             SwitchRow(Icons.Default.SignalCellularAlt, "モバイル回線でも送る・受け取る",
-                "オフなら、Wi-Fiのときだけ（Synology・ドライブ共通）", cur.backupOnMobile) {
+                "オフ：Wi-Fiのときだけ", cur.backupOnMobile) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupOnMobile = it)) }
             }
             BatteryRow()
             GroupDivider()
             RemoteAddressRow()
             GroupDivider()
-            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "スマホの写真・ドライブから届く写真・Takeoutを置くフォルダ",
+            SettingRow(Icons.Default.Folder, "Synologyの保存場所", "写真を置くフォルダ",
                 onClick = { open(Dest.PLACES) }) { Chevron() }
         }
 
         // データ管理: tidy up (most used) -> this phone's space -> what is where -> moving from Google (once)
-        CollapsibleGroup("library", "データ管理", "整理とゴミ箱・このスマホの容量・内訳・Googleフォトからの移行", openByDefault = true) {
+        CollapsibleGroup("library", "データ管理", "整理・容量・内訳・移行", openByDefault = true) {
             // one door for tidying up: similar / same photos, suggestions, dates, free space and the trash are inside
             SettingRow(Icons.Default.CleaningServices, "整理とゴミ箱",
                 (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
-                    "同じ写真・スクリーンショット・日付直し・空き容量", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
+                    "似た写真・同じ写真・日付直し", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.PhoneAndroid, "このスマホの容量", storageSummary() + "上限・外出先ですぐ開ける期間",
+            SettingRow(Icons.Default.PhoneAndroid, "このスマホの容量", storageSummary(),
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PieChart, "ライブラリの内訳", librarySummary(), onClick = { open(Dest.LIBRARY) }) { Chevron() }
             GroupDivider()
-            SettingRow(Icons.Default.PhotoLibrary, "Googleフォトからの移行", "手順・取り込みの状況・Googleフォトを空にする",
+            SettingRow(Icons.Default.PhotoLibrary, "Googleフォトからの移行", "手順と取り込みの状況",
                 onClick = { open(Dest.MIGRATION) }) { Chevron() }
         }
 
         // closed, the summary still says when an update is waiting
         CollapsibleGroup("app", "アプリ",
             (if (updater is Updater.State.Available || updater is Updater.State.Ready) "新しい版があります・" else "") +
-                "更新・Synology側の版・アプリを共有・使い方・エラーの記録", openByDefault = false) {
+                "更新・変更履歴・使い方・記録", openByDefault = false) {
             UpdateRow()
             GroupDivider()
-            SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "新しい版をWi-Fiで取り込んで入れます", cur.autoUpdate) {
+            SwitchRow(Icons.Default.SystemUpdate, "自動で更新", "Wi-Fiのときに入れます", cur.autoUpdate) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(autoUpdate = it)) }
             }
+            GroupDivider()
+            SettingRow(Icons.Default.History, "変更履歴", "いまの版 ${BuildConfig.VERSION_NAME}・これまでの変更点",
+                onClick = { open(Dest.HISTORY) }) { Chevron() }
             GroupDivider()
             ServerVersionRow()
             GroupDivider()
             ShareAppRows()
             GroupDivider()
-            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方", "はじめ方・ふだんの使い方・Googleフォトからの引っ越し・困ったとき",
+            SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "使い方", "家族向けガイド",
                 onClick = { openGuide(ctx) }) { Chevron() }
             if (me?.admin == true) {
                 GroupDivider()
-                SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "導入ガイド（管理者向け）", "Synologyの準備・自動更新・Cloud Sync・家族を迎える",
+                SettingRow(Icons.AutoMirrored.Filled.HelpOutline, "導入ガイド（管理者向け）", "Synologyの準備など",
                     onClick = { openGuide(ctx, admin = true) }) { Chevron() }
             }
             GroupDivider()
             val crashed = remember { com.photohub.app.CrashLog.read(ctx) != null }
             SettingRow(Icons.Default.BugReport, "エラーの記録",
-                if (crashed) "前回、うまく動かないことがありました。押して確かめてください" else "止まった・失敗した・遅かった処理（家族のスマホ全部）",
+                if (crashed) "前回うまく動きませんでした。確かめてください" else "止まった・失敗した処理",
                 onClick = { open(Dest.LOGS) }) { Chevron() }
         }
-        // the version at the foot, like most apps; tap it for what changed in this version
-        var notes by remember { mutableStateOf(false) }
-        Text("PhotoHub ${BuildConfig.VERSION_NAME}・この版の変更点", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { notes = true }.padding(20.dp))
-        if (notes) WhatsNewDialog { notes = false }
     }
 
     if (confirmLogout) {
@@ -542,6 +553,46 @@ fun WhatsNewDialog(onDismiss: () -> Unit) {
         text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
             item { Text(BuildConfig.RELEASE_NOTES.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium) } } },
         confirmButton = { TextButton(onDismiss) { Text("OK") } })
+}
+
+/** 設定 → アプリ → 変更履歴: what changed in each version, newest first (this one marked). */
+@Composable
+fun HistoryScreen() {
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    var list by remember { mutableStateOf<List<com.photohub.app.data.Updater.Change>?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        list = try { app.updater.history() } catch (e: Exception) { failed = true; null }
+    }
+    // without the internet: at least this version's notes, which are inside the app
+    val shown = list ?: if (failed) listOf(com.photohub.app.data.Updater.Change(BuildConfig.VERSION_NAME, "", BuildConfig.RELEASE_NOTES)) else null
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (failed) item {
+            Text("インターネットにつながらないため、いまの版の変更点だけを表示しています。", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (shown == null) item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.size(10.dp)); Text("読み込み中…")
+            }
+        }
+        items(shown.orEmpty().size) { i ->
+            val c = shown!![i]
+            val current = c.version == BuildConfig.VERSION_NAME
+            Column(Modifier.fillMaxWidth().background(
+                if (current) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                RoundedCornerShape(16.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(c.version, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (current) StatusPill("いまの版", true)
+                    else Text(c.date, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(c.notes.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
 }
 
 /** Shown once after the app was updated (not on a fresh install). */
