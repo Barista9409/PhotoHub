@@ -329,32 +329,6 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         androidx.compose.animation.AnimatedVisibility(visible = selecting, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
                 var more by remember { mutableStateOf(false) }
-                fun copyTo(list: List<TimelineItem>, to: String) {
-                    selected = emptySet()
-                    if (list.isEmpty()) { toast = "Synologyにある写真を選んでください"; return }
-                    scope.launch {
-                        toast = try {
-                            val n = app.net.api()!!.copyMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, to))["copied"] ?: 0
-                            if (to == "shared") "$n 枚を家族の共有フォルダにコピーしました（自分の写真にも残っています）"
-                            else "$n 枚をマイフォトにコピーしました（家族の写真にも残っています）"
-                        } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "コピーできませんでした（HTTP ${e.code()}）" }
-                          catch (e: Exception) { "コピーできませんでした（${e.message}）" }
-                        com.photohub.app.data.SyncWorker.runNow(ctx, light = true)
-                    }
-                }
-                fun familyShare(list: List<TimelineItem>, on: Boolean) {
-                    selected = emptySet()
-                    if (list.isEmpty()) { toast = "Synologyにある写真を選んでください"; return }
-                    scope.launch {
-                        toast = try {
-                            val n = app.net.api()!!.familyShare(com.photohub.app.data.api.FavoriteBody(list.map { it.hash!! }, on))["changed"] ?: 0
-                            if (on) "$n 枚を家族に共有しました（ファイルは1つのまま。ファミリーに出ます）"
-                            else "$n 枚の家族への共有をやめました"
-                        } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "共有できませんでした（HTTP ${e.code()}）" }
-                          catch (e: Exception) { "共有できませんでした（${e.message}）" }
-                        com.photohub.app.data.SyncWorker.runNow(ctx, light = true)
-                    }
-                }
                 fun chosen() = items.filter { it.itemKey in selected }
                 fun onSyno() = chosen().filter { it.hash != null }
                 Row(Modifier.padding(horizontal = 4.dp).height(56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -412,11 +386,11 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                             }
                             entry(Icons.Default.Event, "撮影日を変更") { dateOf = onSyno() }
                             // share: one file, the family can see it; copy: both stay (a second file on the other side)
-                            entry(Icons.Default.FamilyRestroom, "家族に共有") { familyShare(onSyno(), true) }
-                            entry(Icons.Default.PersonOff, "家族への共有をやめる") { familyShare(onSyno(), false) }
-                            entry(Icons.Default.FolderShared, "家族の共有フォルダにコピー") { copyTo(onSyno(), "shared") }
-                            entry(Icons.Default.ContentCopy, "マイフォトにコピー") { copyTo(onSyno(), "mine") }
-                            entry(Icons.Default.DriveFileMove, "自分だけ／家族で共有へ移す") { moveOf = onSyno() }
+                            // マイフォト ⇄ ファミリー: one entry; where to and how (share / copy / move) in the dialog
+                            entry(Icons.Default.FamilyRestroom, "ファミリー／マイフォトへ…") {
+                                val l = onSyno()
+                                if (l.isEmpty()) toast = "Synologyにある写真を選んでください（スマホにしかない写真は、同期したあとで選べます）" else moveOf = l
+                            }
                         }
                     }
                 }
@@ -440,33 +414,17 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         }
     }
     moveOf?.let { list ->
-        AlertDialog(onDismissRequest = { moveOf = null },
-            title = { Text("${list.size} 件の置き場所") },
-            text = { Text(if (list.isEmpty()) "Synologyにある写真が選ばれていません（スマホにしかない写真は、同期したあとで移せます）。"
-                          else "家族で共有：家族みんなが見られる photo フォルダへ。\n自分だけ：自分の Photos フォルダへ。") },
-            confirmButton = {
-                if (list.isNotEmpty()) TextButton({
-                    moveOf = null; selected = emptySet()
-                    scope.launch {
-                        toast = try { "家族で共有へ ${app.net.api()!!.moveMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, "shared"))["moved"] ?: 0} 件移しました" }
-                                catch (e: Exception) { "移せませんでした（${e.message}）" }
-                        com.photohub.app.data.SyncWorker.runNow(ctx)
-                    }
-                }) { Text("家族で共有へ") }
-            },
-            dismissButton = {
-                Row {
-                    if (list.isNotEmpty()) TextButton({
-                        moveOf = null; selected = emptySet()
-                        scope.launch {
-                            toast = try { "自分だけへ ${app.net.api()!!.moveMedia(com.photohub.app.data.api.MoveBody(list.map { it.hash!! }, "mine"))["moved"] ?: 0} 件移しました" }
-                                    catch (e: Exception) { "移せませんでした（${e.message}）" }
-                            com.photohub.app.data.SyncWorker.runNow(ctx)
-                        }
-                    }) { Text("自分だけへ") }
-                    TextButton({ moveOf = null }) { Text("やめる") }
-                }
-            })
+        // opens toward the other side: family photos -> マイフォト, otherwise -> ファミリー
+        val toFamily by androidx.compose.runtime.produceState<Boolean?>(null, list) {
+            val spaces = app.db.media().remoteByHashes(list.mapNotNull { it.hash }).map { it.space }
+            value = !(spaces.isNotEmpty() && spaces.all { it == "shared" || it == "family" })
+        }
+        toFamily?.let { start ->
+            SpaceDialog("${list.size} 件をどこへ", start, chooseDest = true, onDismiss = { moveOf = null }) { fam, how ->
+                moveOf = null; selected = emptySet()
+                scope.launch { toast = runSpace(app, list.mapNotNull { it.hash }, fam, how) }
+            }
+        }
     }
     dateOf?.let { list ->
         val state = androidx.compose.material3.rememberDatePickerState(

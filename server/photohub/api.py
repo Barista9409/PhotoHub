@@ -693,6 +693,34 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                            shared=body.to == "shared")
         return {"album_id": new_id, "copied": copied}
 
+    @app.post("/api/albums/{album_id}/move")
+    def album_move(album_id: int, body: CopyTo, user: User = Depends(auth)) -> dict:
+        """An album moved to the family (its own photos move into the family folder; the album becomes a
+        family album) or to the person (family photos move into their Photos; the album becomes theirs)."""
+        from . import albums as al
+        from . import organize
+        from .albums import _album_name_free
+        with db.session() as s:
+            a = s.get(Album, album_id)
+            if a is None or not (a.owner_id is None or a.owner_id == user.id):
+                raise HTTPException(404, "album not found")
+            if (a.owner_id is None) == (body.to == "shared"):
+                raise HTTPException(400, "the album is already there")
+            hashes = [m.content_hash for m in s.execute(select(Media).join(AlbumItem, AlbumItem.media_id == Media.id)
+                                                         .where(AlbumItem.album_id == a.id, Media.status == "active")).scalars()]
+            name = a.name
+        try:
+            moved = organize.move_space(db, settings, user, hashes, body.to)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        new_id = al.create(db, settings, user, _album_name_free(db, name, body.to == "shared", user), hashes,
+                           shared=body.to == "shared")
+        try:
+            al.delete(db, settings, user, album_id)   # the old one: deleting it is remembered (no comeback)
+        except al.AlbumError:
+            pass
+        return {"album_id": new_id, "moved": moved}
+
     @app.post("/api/albums/merge")
     def albums_merge(body: AlbumMerge, user: User = Depends(auth)) -> dict:
         """Several albums -> the first one (optionally renamed); the others are deleted."""

@@ -513,6 +513,7 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
     val album = (app.lists.albums.collectAsState().value ?: emptyList()).firstOrNull { it.id == albumId }
     var rename by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var spaceOf by remember { mutableStateOf<Boolean?>(null) }   // the album to ファミリー (true) / マイフォト (false)
     var download by remember { mutableStateOf(false) }
     var askBirthday by remember { mutableStateOf(false) }
     if (askBirthday) {
@@ -551,32 +552,8 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
                     if (album?.origin == "person") androidx.compose.material3.DropdownMenuItem(text = { Text("誕生日を設定（成長アルバム）") },
                         leadingIcon = { Icon(Icons.Default.Cake, null) }, onClick = { menu = false; askBirthday = true })
                     val toFamily = album?.shared != true
-                    fun albumAction(call: suspend () -> String) {
-                        menu = false
-                        scope.launch {
-                            val msg = try { call() }
-                                catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "できませんでした（HTTP ${e.code()}）" }
-                                catch (e: Exception) { "できませんでした（${e.message}）" }
-                            android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
-                            com.photohub.app.data.SyncWorker.runNow(ctx, light = true)
-                        }
-                    }
-                    if (toFamily) {
-                        androidx.compose.material3.DropdownMenuItem(text = { Text("家族に共有") },
-                            leadingIcon = { Icon(Icons.Default.FamilyRestroom, null) }, onClick = { albumAction {
-                                val r = app.net.api()!!.familyAlbum(albumId)
-                                "家族のアルバムを作りました（写真 ${r["shared"] ?: 0} 枚を家族に見えるようにしました。ファイルは1つのままです）"
-                            } })
-                        androidx.compose.material3.DropdownMenuItem(text = { Text("家族の共有フォルダにコピー") },
-                            leadingIcon = { Icon(Icons.Default.FolderShared, null) }, onClick = { albumAction {
-                                val r = app.net.api()!!.copyAlbum(albumId, com.photohub.app.data.api.CopyToBody("shared"))
-                                "家族のアルバムにコピーしました（写真 ${r["copied"] ?: 0} 枚を家族の共有フォルダにも置きました）"
-                            } })
-                    } else androidx.compose.material3.DropdownMenuItem(text = { Text("マイフォトにコピー") },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, null) }, onClick = { albumAction {
-                            val r = app.net.api()!!.copyAlbum(albumId, com.photohub.app.data.api.CopyToBody("mine"))
-                            "マイフォトのアルバムにコピーしました（写真 ${r["copied"] ?: 0} 枚を自分の写真にも置きました）"
-                        } })
+                    androidx.compose.material3.DropdownMenuItem(text = { Text(if (toFamily) "ファミリーへ…" else "マイフォトへ…") },
+                        leadingIcon = { Icon(Icons.Default.FamilyRestroom, null) }, onClick = { menu = false; spaceOf = toFamily })
                     androidx.compose.material3.DropdownMenuItem(text = { Text("ダウンロード") }, leadingIcon = { Icon(Icons.Default.Download, null) },
                         onClick = { menu = false; download = true })
                     androidx.compose.material3.DropdownMenuItem(text = { Text("名前を変える") }, leadingIcon = { Icon(Icons.Default.Edit, null) },
@@ -601,6 +578,15 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
     if (download) DownloadDialog(items, album?.name ?: "アルバム") { msg ->
         download = false
         msg?.let { android.widget.Toast.makeText(ctx, it, android.widget.Toast.LENGTH_LONG).show() }
+    }
+    spaceOf?.let { fam ->
+        SpaceDialog("「${album?.name ?: "アルバム"}」を${if (fam) "ファミリー" else "マイフォト"}へ", fam, chooseDest = false, album = true,
+            onDismiss = { spaceOf = null }) { to, how ->
+            spaceOf = null
+            scope.launch {
+                android.widget.Toast.makeText(ctx, runAlbumSpace(app, albumId, to, how), android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
     if (confirmDelete) androidx.compose.material3.AlertDialog(onDismissRequest = { confirmDelete = false },
         title = { Text("アルバムを削除しますか？") },

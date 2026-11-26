@@ -197,3 +197,19 @@ def test_blurry_measured_ahead_of_time(settings, db):
     assert organize.measure_sharpness(db, settings) == 2     # c.jpg has no thumbnail yet
     assert organize.measure_sharpness(db, settings) == 0     # done once
     assert [i["hash"] for i in c.get("/api/suggestions/blurry", headers=hr).json()["items"]] == [h["a.jpg"]]
+
+
+def test_album_move_between_mine_and_family(settings, db):
+    from photohub.db import Album
+    c, hr, hc, h, mine, shared, theirs = _setup(settings, db)
+    aid = c.post("/api/albums", json={"name": "旅行", "hashes": [h["a.jpg"]], "shared": False}, headers=hr).json()["id"]
+    r = c.post(f"/api/albums/{aid}/move", json={"to": "shared"}, headers=hr).json()
+    assert r["moved"] == 1 and not mine.exists() and list(settings.library.rglob("a.jpg"))
+    with db.session() as s:
+        assert s.get(Album, aid) is None
+        assert s.get(Album, r["album_id"]).owner_id is None and s.get(Album, r["album_id"]).name == "旅行"
+    # already the family's: refused, nothing changes
+    assert c.post(f"/api/albums/{r['album_id']}/move", json={"to": "shared"}, headers=hr).status_code == 400
+    # and back to reo
+    back = c.post(f"/api/albums/{r['album_id']}/move", json={"to": "mine"}, headers=hr).json()
+    assert back["moved"] == 1 and list((Path(settings.homes_root) / "reo" / "Photos" / "PhotoHub").rglob("a.jpg"))
