@@ -64,6 +64,8 @@ import com.photohub.app.data.SyncWorker
 import com.photohub.app.data.api.HashesBody
 import com.photohub.app.data.api.PathsBody
 import com.photohub.app.data.api.TrashList
+import com.photohub.app.data.api.TrashItem
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.photohub.app.data.db.TimelineItem
 import kotlinx.coroutines.launch
 
@@ -267,19 +269,50 @@ fun TrashScreen() {
                 }
             }
         }
+        // 撮影日 (newest first, one heading per day) or the albums they were in
+        var byAlbum by rememberSaveable { mutableStateOf(false) }
+        if (d.items.isNotEmpty()) Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            androidx.compose.material3.FilterChip(!byAlbum, { byAlbum = false }, label = { Text("撮影日") })
+            androidx.compose.material3.FilterChip(byAlbum, { byAlbum = true }, label = { Text("元のアルバム") })
+        }
+        val groups = remember(d, byAlbum) {
+            if (byAlbum) {
+                val m = linkedMapOf<String, MutableList<TrashItem>>()
+                d.items.forEach { t -> (t.albums.ifEmpty { listOf("") }).forEach { a -> m.getOrPut(a) { mutableListOf() } += t } }
+                m.entries.sortedWith(compareBy({ it.key.isEmpty() }, { it.key })).map { (k, v) ->
+                    (if (k.isEmpty()) "アルバムに入っていない写真" else k) + "（${v.size}）" to v }
+            } else {
+                val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy年M月d日")
+                d.items.sortedByDescending { it.takenAt ?: 0 }.groupBy { t ->
+                    t.takenAt?.let { ms ->
+                        java.time.Instant.ofEpochMilli(ms).atOffset(java.time.ZoneOffset.ofTotalSeconds((t.tz ?: 540) * 60)).format(fmt)
+                    } ?: "撮影日なし"
+                }.map { (k, v) -> "$k（${v.size}）" to v }
+            }
+        }
         LazyVerticalGrid(GridCells.Adaptive(110.dp), Modifier.fillMaxSize()) {
-            items(d.items, key = { it.hash }) { t ->
-                val on = t.hash in selected
-                Box(Modifier.padding(1.dp).aspectRatio(1f).background(Color(0x22888888))
-                    .clickable { selected = if (on) selected - t.hash else selected + t.hash }) {
-                    val model: Any? = hashThumb(app, t.hash, base)
-                    AsyncImage(model, t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    Text("あと${t.daysLeft}日", color = Color.White, style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.align(Alignment.BottomStart).background(Color(0x99000000)).padding(horizontal = 4.dp))
-                    Icon(if (on) Icons.Default.CheckCircle else Icons.Outlined.Circle, null,
-                        tint = if (on) MaterialTheme.colorScheme.primary else Color.White,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp)
-                            .background(if (on) Color.White else Color.Transparent, CircleShape))
+            groups.forEach { (title, list) ->
+                item(span = { GridItemSpan(maxLineSpan) }, key = "h:$title") {
+                    Row(Modifier.fillMaxWidth().padding(12.dp, 14.dp, 12.dp, 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        val keys = list.map { it.hash }
+                        val all = selected.containsAll(keys)
+                        TextButton({ selected = if (all) selected - keys.toSet() else selected + keys }) { Text(if (all) "解除" else "選択") }
+                    }
+                }
+                items(list, key = { "$title/${it.hash}" }) { t ->
+                    val on = t.hash in selected
+                    Box(Modifier.padding(1.dp).aspectRatio(1f).background(Color(0x22888888))
+                        .clickable { selected = if (on) selected - t.hash else selected + t.hash }) {
+                        val model: Any? = hashThumb(app, t.hash, base)
+                        AsyncImage(model, t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        Text("あと${t.daysLeft}日", color = Color.White, style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.align(Alignment.BottomStart).background(Color(0x99000000)).padding(horizontal = 4.dp))
+                        Icon(if (on) Icons.Default.CheckCircle else Icons.Outlined.Circle, null,
+                            tint = if (on) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(22.dp)
+                                .background(if (on) Color.White else Color.Transparent, CircleShape))
+                    }
                 }
             }
         }

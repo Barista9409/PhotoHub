@@ -190,12 +190,17 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
     // date headers are worked out away from the screen thread (tens of thousands of photos).
     // The grid draws from the list the rows were made for, so an older list stays on screen
     // (consistent) until the new one is ready.
-    var built by remember { mutableStateOf<Pair<List<TimelineItem>, List<Any>>?>(null) }
+    // Coming back from a photo: the rows made last time are taken at once (not rebuilt from nothing),
+    // so the grid has its rows on the first frame and keeps the place it was scrolled to.
+    var built by remember { mutableStateOf(RowsMemo.get(items, level.group)?.let { items to it }) }
     androidx.compose.runtime.LaunchedEffect(items, level.group) {
         val group = level.group
-        built = items to kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            com.photohub.app.data.AppLog.timed("日付の見出し作り") { buildRows(items, group) }
+        if (built?.first == items && RowsMemo.get(items, group) === built?.second) return@LaunchedEffect
+        val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            RowsMemo.get(items, group) ?: com.photohub.app.data.AppLog.timed("日付の見出し作り") { buildRows(items, group) }
         }
+        RowsMemo.put(items, group, rows)
+        built = items to rows
     }
     val shown = built?.first ?: emptyList()
     val rows = built?.second ?: emptyList()
@@ -559,3 +564,17 @@ fun TimelineScreen(onOpen: (List<TimelineItem>, Int) -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.combinedClickableCompat(onClick: () -> Unit) = this.combinedClickable(onClick = onClick)
+
+
+/** The last few date-heading layouts, so a grid that comes back (after a photo) draws at once. */
+private object RowsMemo {
+    private class Entry(val items: List<TimelineItem>, val group: Any?, val rows: List<Any>)
+    private val entries = ArrayDeque<Entry>()
+    @Synchronized fun get(items: List<TimelineItem>, group: Any?): List<Any>? =
+        entries.firstOrNull { it.group == group && (it.items === items || (it.items.size == items.size && it.items == items)) }?.rows
+    @Synchronized fun put(items: List<TimelineItem>, group: Any?, rows: List<Any>) {
+        entries.removeAll { it.group == group && it.items.size == items.size && it.items == items }
+        entries.addFirst(Entry(items, group, rows))
+        while (entries.size > 6) entries.removeLast()
+    }
+}

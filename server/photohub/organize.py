@@ -130,8 +130,16 @@ def move_pending(db: Database, settings: Settings) -> int:
 
 
 def trashed(db: Database, settings: Settings, user: User) -> list[dict]:
+    from collections import defaultdict
+    from .db import Album, AlbumItem
     out = []
     with db.session() as s:
+        # the albums each photo was in (album links stay while it is in the trash; it goes back to them)
+        in_albums: dict[int, list[str]] = defaultdict(list)
+        for mid, name in s.execute(select(AlbumItem.media_id, Album.name).join(Album, Album.id == AlbumItem.album_id)
+                                   .join(Media, Media.id == AlbumItem.media_id).where(Media.status == "trashed")
+                                   .order_by(Album.name)).all():
+            in_albums[mid].append(name)
         for m in s.execute(select(Media).where(Media.status == "trashed").order_by(Media.updated_at.desc())).scalars():
             if not _may_change(s, user, m):
                 continue
@@ -143,7 +151,9 @@ def trashed(db: Database, settings: Settings, user: User) -> list[dict]:
                 days_left = max(0, settings.trash_days - (utcnow() - datetime.fromisoformat(at)).days)
             out.append({"hash": m.content_hash, "name": Path(info.get("from") or m.nas_path).name, "kind": m.kind,
                         "taken_at": int(m.taken_at.timestamp() * 1000) if m.taken_at else None,
-                        "by": info.get("by"), "days_left": days_left, "space": "shared" if m.owner_id is None else "mine"})
+                        "by": info.get("by"), "days_left": days_left, "space": "shared" if m.owner_id is None else "mine",
+                        "albums": in_albums.get(m.id, []), "folder": Path(info.get("from") or m.nas_path).parent.name,
+                        "tz": m.tz_offset})
     return out
 
 

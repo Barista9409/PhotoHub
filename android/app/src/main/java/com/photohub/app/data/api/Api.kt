@@ -143,7 +143,8 @@ data class PathsBody(val paths: List<String>)
 
 @Serializable
 data class TrashItem(val hash: String, val name: String = "", val kind: String = "photo", @SerialName("taken_at") val takenAt: Long? = null,
-                     val by: String? = null, @SerialName("days_left") val daysLeft: Int = 30, val space: String = "mine")
+                     val by: String? = null, @SerialName("days_left") val daysLeft: Int = 30, val space: String = "mine",
+                     val albums: List<String> = emptyList(), val folder: String = "", val tz: Int? = null)
 
 @Serializable
 data class TrashList(val days: Int = 30, val items: List<TrashItem> = emptyList())

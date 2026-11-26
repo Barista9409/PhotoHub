@@ -46,6 +46,7 @@ def test_trash_restore_and_purge(settings, db):
     # anyone in the family sees the shared one in the trash
     t = c.get("/api/trash", headers=hc).json()
     assert [i["name"] for i in t["items"]] == ["b.jpg"] and t["items"][0]["by"] == "reo"
+    assert t["items"][0]["albums"] == [] and t["items"][0]["folder"] == "trip"
     assert c.post("/api/trash/restore", json={"hashes": [h["b.jpg"]]}, headers=hc).json()["restored"] == 1
     assert shared.exists()
     assert c.post("/api/trash/empty", json={"hashes": [h["a.jpg"]]}, headers=hr).json()["deleted"] == 1
