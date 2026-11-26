@@ -269,20 +269,21 @@ fun TrashScreen() {
                 }
             }
         }
-        // 撮影日 (newest first, one heading per day) or the albums they were in
-        var byAlbum by rememberSaveable { mutableStateOf(false) }
+        // like マイフォト: 年 / 月 / 日 (headings and tile size follow), or the albums they were in
+        var view by rememberSaveable { mutableStateOf("day") }   // year / month / day / album
         if (d.items.isNotEmpty()) Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            androidx.compose.material3.FilterChip(!byAlbum, { byAlbum = false }, label = { Text("撮影日") })
-            androidx.compose.material3.FilterChip(byAlbum, { byAlbum = true }, label = { Text("元のアルバム") })
+            listOf("year" to "年", "month" to "月", "day" to "日", "album" to "元のアルバム").forEach { (k, label) ->
+                androidx.compose.material3.FilterChip(view == k, { view = k }, label = { Text(label) })
+            }
         }
-        val groups = remember(d, byAlbum) {
-            if (byAlbum) {
+        val groups = remember(d, view) {
+            if (view == "album") {
                 val m = linkedMapOf<String, MutableList<TrashItem>>()
                 d.items.forEach { t -> (t.albums.ifEmpty { listOf("") }).forEach { a -> m.getOrPut(a) { mutableListOf() } += t } }
                 m.entries.sortedWith(compareBy({ it.key.isEmpty() }, { it.key })).map { (k, v) ->
                     (if (k.isEmpty()) "アルバムに入っていない写真" else k) + "（${v.size}）" to v }
             } else {
-                val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy年M月d日")
+                val fmt = java.time.format.DateTimeFormatter.ofPattern(when (view) { "year" -> "yyyy年"; "month" -> "yyyy年M月"; else -> "yyyy年M月d日" })
                 d.items.sortedByDescending { it.takenAt ?: 0 }.groupBy { t ->
                     t.takenAt?.let { ms ->
                         java.time.Instant.ofEpochMilli(ms).atOffset(java.time.ZoneOffset.ofTotalSeconds((t.tz ?: 540) * 60)).format(fmt)
@@ -290,7 +291,8 @@ fun TrashScreen() {
                 }.map { (k, v) -> "$k（${v.size}）" to v }
             }
         }
-        LazyVerticalGrid(GridCells.Adaptive(110.dp), Modifier.fillMaxSize()) {
+        val cell = when (view) { "year" -> 56.dp; "month" -> 80.dp; else -> 110.dp }
+        LazyVerticalGrid(GridCells.Adaptive(cell), Modifier.fillMaxSize()) {
             groups.forEach { (title, list) ->
                 item(span = { GridItemSpan(maxLineSpan) }, key = "h:$title") {
                     Row(Modifier.fillMaxWidth().padding(12.dp, 14.dp, 12.dp, 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -306,7 +308,7 @@ fun TrashScreen() {
                         .clickable { selected = if (on) selected - t.hash else selected + t.hash }) {
                         val model: Any? = hashThumb(app, t.hash, base)
                         AsyncImage(model, t.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                        Text("あと${t.daysLeft}日", color = Color.White, style = MaterialTheme.typography.labelSmall,
+                        if (view != "year") Text("あと${t.daysLeft}日", color = Color.White, style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.align(Alignment.BottomStart).background(Color(0x99000000)).padding(horizontal = 4.dp))
                         Icon(if (on) Icons.Default.CheckCircle else Icons.Outlined.Circle, null,
                             tint = if (on) MaterialTheme.colorScheme.primary else Color.White,
