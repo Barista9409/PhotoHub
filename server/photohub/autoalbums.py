@@ -512,32 +512,6 @@ def dedupe(db: Database) -> int:
     return n
 
 
-_PEOPLE = threading.Event()   # set while a 「人物」 run started from the app is going
-
-
-def people_running() -> bool:
-    return _PEOPLE.is_set()
-
-
-def people_in_background(db: Database, settings: Settings) -> bool:
-    if _PEOPLE.is_set():
-        return False
-    _PEOPLE.set()
-
-    def go() -> None:
-        try:
-            with _RUN:
-                people(db, settings)
-                growth(db, settings)
-        except Exception:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).exception("people albums")
-        finally:
-            _PEOPLE.clear()
-    threading.Thread(target=go, daemon=True).start()
-    return True
-
-
 def run_all(db: Database, settings: Settings) -> dict:
     with _RUN:
         return _run_all(db, settings)

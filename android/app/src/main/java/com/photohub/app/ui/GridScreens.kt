@@ -144,25 +144,11 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                         com.photohub.app.data.SyncWorker.runNow(app)
                     }
                 }) { Text("Synology Photosのアルバムを読み込む") }
-                androidx.compose.material3.TextButton({
-                    pullMsg = "おまかせアルバムを作っています…"
-                    scope.launch {
-                        pullMsg = try {
-                            val r = app.net.api()!!.autoAlbums()
-                            fun n(k: String) = (r[k] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "0"
-                            "人物 ${n("person")}・ふりかえり ${n("digest")}・旅行 ${n("trip")}・場所 ${n("place")}・お気に入り ${n("favorite")}・成長 ${n("growth")}・共有フォルダ ${n("folder")} 件を作りました（毎晩自動で更新します）" +
-                                ((r["person_note"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { "\n人物：$it" } ?: "")
-                        } catch (e: retrofit2.HttpException) { if (e.code() == 404) "Synology側が古い版です" else "作れませんでした（HTTP ${e.code()}）" }
-                          catch (e: Exception) { "作れませんでした（${e.message}）" }
-                        com.photohub.app.data.SyncWorker.runNow(app)
-                    }
-                }) { Text("おまかせアルバムを今すぐ作る") }
                 pullMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                Text("新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除や、2つ以上を1つにまとめることができます。", style = MaterialTheme.typography.bodySmall,
+                Text("おまかせアルバム（人物・旅行・ふりかえりなど）は、Synologyが毎晩作り、できたものからここに出ます。新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除や、2つ以上を1つにまとめることができます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (people.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "s:人物の状況") { PeopleStatusCard() }
         if (favAlbums.isNotEmpty()) {
             // one row per kind, scrolling sideways: the page stays short however many albums there are
             item(span = { GridItemSpan(maxLineSpan) }, key = "s:お気に入り") {
@@ -933,45 +919,3 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
     }
 }
 
-
-/** No 人物 albums yet: why (from the Synology's last try) and a button to try again now. */
-@Composable
-fun PeopleStatusCard() {
-    val app = LocalContext.current.applicationContext as com.photohub.app.PhotoHubApp
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var st by remember { mutableStateOf<com.photohub.app.data.api.PeopleStatus?>(null) }
-    var err by remember { mutableStateOf<String?>(null) }
-    var tick by remember { mutableStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(tick) {
-        while (true) {
-            st = try { app.net.api()?.peopleStatus() } catch (e: retrofit2.HttpException) {
-                err = if (e.code() == 404) "Synology側が古い版です（新しい版に入れ替わると表示されます）" else "HTTP ${e.code()}"; null
-            } catch (e: Exception) { null }
-            if (st?.running != true) break
-            kotlinx.coroutines.delay(3_000)   // a run is going: follow it, then show the new albums
-        }
-        if (tick > 0) com.photohub.app.data.SyncWorker.runNow(app, light = true)
-    }
-    Column(Modifier.fillMaxWidth().padding(8.dp)
-        .background(MaterialTheme.colorScheme.surfaceContainer, androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).padding(14.dp),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
-        Text("人物アルバムの状況", style = MaterialTheme.typography.titleSmall)
-        val s = st
-        when {
-            err != null -> Text(err!!, style = MaterialTheme.typography.bodySmall)
-            s == null -> Text("確認しています…", style = MaterialTheme.typography.bodySmall)
-            s.running -> Text("Synology Photos の人物を読んでいます…（1〜数分）", style = MaterialTheme.typography.bodySmall)
-            s.lines.isEmpty() -> Text("まだ一度も作っていません。下のボタンで作れます（毎晩も自動で作ります）。", style = MaterialTheme.typography.bodySmall)
-            else -> {
-                s.lines.forEach { Text("・$it", style = MaterialTheme.typography.bodySmall) }
-                s.at?.let { Text("確認：$it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
-        }
-        if (st?.running != true && err == null) androidx.compose.material3.TextButton({
-            scope.launch {
-                try { app.net.api()?.peopleNow() } catch (_: Exception) {}
-                tick++
-            }
-        }) { Text("人物アルバムを今すぐ作る") }
-    }
-}

@@ -708,22 +708,6 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         from . import autoalbums
         return autoalbums.run_all(db, settings)
 
-    @app.get("/api/albums/people")
-    def people_status(user: User = Depends(auth)) -> dict:
-        """How the 人物 albums are doing (the last run), and whether one is running now."""
-        import json as _json
-        from . import autoalbums
-        from .db import kv_get
-        with db.session() as s:
-            st = _json.loads(kv_get(s, "people_status") or "{}")
-        return {"running": autoalbums.people_running(), "at": st.get("at"), "lines": st.get("lines", [])}
-
-    @app.post("/api/albums/people")
-    def people_now(user: User = Depends(auth)) -> dict:
-        """Make the 人物 albums now, in the background (reading Synology Photos can take a minute)."""
-        from . import autoalbums
-        return {"started": autoalbums.people_in_background(db, settings)}
-
     @app.post("/api/albums/{album_id}/add")
     def album_add(album_id: int, body: Hashes, user: User = Depends(auth)) -> dict:
         from . import albums

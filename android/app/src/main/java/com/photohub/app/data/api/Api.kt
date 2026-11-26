@@ -101,9 +101,6 @@ data class TagSearch(val tags: List<TagCount> = emptyList(), val hashes: List<St
 data class HashList(val hashes: List<String> = emptyList())
 
 @Serializable
-data class PeopleStatus(val running: Boolean = false, val at: String? = null, val lines: List<String> = emptyList())
-
-@Serializable
 data class FavoriteBody(val hashes: List<String>, val on: Boolean)
 
 @Serializable
@@ -322,9 +319,6 @@ interface PhotoHubApi {
     @POST("api/media/{hash}/memo") suspend fun setMemo(@Path("hash") hash: String, @Body body: MemoBody): Map<String, Boolean>
     @GET("api/me/report") suspend fun report(): Report
     @POST("api/albums/merge") suspend fun mergeAlbums(@Body body: AlbumMergeBody): Map<String, Long>
-    @GET("api/albums/people") suspend fun peopleStatus(): PeopleStatus
-    @POST("api/albums/people") suspend fun peopleNow(): Map<String, Boolean>
-    @POST("api/albums/auto") suspend fun autoAlbums(): Map<String, kotlinx.serialization.json.JsonElement>
     @retrofit2.http.DELETE("api/albums/{id}") suspend fun deleteAlbum(@retrofit2.http.Path("id") id: Long): Map<String, Boolean>
     @POST("api/albums/{id}/add") suspend fun addToAlbum(@retrofit2.http.Path("id") id: Long, @Body body: HashesBody): Map<String, Int>
     @POST("api/albums/{id}/remove") suspend fun removeFromAlbum(@retrofit2.http.Path("id") id: Long, @Body body: HashesBody): Map<String, Int>
