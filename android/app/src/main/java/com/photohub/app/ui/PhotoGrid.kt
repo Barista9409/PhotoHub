@@ -154,7 +154,8 @@ fun dayLabel(d: LocalDate, today: LocalDate = LocalDate.now()): String {
 @OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) -> Unit, header: (@Composable () -> Unit)? = null,
-              zoomBar: Boolean = false, albumId: Long? = null, legend: Boolean = true, refreshable: Boolean = false) {
+              zoomBar: Boolean = false, albumId: Long? = null, legend: Boolean = true, refreshable: Boolean = false,
+              onExclude: ((List<TimelineItem>) -> Unit)? = null) {
     var kindFilter by rememberSaveable { mutableStateOf("") }   // "" / photo / video
     val gone by com.photohub.app.data.Deleter.hidden.collectAsState()   // deleted a moment ago: off the screen at once
     val items = remember(allItems, kindFilter, gone) {
@@ -355,6 +356,10 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                             }
                         }
                     }) { Icon(Icons.Default.Share, "共有") }
+                    // suggestion lists: keep these (off the list for good) next to delete
+                    if (onExclude != null) androidx.compose.material3.TextButton({ val l = chosen(); selected = emptySet(); onExclude(l) }) {
+                        Text("除外", maxLines = 1)
+                    }
                     IconButton({ confirmDelete = chosen() }) { Icon(Icons.Default.Delete, "削除", tint = MaterialTheme.colorScheme.error) }
                     Box {
                         IconButton({ more = true }) { Icon(Icons.Default.MoreVert, "ほかの操作") }

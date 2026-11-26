@@ -86,8 +86,9 @@ fun OrganizeScreen(open: (String) -> Unit) {
         dups = try { api?.duplicates()?.items?.size } catch (e: Exception) { null }
         similar = try { api?.status()?.similarOpen } catch (e: Exception) { null }
     }
-    val shots = remember(all) { all.filter(::isScreenshot) }
-    val bigVideos = remember(all) { all.filter { it.kind == "video" && it.bytes >= BIG_VIDEO } }
+    // counts without the ones kept with 「除外」
+    val shots = remember(all) { SuggestKeep.get(app, "shots").let { k -> all.filter { isScreenshot(it) && SuggestKeep.key(it) !in k } } }
+    val bigVideos = remember(all) { SuggestKeep.get(app, "videos").let { k -> all.filter { it.kind == "video" && it.bytes >= BIG_VIDEO && SuggestKeep.key(it) !in k } } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
         SectionTitle("重なっている写真")
         Group {
@@ -172,19 +173,33 @@ fun SuggestScreen(kind: String, onOpen: (List<TimelineItem>, Int) -> Unit) {
     if (kind == "blurry") LaunchedEffect(Unit) {
         blurry = try { app.net.api()?.blurry()?.items?.map { it.hash }?.toSet() ?: emptySet() } catch (e: Exception) { emptySet() }
     }
-    val items = when (kind) {
+    var kept by remember { mutableStateOf(SuggestKeep.get(app, kind)) }   // 「除外」: kept, never suggested again
+    val found = when (kind) {
         "shots" -> all.filter(::isScreenshot)
         "videos" -> all.filter { it.kind == "video" && it.bytes >= BIG_VIDEO }.sortedByDescending { it.bytes }
         else -> blurry?.let { b -> all.filter { it.hash in b } } ?: run { Loading("読み込んでいます…"); return }
     }
+    val items = remember(found, kept) { found.filter { SuggestKeep.key(it) !in kept } }
+    val excludedHere = found.size - items.size
+    @Composable fun restore() {
+        if (excludedHere > 0) androidx.compose.material3.TextButton({ SuggestKeep.clear(app, kind); kept = emptySet() }) {
+            Text("除外した $excludedHere 件を一覧に戻す")
+        }
+    }
     if (items.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("見つかりませんでした") }
+        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("見つかりませんでした")
+            restore()
+        }
         return
     }
     MediaGrid(items, onOpen, header = {
-        Text("写真を長押しして選び、右上のゴミ箱で消せます（30日間はゴミ箱から戻せます）。",
-            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
-    })
+        Column(Modifier.padding(12.dp, 8.dp)) {
+            Text("長押しして選び（上の「すべて選択」で全部）、ゴミ箱で消す（30日間は戻せます）か、「除外」で残す写真を一覧から外します。",
+                style = MaterialTheme.typography.bodySmall)
+            restore()
+        }
+    }, onExclude = { l -> kept = SuggestKeep.add(app, kind, l.map(SuggestKeep::key)) })
 }
 
 /** Exact second copies of a photo: move the extra files to the trash folder. */
@@ -275,4 +290,18 @@ fun TrashScreen() {
             confirmButton = { TextButton({ confirmEmpty = null; act { app.net.api()!!.emptyTrash(HashesBody(list)) } }) { Text("完全に削除") } },
             dismissButton = { TextButton({ confirmEmpty = null }) { Text("やめる") } })
     }
+}
+
+
+/** Photos someone chose to keep in a suggestion list (「除外」), remembered on this phone per list. */
+object SuggestKeep {
+    private fun prefs(app: PhotoHubApp) = app.getSharedPreferences("photohub_suggest_keep", android.content.Context.MODE_PRIVATE)
+    fun key(it: TimelineItem) = it.hash ?: it.itemKey
+    fun get(app: PhotoHubApp, kind: String): Set<String> = prefs(app).getStringSet(kind, emptySet())!!.toSet()
+    fun add(app: PhotoHubApp, kind: String, keys: List<String>): Set<String> {
+        val now = get(app, kind) + keys
+        prefs(app).edit().putStringSet(kind, now).apply()
+        return now
+    }
+    fun clear(app: PhotoHubApp, kind: String) = prefs(app).edit().remove(kind).apply()
 }
