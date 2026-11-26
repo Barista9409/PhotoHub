@@ -724,12 +724,6 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
         from . import albums
         return albums.pull(db, settings, user)
 
-    @app.post("/api/media/repair-dates")
-    def media_repair_dates(user: User = Depends(auth)) -> dict:
-        """Fix arrival-like dates of this person's and the family's photos from file names / file times."""
-        from .dates import repair
-        return repair(db, settings, {None, user.id})
-
     @app.post("/api/media/rotate")
     def media_rotate(body: Rotate, user: User = Depends(auth)) -> dict:
         """Turn photos upright (own and family photos). Returns each photo's new turn."""

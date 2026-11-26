@@ -269,7 +269,7 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
             // one door for tidying up: similar / same photos, suggestions, dates, free space and the trash are inside
             SettingRow(Icons.Default.CleaningServices, "整理とゴミ箱",
                 (status?.let { if (it.similarOpen > 0) "似ている写真 ${it.similarOpen} 組・" else "" } ?: "") +
-                    "似た写真・同じ写真・日付直し", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
+                    "似た写真・同じ写真・ぼやけた写真", onClick = { open(Dest.ORGANIZE) }) { Chevron() }
             GroupDivider()
             SettingRow(Icons.Default.PhoneAndroid, "このスマホの容量", storageSummary(),
                 onClick = { open(Dest.DEVICE) }) { Chevron() }
@@ -807,25 +807,6 @@ fun storageSummary(): String {
 
 
 
-/** Photos dated the day they reached the Synology: fixed from their name, inside or file date. */
-@Composable
-fun DateRepairRow() {
-    val ctx = LocalContext.current
-    val app = ctx.applicationContext as PhotoHubApp
-    val scope = rememberCoroutineScope()
-    SettingRow(Icons.Default.Event, "日付のおかしい写真を直す",
-        "「Synologyに届いた日」の日付になった写真を、ファイル名などの手がかりから直します。手がかりがない写真は、選んで「日付を変更」で直せます",
-        onClick = {
-            scope.launch {
-                val msg = try {
-                    val r = app.net.api()!!.repairDates()
-                    "ファイル名から ${r["from_name"] ?: 0} 枚・ファイルの中の日付から ${r["from_inside"] ?: 0} 枚・ファイルの日付から ${r["from_file"] ?: 0} 枚を直しました。手がかりなし ${r["no_clue"] ?: 0} 枚（Googleドライブに残っている日付からも、同期のたびに直します）"
-                } catch (e: Exception) { "直せませんでした（${e.message}）" }
-                SyncWorker.runNow(ctx)
-                Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
-            }
-        })
-}
 
 
 /**

@@ -47,7 +47,8 @@ def test_repair_and_set_by_hand(settings, db):
             m.taken_at = m.created_at
     c = TestClient(create_app(settings, db))
     h = {"Authorization": f"Bearer {token}"}
-    r = c.post("/api/media/repair-dates", headers=h).json()
+    from photohub.dates import repair
+    r = repair(db, settings)   # the daemon does this on its own (no button in the app)
     assert r == {"from_name": 1, "from_inside": 0, "from_file": 1, "no_clue": 1}
     with db.session() as s:
         by = {Path(m.nas_path).name: m for m in s.execute(select(Media)).scalars()}

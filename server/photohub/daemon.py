@@ -169,7 +169,7 @@ class Service:
         sch.add_job(lambda: self._guard("trash", self.job_trash, heavy=False), "cron", hour=4, minute=30, id="trash")
         sch.add_job(lambda: self._guard("thumbs", self.job_thumbs), "interval", minutes=20, id="thumbs",
                     next_run_time=datetime.now() + timedelta(minutes=4))
-        sch.add_job(lambda: self._guard("dates", self.job_dates, heavy=False), "interval", hours=6, id="dates",
+        sch.add_job(lambda: self._guard("dates", self.job_dates, heavy=False), "interval", hours=1, id="dates",
                     next_run_time=datetime.now() + timedelta(minutes=6))
         sch.add_job(lambda: self._guard("albums", self.job_albums, heavy=False), "interval", minutes=15, id="albums",
                     next_run_time=datetime.now() + timedelta(minutes=3))

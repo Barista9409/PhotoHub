@@ -112,8 +112,6 @@ fun OrganizeScreen(open: (String) -> Unit) {
         Text("選んで上の赤いゴミ箱を押すと、Synology・ドライブ・スマホのすべてから消えます（30日間はゴミ箱から戻せます）。写真を長押しすると選べます。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp))
-        SectionTitle("日付のおかしい写真")
-        Group { DateRepairRow() }
         SectionTitle("スマホの空き容量")
         Group { FreeUpCard() }
         SectionTitle("ゴミ箱")

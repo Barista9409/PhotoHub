@@ -330,7 +330,6 @@ interface PhotoHubApi {
     @POST("api/media/family") suspend fun familyShare(@Body body: FavoriteBody): Map<String, Int>
     @POST("api/albums/{id}/family") suspend fun familyAlbum(@Path("id") id: Long): Map<String, Long>
     @POST("api/media/dates") suspend fun fixDates(@Body body: DateFixBody): Map<String, Int>
-    @POST("api/media/repair-dates") suspend fun repairDates(): Map<String, Int>
     @POST("api/media/rotate") suspend fun rotate(@Body body: RotateBody): RotateResult
     @POST("api/media/set-date") suspend fun setDate(@Body body: SetDateBody): Map<String, Int>
     @GET("api/trash") suspend fun trash(): TrashList
