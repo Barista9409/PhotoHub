@@ -178,3 +178,22 @@ def test_trash_on_another_volume_moves_in_background(settings, db, monkeypatch):
     assert not shared.exists() and list((settings.trash / "bin").rglob("b.jpg"))
     assert c.post("/api/trash/restore", json={"hashes": [h["b.jpg"]]}, headers=hr).json()["restored"] == 1
     assert shared.exists()
+
+
+def test_blurry_measured_ahead_of_time(settings, db):
+    import numpy as np
+    from PIL import Image
+    from photohub import derivatives, organize
+    c, hr, hc, h, mine, shared, theirs = _setup(settings, db)
+    rng = np.random.default_rng(0)
+    pics = {"a.jpg": np.full((64, 64), 128, np.uint8),                       # flat: blurry
+            "b.jpg": rng.integers(0, 255, (64, 64), dtype=np.uint8)}        # busy: sharp
+    for name, px in pics.items():
+        t = derivatives.path_for(settings, "thumb", h[name])
+        t.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(px).save(t, "WEBP")
+    # nothing measured yet: the list does not measure while the person waits
+    assert c.get("/api/suggestions/blurry", headers=hr).json()["items"] == []
+    assert organize.measure_sharpness(db, settings) == 2     # c.jpg has no thumbnail yet
+    assert organize.measure_sharpness(db, settings) == 0     # done once
+    assert [i["hash"] for i in c.get("/api/suggestions/blurry", headers=hr).json()["items"]] == [h["a.jpg"]]

@@ -107,7 +107,7 @@ fun OrganizeScreen(open: (String) -> Unit) {
             SettingRow(Icons.Default.VideoFile, "大きい動画（200MB以上）", "${bigVideos.size} 本・${humanBytes(bigVideos.sumOf { it.bytes })}",
                 onClick = { open("suggest/videos") })
             GroupDivider()
-            SettingRow(Icons.Default.BlurOn, "ぼやけた写真", "ピントが合っていない写真を探します", onClick = { open("suggest/blurry") })
+            SettingRow(Icons.Default.BlurOn, "ぼやけた写真", "ピントが合っていない写真（Synologyが前もって調べています）", onClick = { open("suggest/blurry") })
         }
         Text("選んで上の赤いゴミ箱を押すと、Synology・ドライブ・スマホのすべてから消えます（30日間はゴミ箱から戻せます）。写真を長押しすると選べます。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -177,7 +177,7 @@ fun SuggestScreen(kind: String, onOpen: (List<TimelineItem>, Int) -> Unit) {
     val items = when (kind) {
         "shots" -> all.filter(::isScreenshot)
         "videos" -> all.filter { it.kind == "video" && it.bytes >= BIG_VIDEO }.sortedByDescending { it.bytes }
-        else -> blurry?.let { b -> all.filter { it.hash in b } } ?: run { Loading("ピントを調べています…（最初は時間がかかります）"); return }
+        else -> blurry?.let { b -> all.filter { it.hash in b } } ?: run { Loading("読み込んでいます…"); return }
     }
     if (items.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("見つかりませんでした") }

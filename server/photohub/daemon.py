@@ -103,6 +103,8 @@ class Service:
         """Make the small pictures ahead of time (newest first), so phones never wait for them."""
         derivatives.build_all(self.db, self.s, limit=4000, kinds=("thumb",))
         derivatives.refresh_dark_video_thumbs(self.db, self.s)
+        from . import organize
+        organize.measure_sharpness(self.db, self.s)   # 「ぼやけた写真」 ready before anyone opens it
 
     def job_dates(self) -> None:
         from .dates import repair

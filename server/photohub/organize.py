@@ -339,28 +339,53 @@ def sharpness(thumb: Path) -> float | None:
     return float(lap.var())
 
 
-def blurry(db: Database, settings: Settings, user: User, limit: int = 300, threshold: float = 60.0) -> list[dict]:
-    """Photos whose thumbnail is very soft (cached per photo in kv)."""
+def measure_sharpness(db: Database, settings: Settings, seconds: float = 300) -> int:
+    """Ahead of time (daemon, after the thumbnails): measure the photos not measured yet, newest first,
+    for at most `seconds`, so 「ぼやけた写真」 opens at once instead of measuring while the person waits."""
+    import time
     from . import derivatives
-    from .db import visible_clause
-    out = []
-    with db.session() as s:
-        for m in s.execute(select(Media).where(Media.status == "active", Media.kind == "photo", visible_clause(user))
-                           .order_by(Media.taken_at.desc())).scalars():
-            key = f"sharp:{m.id}"
-            v = kv_get(s, key)
-            if v is None:
-                t = derivatives.path_for(settings, "thumb", m.content_hash)
+    end = time.monotonic() + seconds
+    n = 0
+    while time.monotonic() < end:
+        with db.session() as s:
+            todo = list(s.execute(
+                select(Media.id, Media.content_hash).outerjoin(KV, KV.key == _sharp_key())
+                .where(Media.status == "active", Media.kind == "photo", KV.key.is_(None))
+                .order_by(Media.taken_at.desc()).limit(200)).all())
+        if not todo:
+            break
+        done_any = False
+        with db.session() as s:
+            for mid, h in todo:
+                t = derivatives.path_for(settings, "thumb", h)
                 if not t.exists():
-                    continue
+                    continue   # no thumbnail yet: measured on a later run, once it is made
                 val = sharpness(t)
-                kv_set(s, key, "" if val is None else f"{val:.1f}")
-                v = "" if val is None else f"{val:.1f}"
-            if v and float(v) < threshold:
-                out.append({"hash": m.content_hash, "sharpness": float(v)})
-                if len(out) >= limit:
+                kv_set(s, f"sharp:{mid}", "" if val is None else f"{val:.1f}")
+                n += 1
+                done_any = True
+                if time.monotonic() >= end:
                     break
-    return out
+        if not done_any:
+            break
+    return n
+
+
+def _sharp_key():  # noqa: ANN202 - the kv key of a photo's sharpness, as SQL
+    from sqlalchemy import String, cast
+    return "sharp:" + cast(Media.id, String)
+
+
+def blurry(db: Database, settings: Settings, user: User, limit: int = 300, threshold: float = 60.0) -> list[dict]:
+    """Photos whose thumbnail is very soft: one query over the values measured ahead of time."""
+    from sqlalchemy import Float, cast
+    from .db import visible_clause
+    with db.session() as s:
+        rows = s.execute(select(Media.content_hash, KV.value).join(KV, KV.key == _sharp_key())
+                         .where(Media.status == "active", Media.kind == "photo", visible_clause(user),
+                                KV.value != "", cast(KV.value, Float) < threshold)
+                         .order_by(Media.taken_at.desc()).limit(limit)).all()
+    return [{"hash": h, "sharpness": float(v)} for h, v in rows]
 
 
 def remove_system_thumbs(db: Database, settings: Settings) -> int:
