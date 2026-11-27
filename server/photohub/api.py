@@ -835,7 +835,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
             last_device = kv_get(s, f"last_device_sync:{user.id}")
             max_rev = s.scalar(select(func.max(Media.rev))) or 0
             scan_progress = kv_get(s, "scan_progress")
-        return {"user": user.name, "admin": user.is_admin,
+            cov = json.loads(kv_get(s, "album_coverage") or "{}").get(str(user.id))
+        return {"album_coverage": cov, "user": user.name, "admin": user.is_admin,
                 "photos": photos, "videos": videos, "stores": storage.store_counts(db, user),
                 "last_import_at": last_import, "last_scan_at": last_scan, "last_device_sync_at": last_device,
                 "duplicates": dups, "similar_open": open_groups, "rev": max_rev, "apply": settings.apply,

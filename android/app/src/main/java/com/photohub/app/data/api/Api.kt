@@ -212,6 +212,7 @@ data class Status(
     @SerialName("similar_open") val similarOpen: Int = 0,
     val apply: Boolean = false,
     @SerialName("amazon_heartbeat") val amazonHeartbeat: String? = null,
+    @SerialName("album_coverage") val albumCoverage: List<Int>? = null,
     @SerialName("scan_progress") val scanProgress: String? = null,
     val build: String? = null,
     val remote: String? = null,   // the away-from-home address the Synology knows (PHOTOHUB_REMOTE_URL / Tailscale)

@@ -79,7 +79,8 @@ def _set(m: Media, utc: datetime, tz: int | None) -> None:
 
 def repair(db: Database, settings: Settings, owner_ids: set[int | None] | None = None) -> dict:
     """Fix arrival-like dates from the clues above. owner_ids limits it to some spaces (None = all)."""
-    fixed_name = fixed_file = fixed_inside = left = 0
+    fixed_name = fixed_file = fixed_inside = 0
+    left_ms: list[Media] = []
     tz = settings.default_tz_minutes
     with db.session() as s:
         for m in s.execute(select(Media).where(Media.status == "active")).scalars():
@@ -111,11 +112,57 @@ def repair(db: Database, settings: Settings, owner_ids: set[int | None] | None =
                 continue
             if not checked:
                 kv_set(s, f"noclue:{m.id}", "1")
-            left += 1
-        if fixed_name or fixed_file or fixed_inside:
+            left_ms.append(m)
+        fixed_near = from_neighbors(s, left_ms)
+        left = len(left_ms) - fixed_near
+        if fixed_name or fixed_file or fixed_inside or fixed_near:
             log_event(s, "info", "dates_repaired", f"from file names {fixed_name}, inside the files {fixed_inside}, "
-                      f"from file times {fixed_file}, no clue {left}")
-    return {"from_name": fixed_name, "from_inside": fixed_inside, "from_file": fixed_file, "no_clue": left}
+                      f"from file times {fixed_file}, from the photos next to them {fixed_near}, no clue {left}")
+    return {"from_name": fixed_name, "from_inside": fixed_inside, "from_file": fixed_file, "from_neighbors": fixed_near,
+            "no_clue": left}
+
+
+SEQ = re.compile(r"^(.*?)(\d{3,6})(\.[^.]+)$")
+NEAR_MAX = 30   # numbers apart: IMG_1235 between IMG_1230 and IMG_1240 is the same outing
+
+
+def from_neighbors(s, todo: list[Media]) -> int:  # noqa: ANN001
+    """Photos without any clue take their date from the photos numbered next to them in the same folder
+    (IMG_1234 and IMG_1236 on 12 August -> IMG_1235 too). Marked as a guess (kv dateguess:<id>)."""
+    if not todo:
+        return 0
+    folders = {str(Path(m.nas_path).parent) for m in todo}
+    seq: dict[tuple[str, str], list[tuple[int, Media]]] = {}
+    for f in folders:
+        for o in s.execute(select(Media).where(Media.status == "active", Media.nas_path.like(f.rstrip("/") + "/%"))).scalars():
+            if str(Path(o.nas_path).parent) != f or arrival_like(o) or kv_get(s, f"dateguess:{o.id}"):
+                continue   # only real dates count as neighbours
+            mm = SEQ.match(Path(o.nas_path).name)
+            if mm:
+                seq.setdefault((f, mm.group(1).lower()), []).append((int(mm.group(2)), o))
+    n = 0
+    for m in todo:
+        mm = SEQ.match(Path(m.nas_path).name)
+        if not mm:
+            continue
+        num = int(mm.group(2))
+        near = seq.get((str(Path(m.nas_path).parent), mm.group(1).lower()), [])
+        before = max((x for x in near if num - NEAR_MAX <= x[0] < num), key=lambda x: x[0], default=None)
+        after = min((x for x in near if num < x[0] <= num + NEAR_MAX), key=lambda x: x[0], default=None)
+        if before and after and abs(after[1].taken_at - before[1].taken_at) <= timedelta(days=2):
+            share = (num - before[0]) / (after[0] - before[0])
+            when = before[1].taken_at + (after[1].taken_at - before[1].taken_at) * share
+            tz = before[1].tz_offset
+        elif before or after:
+            x = before or after
+            when, tz = x[1].taken_at, x[1].tz_offset
+        else:
+            continue
+        _set(m, when, tz)
+        kv_set(s, f"dateguess:{m.id}", "neighbor")
+        touch_media(s, m)
+        n += 1
+    return n
 
 
 def set_by_hand(db: Database, user_id: int, hashes: list[str], local: datetime, tz: int) -> int:

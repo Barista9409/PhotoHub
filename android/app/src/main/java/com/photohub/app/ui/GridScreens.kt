@@ -89,7 +89,13 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     val localBuckets = remember(folders) { folders.map { it.bucket }.toSet() }
     val folderAlbums = remember(albums) { albums.filter { it.origin == "device" }.associateBy { it.name } }
     // albums PhotoHub makes by itself come first, newest first: the month's look-back and trips
-    val auto = setOf("digest", "trip", "folder", "person", "place", "growth", "favorite")
+    val auto = setOf("digest", "trip", "folder", "person", "place", "growth", "favorite", "event", "daily", "kind")
+    // 「2024年8月10日 …」「2024年8月の日常」: newest first by the date in the name (not as text: 10月 < 8月)
+    fun dateOf(name: String): Long = Regex("(\\d{4})年(\\d{1,2})月(?:(\\d{1,2})日)?").find(name)?.groupValues
+        ?.let { g -> g[1].toLong() * 10000 + g[2].toLong() * 100 + (g[3].toLongOrNull() ?: 0) } ?: 0
+    val events = albums.filter { it.origin == "event" }.sortedByDescending { dateOf(it.name) }
+    val dailies = albums.filter { it.origin == "daily" }.sortedByDescending { dateOf(it.name) }
+    val kinds = albums.filter { it.origin == "kind" }
     val people = albums.filter { it.origin == "person" }.sortedByDescending { it.count }
     val growthAlbums = albums.filter { it.origin == "growth" }.sortedWith(compareBy({ it.name.substringBeforeLast(' ') },
         { it.name.substringAfterLast(' ').removeSuffix("歳").toIntOrNull() ?: 0 }))
@@ -100,7 +106,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     val sharedFolders = albums.filter { it.origin == "folder" }
     val mine = albums.filter { !it.shared && it.origin !in auto && !(it.origin == "device" && it.name in localBuckets) }
     val family = albums.filter { it.shared && it.origin !in auto }
-    val shownAlbums = favAlbums + people + growthAlbums + digests + trips + placeAlbums + mine + family + sharedFolders
+    val shownAlbums = favAlbums + people + growthAlbums + digests + trips + events + dailies + placeAlbums + mine + family + sharedFolders + kinds
     var mergeOf by remember { mutableStateOf<List<com.photohub.app.data.db.AlbumWithCount>?>(null) }
     var picked by remember { mutableStateOf(emptySet<Long>()) }
     var folderMenu by remember { mutableStateOf<String?>(null) }
@@ -145,6 +151,13 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     }
                 }) { Text("Synology Photosのアルバムを読み込む") }
                 pullMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                val cov by androidx.compose.runtime.produceState<List<Int>?>(null) {
+                    value = try { app.net.api()?.status()?.albumCoverage } catch (_: Exception) { null }
+                }
+                cov?.takeIf { it.size == 2 && it[1] > 0 }?.let { (inAlbum, all) ->
+                    Text("アルバムに入っている写真 ${inAlbum * 100 / all}%（${"%,d".format(inAlbum)} / ${"%,d".format(all)} 枚）",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
                 Text("おまかせアルバム（人物・旅行・ふりかえりなど）は、Synologyが毎晩作り、できたものからここに出ます。新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除や、2つ以上を1つにまとめることができます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -200,6 +213,36 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     SectionHead("旅行（${trips.size}）", "家から離れた場所で撮った日々を、まとめます")
                     androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
                         items(trips, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
+                    }
+                }
+            }
+        }
+        if (events.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "s:お出かけ") {
+                Column {
+                    SectionHead("お出かけ・イベント（${events.size}）", "写真をたくさん撮った日を、1日ずつまとめます")
+                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
+                        items(events, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
+                    }
+                }
+            }
+        }
+        if (dailies.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "s:日常") {
+                Column {
+                    SectionHead("日常（${dailies.size}）", "ほかのアルバムに入らない毎日の写真を、月ごとにまとめます")
+                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
+                        items(dailies, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
+                    }
+                }
+            }
+        }
+        if (kinds.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "s:種類") {
+                Column {
+                    SectionHead("種類（${kinds.size}）", "スクリーンショットなど、思い出とは別の写真")
+                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
+                        items(kinds, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
                     }
                 }
             }

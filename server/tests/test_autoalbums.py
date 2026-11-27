@@ -193,3 +193,54 @@ def test_folder_albums_one_per_hand_made_folder(settings, db):
                 _media(s, settings, 1000 + i * 10 + k, datetime(2026, 5, 1), folder=sub)
     autoalbums.folders(db, settings)
     assert _albums(db, "folder") == {"2026_ヨーロッパ旅行": 9, "iPhoto": 6}
+
+
+def test_every_photo_in_an_album_without_others(settings, db):
+    import json
+    from photohub.db import kv_get
+    u, _ = add_user(db, settings, "reo")
+    with db.session() as s:
+        # an outing: 6 photos on Sat 2024-08-10 in 糸魚川 (UTC times; JST = +9h)
+        for i in range(6):
+            m = _media(s, settings, 900 + i, datetime(2024, 8, 10, 1, i), owner=u.id)
+            kv_set(s, f"place:{m.id}", "新潟県 糸魚川市")
+        # a few on other days of the month -> the month's 日常
+        _media(s, settings, 910, datetime(2024, 8, 3, 3), owner=u.id)
+        _media(s, settings, 911, datetime(2024, 8, 20, 3), owner=u.id)
+        # an outing without a place: named after the weekday (2024-08-15 is a Thursday)
+        for i in range(5):
+            _media(s, settings, 920 + i, datetime(2024, 8, 15, 2, i), owner=u.id)
+        # a screenshot: its own album, not in the memories
+        _media(s, settings, 930, datetime(2024, 8, 10, 2), owner=u.id, name="Screenshot_20240810-110000.png")
+    r = autoalbums.cover(db, settings)
+    assert r == {"event": 2, "daily": 1, "kind": 1}
+    assert _albums(db, "event") == {"2024年8月10日 糸魚川市": 6, "2024年8月15日（木）": 5}
+    assert _albums(db, "daily") == {"2024年8月の日常": 2}
+    assert _albums(db, "kind") == {"スクリーンショット": 1}
+    with db.session() as s:
+        assert json.loads(kv_get(s, "album_coverage"))[str(u.id)] == [14, 14]   # every photo, no 「その他」
+    # more photos on the 3rd: it becomes an outing, and the month's 日常 keeps only the 20th
+    with db.session() as s:
+        for i in range(5):
+            _media(s, settings, 940 + i, datetime(2024, 8, 3, 4, i), owner=u.id)
+    autoalbums.cover(db, settings)
+    assert _albums(db, "daily") == {"2024年8月の日常": 1}
+    assert "2024年8月3日（土）" in _albums(db, "event")
+
+
+def test_date_from_the_photos_next_to_it(settings, db):
+    from photohub import dates
+    u, _ = add_user(db, settings, "reo")
+    with db.session() as s:
+        a = _media(s, settings, 1230, datetime(2019, 5, 4, 1, 0), folder="old")
+        b = _media(s, settings, 1240, datetime(2019, 5, 4, 3, 0), folder="old")
+        c = _media(s, settings, 1235, None, folder="old")   # no clue of its own
+        far = _media(s, settings, 1500, None, folder="old")  # too far from any numbered neighbour
+        for m in (a, b):
+            m.created_at = datetime(2024, 1, 1)
+        ids = (c.id, far.id)
+    with db.session() as s:
+        todo = [s.get(Media, i) for i in ids]
+        assert dates.from_neighbors(s, todo) == 1
+        assert s.get(Media, ids[0]).taken_at == datetime(2019, 5, 4, 2, 0)   # halfway between its neighbours
+        assert s.get(Media, ids[1]).taken_at is None

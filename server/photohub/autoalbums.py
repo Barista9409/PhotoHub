@@ -24,7 +24,9 @@ from .config import Settings
 from .db import (Album, AlbumItem, Database, KV, Media, SimilarMember, User, kv_get, kv_set, next_rev, touch_media,
                  utcnow)
 
-AUTO_ORIGINS = ("digest", "trip", "folder", "person", "place", "growth", "favorite")
+AUTO_ORIGINS = ("digest", "trip", "folder", "person", "place", "growth", "favorite", "event", "daily", "kind")
+EVENT_MIN_PHOTOS = 5   # a day with this many photos (outside a trip) is an outing of its own
+_WEEK = "月火水木金土日"
 PLACE_MIN_PHOTOS = 20
 PLACE_MAX = 30
 PERSON_MIN_PHOTOS = 5
@@ -517,6 +519,100 @@ def run_all(db: Database, settings: Settings) -> dict:
         return _run_all(db, settings)
 
 
+def _drop_album(s, a: Album) -> None:  # noqa: ANN001
+    for ai in list(s.execute(select(AlbumItem).where(AlbumItem.album_id == a.id)).scalars()):
+        touch_media(s, s.get(Media, ai.media_id))
+        s.delete(ai)
+    s.flush()
+    ref = s.get(KV, f"autoref:{a.id}")
+    if ref is not None:
+        s.delete(ref)
+    s.delete(a)
+
+
+def _prune(s, origin: str, owner: int | None, keep: set[str]) -> None:  # noqa: ANN001
+    """Automatic albums of `origin` that are no longer made (their photos went elsewhere): removed."""
+    prefix = f"auto:{origin}:{owner}:"
+    for k in list(s.execute(select(KV).where(KV.key.like(prefix + "%"))).scalars()):
+        if k.key[len(prefix):] in keep or not (k.value or "").isdigit():
+            continue
+        a = s.get(Album, int(k.value))
+        if a is not None and a.origin == origin:
+            _drop_album(s, a)
+        s.delete(k)
+
+
+def cover(db: Database, settings: Settings) -> dict:
+    """Every photo in at least one album, with no 「その他」: after trips and the shared folders,
+    - 「スクリーンショット」 (origin "kind"): screen captures, kept apart from the memories,
+    - 「2024年8月12日 糸魚川市」 (origin "event"): a day with EVENT_MIN_PHOTOS or more photos, named after
+      the town where most were taken, else what is in them (Synology Photos' tags), else the weekday,
+    - 「2024年8月の日常」 (origin "daily"): the few photos of the other days, month by month.
+    Per person, from their own photos and the family's shared ones (like trips). Also measures how many
+    photos are in some album (kv album_coverage)."""
+    import json as _json
+    from .db import MediaTag
+    tz = settings.default_tz_minutes
+    out = {"event": 0, "daily": 0, "kind": 0}
+    coverage: dict[str, list[int]] = {}
+    with db.session() as s:
+        towns = {int(k.key[6:]): k.value.split(" ")[-1] for k in s.execute(select(KV).where(KV.key.like("place:%"))).scalars()
+                 if k.key[6:].isdigit() and k.value}
+        tags_of: dict[int, list[str]] = defaultdict(list)
+        for mid, tag in s.execute(select(MediaTag.media_id, MediaTag.tag)).all():
+            tags_of[mid].append(tag)
+        for owner in [u.id for u in s.execute(select(User)).scalars()]:
+            ms = list(s.execute(select(Media).where(Media.status == "active",
+                                                    (Media.owner_id == owner) | Media.owner_id.is_(None))).scalars())
+            # already in an album that places it in time or kind: this person's trips, the shared folders
+            held = set(s.execute(select(AlbumItem.media_id).join(Album, Album.id == AlbumItem.album_id)
+                                 .where(((Album.origin == "trip") & (Album.owner_id == owner)) | (Album.origin == "folder"))).scalars())
+            shots = [m.id for m in ms if _SHOT.search(Path(m.nas_path).name)]
+            keep_kind = set()
+            if shots and _upsert(s, "kind", owner, "shots", "スクリーンショット", shots):
+                keep_kind.add("shots")
+                out["kind"] += 1
+            shot_set = set(shots)
+            by_day: dict = defaultdict(list)
+            for m in ms:
+                if m.taken_at is not None and m.id not in held and m.id not in shot_set:
+                    by_day[_local(m, tz).date()].append(m.id)
+            keep_ev: set[str] = set()
+            monthly: dict[tuple[int, int], list[int]] = defaultdict(list)
+            for day, ids in by_day.items():
+                if len(ids) < EVENT_MIN_PHOTOS:
+                    monthly[(day.year, day.month)] += ids
+                    continue
+                label = ""
+                town = Counter(towns[i] for i in ids if i in towns).most_common(1)
+                if town:
+                    label = town[0][0]
+                else:
+                    tag = Counter(t for i in ids for t in set(tags_of.get(i, ()))).most_common(1)
+                    if tag and tag[0][1] >= 2:
+                        label = tag[0][0]
+                name = f"{day.year}年{day.month}月{day.day}日" + (f" {label}" if label else f"（{_WEEK[day.weekday()]}）")
+                if _upsert(s, "event", owner, day.isoformat(), name, ids):
+                    keep_ev.add(day.isoformat())
+                    out["event"] += 1
+            keep_daily: set[str] = set()
+            for (y, mo), ids in monthly.items():
+                key = f"{y}-{mo:02d}"
+                if _upsert(s, "daily", owner, key, f"{y}年{mo}月の日常", ids):
+                    keep_daily.add(key)
+                    out["daily"] += 1
+            # a day that grew into an outing, a month that is now empty...: those albums go
+            _prune(s, "event", owner, keep_ev)
+            _prune(s, "daily", owner, keep_daily)
+            _prune(s, "kind", owner, keep_kind)
+            s.flush()
+            in_any = set(s.execute(select(AlbumItem.media_id).join(Album, Album.id == AlbumItem.album_id)
+                                   .where((Album.owner_id == owner) | Album.owner_id.is_(None))).scalars())
+            coverage[str(owner)] = [sum(1 for m in ms if m.id in in_any), len(ms)]
+        kv_set(s, "album_coverage", _json.dumps(coverage))
+    return out
+
+
 def _run_all(db: Database, settings: Settings) -> dict:
     out = {"merged_duplicates": dedupe(db) + drop_shared_trip_place(db), "digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
            "place": places(db, settings), "favorite": favorites(db, settings)}
@@ -527,4 +623,5 @@ def _run_all(db: Database, settings: Settings) -> dict:
     out["growth"] = growth(db, settings)   # after the person albums
     t = tags(db, settings)
     out["tags"] = t["stored"]
+    out.update(cover(db, settings))   # last: after trips, folders and the tags it names outings with
     return out
