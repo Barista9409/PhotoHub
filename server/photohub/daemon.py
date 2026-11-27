@@ -135,6 +135,13 @@ class Service:
         organize.move_pending(self.db, self.s)
         organize.purge(self.db, self.s, older_than_days=self.s.trash_days)
 
+    def job_dup_restore(self) -> None:
+        """Once after the duplicate keep rule changed: the files the old rule moved go back, then the list
+        is made again with the new rule."""
+        from . import organize
+        if organize.restore_removed_duplicates(self.db, self.s) >= 0:
+            organize.refresh_duplicates(self.db, self.s)
+
     def job_health(self) -> None:
         notify.health_check(self.db, self.s)
 
@@ -169,6 +176,8 @@ class Service:
                     next_run_time=datetime.now())
         sch.add_job(lambda: self._guard("backup", self.job_backup, heavy=False), "cron", hour=4, minute=0, id="backup")
         sch.add_job(lambda: self._guard("trash", self.job_trash, heavy=False), "cron", hour=4, minute=30, id="trash")
+        sch.add_job(lambda: self._guard("dup_restore", self.job_dup_restore, heavy=False), "date",
+                    run_date=datetime.now() + timedelta(minutes=1), id="dup_restore")
         sch.add_job(lambda: self._guard("thumbs", self.job_thumbs), "interval", minutes=20, id="thumbs",
                     next_run_time=datetime.now() + timedelta(minutes=4))
         sch.add_job(lambda: self._guard("dates", self.job_dates, heavy=False), "interval", hours=1, id="dates",

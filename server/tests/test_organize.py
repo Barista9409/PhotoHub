@@ -247,3 +247,27 @@ def test_duplicates_keep_the_copy_in_a_named_folder(settings, db):
     assert not backup.exists() and filed.exists() and again.exists()
     with db.session() as s:
         assert s.execute(select(Media)).scalar_one().nas_path == str(filed)
+
+
+def test_files_moved_by_the_old_duplicate_rule_go_back(settings, db):
+    from photohub import organize
+    reo, tr = add_user(db, settings, "reo")
+    root = Path(reo.personal_root)
+    first = root / "パリ編" / "a.jpg"
+    first.parent.mkdir(parents=True)
+    first.write_bytes(make_image(8))
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    second = root / "欧州旅行" / "0507" / "a.jpg"
+    second.parent.mkdir(parents=True)
+    second.write_bytes(make_image(8))
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    # what the old rule did: the second copy into trash/<day>/duplicates
+    moved = settings.trash / "2026-11-27" / "duplicates" / "a.jpg"
+    moved.parent.mkdir(parents=True)
+    second.rename(moved)
+    assert organize.restore_removed_duplicates(db, settings) == 1
+    assert second.exists() and not moved.exists()
+    assert organize.restore_removed_duplicates(db, settings) == 0   # once only
+    organize.refresh_duplicates(db, settings)
+    c = TestClient(create_app(settings, db))
+    assert c.get("/api/duplicates", headers={"Authorization": f"Bearer {tr}"}).json()["items"] == []   # two named folders: both stay

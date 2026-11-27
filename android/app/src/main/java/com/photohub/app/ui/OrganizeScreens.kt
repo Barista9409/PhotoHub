@@ -59,6 +59,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.photohub.app.PhotoHubApp
 import com.photohub.app.data.SyncWorker
 import com.photohub.app.data.api.HashesBody
@@ -209,6 +211,7 @@ fun SuggestScreen(kind: String, onOpen: (List<TimelineItem>, Int) -> Unit) {
 fun DuplicatesScreen() {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     val scope = rememberCoroutineScope()
+    val base by UiState.base.collectAsState()
     var reload by remember { mutableIntStateOf(0) }
     val (list, err) = remote<com.photohub.app.data.api.DuplicateList>(reload) { it.duplicates() }
     var done by remember { mutableStateOf<String?>(null) }
@@ -247,10 +250,15 @@ fun DuplicatesScreen() {
         }
         LazyColumn {
             items(items, key = { it.path }) { d ->
-                Column(Modifier.padding(16.dp, 8.dp)) {
-                    Text("移す：" + d.path.substringAfter("/data/"), style = MaterialTheme.typography.bodyMedium)
-                    Text("残す：" + d.keep.substringAfter("/data/") + "・" + humanBytes(d.bytes), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // the picture itself (both files show this same picture), then which file goes and which stays
+                Row(Modifier.padding(12.dp, 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AsyncImage(hashThumb(app, d.hash, base), null, contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(72.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x22888888)))
+                    Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                        Text("移す：" + d.path.substringAfter("/data/"), style = MaterialTheme.typography.bodySmall, maxLines = 3)
+                        Text("残す：" + d.keep.substringAfter("/data/") + "・" + humanBytes(d.bytes), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3)
+                    }
                 }
             }
         }

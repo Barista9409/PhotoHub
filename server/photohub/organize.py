@@ -10,6 +10,7 @@ Shared photos may be deleted or moved by anyone in the family (they can be resto
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 import re
 import logging
 import os
@@ -454,6 +455,49 @@ def remove_duplicates(db: Database, settings: Settings, user: User, paths: list[
         kv_set(s, "dup_remove", json.dumps({"running": True, "total": len(todo), "done": 0, "moved": 0, "failed": 0, "error": ""}))
     threading.Thread(target=_remove_files, args=(db, settings, user, todo), daemon=True).start()
     return {"removed": 0, "started": len(todo)}
+
+
+def restore_removed_duplicates(db: Database, settings: Settings) -> int:
+    """Once, after the keep rule changed: every file the older rule moved to trash/<day>/duplicates goes
+    back where it was (found by its name among the duplicates PhotoHub recorded, and checked to be the
+    same picture), so the new rule can choose again - copies in named folders were moved by the old one."""
+    from .hashing import content_hash, file_sha256, kind_of
+    with db.session() as s:
+        if kv_get(s, "dup_restored_v1"):
+            return 0
+        wanted: dict[str, list[tuple[str, str]]] = defaultdict(list)   # file name -> (original path, content hash)
+        for path, h in s.execute(select(ImportItem.original_path, Media.content_hash).join(Media, Media.id == ImportItem.media_id)
+                                 .where(ImportItem.result == "duplicate")).all():
+            wanted[Path(path).name].append((path, h))
+    n = 0
+    for f in sorted(settings.trash.glob("*/duplicates/*")):
+        if not f.is_file() or f.suffix.lower() == ".xmp":
+            continue
+        name = re.sub(r"\.\d+(\.[^.]+)$", r"\1", f.name)   # unique_in's 「a.1.jpg」 -> a.jpg
+        cands = [(p, h) for p, h in wanted.get(name, []) if not Path(p).exists()]
+        if not cands:
+            continue
+        try:
+            kind = kind_of(f) or "photo"
+            ch = content_hash(f, kind, file_sha256(f), settings.ffmpeg_bin)
+        except Exception:  # noqa: BLE001
+            continue
+        for p, h in cands:
+            if h == ch:
+                try:
+                    _move_with_sidecar(f, Path(p))
+                    n += 1
+                except Exception:  # noqa: BLE001
+                    pass
+                break
+    with db.session() as s:
+        kv_set(s, "dup_restored_v1", str(n))
+        old = s.get(KV, "dup_files2")
+        if old is not None:
+            s.delete(old)   # look again with the new rule
+        if n:
+            log_event(s, "info", "duplicates_restored", f"{n} file(s) moved by the old duplicate rule put back")
+    return n
 
 
 def removing_duplicates(db: Database) -> dict | None:
