@@ -135,6 +135,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                 androidx.compose.material3.Icon(Icons.AutoMirrored.Filled.MergeType, "アルバムを1つにまとめる")
             }
             androidx.compose.material3.IconButton({ askDelete = true }) { androidx.compose.material3.Icon(Icons.Default.Delete, "アルバムを削除") }
+            AlbumPickMenu(shownAlbums.filter { it.id in picked }, report = { pullMsg = it }, clear = { picked = emptySet() })
         }
     }
     LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
@@ -880,10 +881,11 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
                     Icon(Icons.AutoMirrored.Filled.MergeType, "1つにまとめる")
                 }
                 androidx.compose.material3.IconButton({ askDelete = true }) { Icon(Icons.Default.Delete, "アルバムを削除", tint = MaterialTheme.colorScheme.error) }
+                AlbumPickMenu(albums.filter { it.id in picked }, report = { msg = it }, clear = { picked = emptySet() })
             }
         }
         msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp, 4.dp)) }
-        if (!picking) Text("長押しで選ぶと、2つ以上を1つにまとめたり、削除したりできます", style = MaterialTheme.typography.bodySmall,
+        if (!picking) Text("長押しで選ぶと、まとめる・削除・ファミリー／マイフォトへ・ダウンロードができます", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp, 4.dp))
         // grouped by kind, one sideways row each
         val groups = listOf(
