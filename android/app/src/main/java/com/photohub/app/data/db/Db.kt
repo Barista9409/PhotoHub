@@ -172,7 +172,9 @@ data class RemoteAlias(@PrimaryKey val fileHash: String, val hash: String)
 data class HashRot(val hash: String, val rot: Int)
 
 data class AlbumWithCount(val id: Long, val name: String, val origin: String, val count: Int, val coverHash: String?,
-                          val shared: Boolean = false)
+                          val shared: Boolean = false,
+                          /** when its newest photo was taken (「最近のアルバム」) */
+                          val latest: Long? = null)
 
 data class GeoPoint(val itemKey: String, val hash: String?, val localUri: String?, val lat: Double, val lon: Double, val takenAt: Long)
 
@@ -214,6 +216,7 @@ interface MediaDao {
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
     @Query("""SELECT a.id AS id, a.name AS name, a.origin AS origin, COUNT(r.hash) AS count, a.shared AS shared,
+              MAX(r.takenAt) AS latest,
               (SELECT am2.hash FROM album_media am2 JOIN remote_media r2 ON r2.hash = am2.hash
                WHERE am2.albumId = a.id ORDER BY r2.takenAt DESC LIMIT 1) AS coverHash
               FROM album a LEFT JOIN album_media am ON am.albumId = a.id LEFT JOIN remote_media r ON r.hash = am.hash

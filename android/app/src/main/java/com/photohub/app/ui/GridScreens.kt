@@ -106,10 +106,12 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     }
     var askDelete by remember { mutableStateOf(false) }
     val picking = picked.isNotEmpty()
+    // reads the selection when drawn / tapped (not a copy from when the page was made): the album pages
+    // keep this function, so a copy would keep choosing after 「選択をやめる」
     fun card(a: com.photohub.app.data.db.AlbumWithCount): @Composable () -> Unit = {
-        AlbumCard(a, selected = if (picking) a.id in picked else null,
+        AlbumCard(a, selected = if (picked.isNotEmpty()) a.id in picked else null,
             onLongClick = { picked = picked + a.id }) {
-            if (picking) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
+            if (picked.isNotEmpty()) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -174,12 +176,15 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             }
         },
         // newest albums (made last) first, the phone's own folders left out
-        recent = remember(albums) { albums.filter { !it.shared && it.origin != "device" }.sortedByDescending { it.id }.take(12) },
+        // the albums with the newest photos (not the ones made last: the night run makes albums of old days too)
+        recent = remember(albums) { albums.filter { !it.shared && it.origin != "device" && it.count > 0 }
+            .sortedByDescending { it.latest ?: 0 }.take(12) },
         extraTiles = {
             if (folders.isNotEmpty()) GroupTile("このスマホのフォルダ", "${folders.size} 件", emptyList(),
                 folders.mapNotNull { it.coverUri }.take(4)) { openGroup = "phone" }
         })
     }
+    androidx.activity.compose.BackHandler(enabled = picking) { picked = emptySet() }   // back: stop choosing first
     folderMenu?.let { bucket ->
         val asAlbum = albums.firstOrNull { it.origin == "device" && it.name == bucket }
         androidx.compose.material3.AlertDialog(onDismissRequest = { folderMenu = null },
@@ -771,11 +776,12 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
         if (!picking) Text("長押しで選ぶと、まとめる・削除・ファミリー／マイフォトへ・ダウンロードができます", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp, 4.dp))
         AlbumGroupsView(groups, openGroup, { openGroup = it }, card = { a -> {
-            AlbumCard(a, selected = if (picking) a.id in picked else null, onLongClick = { picked = picked + a.id }) {
-                if (picking) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
+            AlbumCard(a, selected = if (picked.isNotEmpty()) a.id in picked else null, onLongClick = { picked = picked + a.id }) {
+                if (picked.isNotEmpty()) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
             }
         } })
     }
+    androidx.activity.compose.BackHandler(enabled = picking) { picked = emptySet() }
     mergeOf?.let { list ->
         var name by remember { mutableStateOf(list.first().name) }
         androidx.compose.material3.AlertDialog(onDismissRequest = { mergeOf = null },
