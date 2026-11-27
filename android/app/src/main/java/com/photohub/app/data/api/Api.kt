@@ -153,7 +153,14 @@ data class TrashList(val days: Int = 30, val items: List<TrashItem> = emptyList(
 data class DuplicateFile(val path: String, val hash: String, val keep: String = "", val bytes: Long = 0)
 
 @Serializable
-data class DuplicateList(val items: List<DuplicateFile> = emptyList(), val pending: Boolean = false)
+data class DuplicateList(val items: List<DuplicateFile> = emptyList(), val pending: Boolean = false, val removing: DupProgress? = null)
+
+@Serializable
+data class DupRemove(val removed: Int = 0, val failed: Int = 0, val error: String? = null, val started: Int = 0, val running: Boolean = false)
+
+@Serializable
+data class DupProgress(val running: Boolean = false, val total: Int = 0, val done: Int = 0, val moved: Int = 0, val failed: Int = 0,
+                       val error: String = "")
 
 @Serializable
 data class HashScore(val hash: String, val sharpness: Double = 0.0)
@@ -339,7 +346,7 @@ interface PhotoHubApi {
     @POST("api/trash/restore") suspend fun restore(@Body body: HashesBody): Map<String, Int>
     @POST("api/trash/empty") suspend fun emptyTrash(@Body body: HashesBody): Map<String, Int>
     @GET("api/duplicates") suspend fun duplicates(): DuplicateList
-    @POST("api/duplicates/remove") suspend fun removeDuplicates(@Body body: PathsBody): Map<String, Int>
+    @POST("api/duplicates/remove") suspend fun removeDuplicates(@Body body: PathsBody): DupRemove
     @GET("api/suggestions/blurry") suspend fun blurry(): HashScores
     @GET("api/me/browse") suspend fun browse(@retrofit2.http.Query("base") base: String, @retrofit2.http.Query("path") path: String): BrowseResult
     @POST("api/me/synology-probe") suspend fun synologyProbe(): ProbeResult

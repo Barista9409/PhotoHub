@@ -67,7 +67,7 @@ def test_move_between_mine_and_shared(settings, db):
 
 def test_exact_duplicates_and_deleted_in_synology(settings, db):
     c, hr, hc, h, mine, shared, theirs = _setup(settings, db)
-    copy = Path(settings.homes_root / "reo" / "Photos" / "old" / "a copy.jpg")
+    copy = Path(settings.homes_root / "reo" / "Photos" / "2023" / "a copy.jpg")
     copy.parent.mkdir(parents=True)
     copy.write_bytes(mine.read_bytes())
     scan(db, settings, scan_roots(db, settings), apply=True)
@@ -219,3 +219,31 @@ def test_album_move_between_mine_and_family(settings, db):
     # and back to reo
     back = c.post(f"/api/albums/{r['album_id']}/move", json={"to": "mine"}, headers=hr).json()
     assert back["moved"] == 1 and list((Path(settings.homes_root) / "reo" / "Photos" / "PhotoHub").rglob("a.jpg"))
+
+
+def test_duplicates_keep_the_copy_in_a_named_folder(settings, db):
+    """Same picture, other name: the phone backup's copy goes, the one filed in 「パリ編」 stays (and the
+    photo then points at it); two named folders: both stay."""
+    from photohub import organize
+    reo, tr = add_user(db, settings, "reo")
+    root = Path(reo.personal_root)
+    backup = root / "MobileBackup" / "iPhone" / "2022" / "10" / "IMG_20221018_201305.JPG"
+    backup.parent.mkdir(parents=True)
+    backup.write_bytes(make_image(5))
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    filed = root / "パリ編" / "IMG_3582.JPG"
+    filed.parent.mkdir(parents=True)
+    filed.write_bytes(make_image(5))
+    again = root / "旅行アルバム" / "IMG_3582 (1).JPG"
+    again.parent.mkdir(parents=True)
+    again.write_bytes(make_image(5))
+    scan(db, settings, scan_roots(db, settings), apply=True)
+    organize.refresh_duplicates(db, settings)
+    c = TestClient(create_app(settings, db))
+    h = {"Authorization": f"Bearer {tr}"}
+    d = c.get("/api/duplicates", headers=h).json()["items"]
+    assert [(x["path"], x["keep"]) for x in d] == [(str(backup), str(filed))]   # 旅行アルバム's copy is not offered
+    assert c.post("/api/duplicates/remove", json={"paths": [str(backup)]}, headers=h).json()["removed"] == 1
+    assert not backup.exists() and filed.exists() and again.exists()
+    with db.session() as s:
+        assert s.execute(select(Media)).scalar_one().nas_path == str(filed)

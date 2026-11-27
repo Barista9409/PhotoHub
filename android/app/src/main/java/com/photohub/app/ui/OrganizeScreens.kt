@@ -209,26 +209,46 @@ fun SuggestScreen(kind: String, onOpen: (List<TimelineItem>, Int) -> Unit) {
 fun DuplicatesScreen() {
     val app = LocalContext.current.applicationContext as PhotoHubApp
     val scope = rememberCoroutineScope()
-    val (list, err) = remote<com.photohub.app.data.api.DuplicateList> { it.duplicates() }
+    var reload by remember { mutableIntStateOf(0) }
+    val (list, err) = remote<com.photohub.app.data.api.DuplicateList>(reload) { it.duplicates() }
     var done by remember { mutableStateOf<String?>(null) }
     val items = list?.items ?: run { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
     if (list.pending) { Text("Synologyが同じ写真を探しています（はじめての1回だけ）。数分たってから開き直してください。", Modifier.padding(16.dp)); return }
+    val moving = list.removing?.takeIf { it.running }
+    // a big removal runs on the Synology: follow it
+    if (moving != null) LaunchedEffect(moving.done) { kotlinx.coroutines.delay(3_000); reload++ }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("同じ写真のファイルが、Synologyの別の場所にもう1つあります。残すのは1つ目（「残す」の場所）で、余分な方をPhotoHubのゴミ箱フォルダへ移します。",
+            Text("中身がまったく同じ写真・動画（名前や撮影情報の書き方がちがうだけ）が、Synologyの2か所にあります。" +
+                "名前を付けたフォルダにある方と、「(1)」などが付いていない方を残し、スマホのバックアップなどの余分な方をPhotoHubのゴミ箱フォルダへ移します。" +
+                "名前を付けたフォルダどうしに入っている写真は、わざと置いたものとして両方残します。",
                 style = MaterialTheme.typography.bodySmall)
             done?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-            if (items.isNotEmpty()) Button({
+            list.removing?.let { r ->
+                if (r.running) {
+                    androidx.compose.material3.LinearProgressIndicator({ if (r.total > 0) r.done.toFloat() / r.total else 0f }, Modifier.fillMaxWidth())
+                    Text("Synologyで移しています ${r.done} / ${r.total} 件", style = MaterialTheme.typography.bodySmall)
+                } else if (r.total > 0) Text("前回：${r.moved} 件を移しました" + if (r.failed > 0) "（${r.failed} 件はできませんでした：${r.error}）" else "",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (items.isNotEmpty() && moving == null) Button({
                 scope.launch {
-                    done = try { "${app.net.api()!!.removeDuplicates(PathsBody(items.map { it.path }))["removed"] ?: 0} 件を移しました" }
-                           catch (e: Exception) { "移せませんでした（${e.message}）" }
+                    done = try {
+                        val r = app.net.api()!!.removeDuplicates(PathsBody(items.map { it.path }))
+                        when {
+                            r.running -> "いま移している途中です"
+                            r.started > 0 -> "Synologyで ${r.started} 件を移し始めました。この画面で進み具合が見られます（閉じても続きます）"
+                            else -> "${r.removed} 件を移しました" + if (r.failed > 0) "（${r.failed} 件はできませんでした：${r.error}）" else ""
+                        }
+                    } catch (e: Exception) { "移せませんでした（${e.message}）" }
+                    reload++
                 }
             }, Modifier.fillMaxWidth()) { Text("余分な ${items.size} 件（${humanBytes(items.sumOf { it.bytes })}）をまとめて移す") }
         }
         LazyColumn {
             items(items, key = { it.path }) { d ->
                 Column(Modifier.padding(16.dp, 8.dp)) {
-                    Text(d.path.substringAfter("/data/"), style = MaterialTheme.typography.bodyMedium)
+                    Text("移す：" + d.path.substringAfter("/data/"), style = MaterialTheme.typography.bodyMedium)
                     Text("残す：" + d.keep.substringAfter("/data/") + "・" + humanBytes(d.bytes), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

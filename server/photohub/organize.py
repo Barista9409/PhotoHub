@@ -10,6 +10,7 @@ Shared photos may be deleted or moved by anyone in the family (they can be resto
 from __future__ import annotations
 
 import json
+import re
 import logging
 import os
 import threading
@@ -298,29 +299,64 @@ def copy_space(db: Database, settings: Settings, user: User, hashes: list[str], 
 _DUPS = threading.Lock()
 
 
+_GENERIC_DIR = {"photos", "photo", "photohub", "mobilebackup", "dcim", "camera", "camera roll", "iphone", "android",
+                "pictures", "picture", "images", "download", "downloads", "写真", "画像", "カメラ", "takeout"}
+_DATE_DIR = re.compile(r"^\d{1,4}([-_年]\d{1,2}月?([-_]\d{1,2})?)?$")
+_COPY_MARK = re.compile(r"(\(\d+\)|[ _-]\d$| copy| コピー)$", re.I)
+
+
+def _handmade(p: Path, settings: Settings) -> bool:
+    """In a folder someone made and named (「パリ編」), not a date / backup / camera folder."""
+    parts = [x for x in p.parent.parts if x not in ("/", "")]
+    if any(x.lower() == "mobilebackup" for x in parts):
+        return False   # Synology Photos' phone backup: date folders under a device name
+    tail = []
+    for x in reversed(parts):   # the folders below the share / the person's Photos
+        if x.lower() in ("photo", "photos", "homes", "volume1"):
+            break
+        tail.append(x)
+    return any(x.lower() not in _GENERIC_DIR and not _DATE_DIR.match(x) for x in tail)
+
+
+def _keep_score(p: Path, settings: Settings) -> tuple[int, int]:
+    """Which copy to keep: one in a named folder, then one without 「(1)」「(2)」 in its name."""
+    return (2 if _handmade(p, settings) else 0) + (0 if _COPY_MARK.search(p.stem) else 1), 0
+
+
 def refresh_duplicates(db: Database, settings: Settings) -> int:
     """Ahead of time (daemon, and after a removal): the files that are an exact second copy of a photo
-    in the library, kept in kv dup_files. Looking at every past import's duplicate on disk takes long
-    on a big library, so 「まったく同じ写真」 reads this list instead of looking while people wait."""
+    in the library (same picture / same video streams; names and metadata may differ), kept in kv
+    dup_files. Of each pair the copy in a named folder (and without 「(1)」 in its name) is kept; when
+    both are in named folders, both stay (someone filed the photo in two places on purpose)."""
     if not _DUPS.acquire(blocking=False):
         return -1
     try:
-        found, seen = [], set()
+        found = []
         with db.session() as s:
             rows = s.execute(select(ImportItem.original_path, Media.id, Media.content_hash, Media.nas_path, Media.owner_id)
                              .join(Media, Media.id == ImportItem.media_id)
                              .where(ImportItem.result == "duplicate", Media.status == "active")
                              .order_by(ImportItem.id.desc())).all()
+            # every copy of each photo: the file PhotoHub knows it by, and the ones found again
+            copies: dict[int, dict] = {}
             for path, mid, h, keep, owner in rows:
+                c = copies.setdefault(mid, {"hash": h, "owner": owner, "known": keep, "paths": {keep}})
                 p = Path(path)
-                if path in seen or not p.is_absolute() or path == keep:
+                if p.is_absolute() and path not in c["paths"] and p.exists() and not kv_get(s, _copy_key(p)):
+                    c["paths"].add(path)   # (a copy someone made on purpose - 家族に共有 / マイフォトにコピー - stays out)
+            for mid, c in copies.items():
+                paths = [Path(x) for x in c["paths"] if Path(x).exists()]
+                if len(paths) < 2:
                     continue
-                seen.add(path)
-                if not p.exists() or kv_get(s, _copy_key(p)):
-                    continue   # gone already, or a copy someone made on purpose (家族に共有 / マイフォトにコピー)
-                found.append({"path": path, "media_id": mid, "hash": h, "keep": keep, "owner": owner,
-                              "bytes": p.stat().st_size})
-            kv_set(s, "dup_files", json.dumps({"at": utcnow().isoformat(), "items": found}))
+                # keep the best one (named folder, no 「(1)」, then the one PhotoHub knows); copies filed in
+                # named folders all stay (someone put the photo there on purpose)
+                stay = max(paths, key=lambda x: (_keep_score(x, settings), str(x) == c["known"]))
+                for x in paths:
+                    if x == stay or _handmade(x, settings):
+                        continue
+                    found.append({"path": str(x), "media_id": mid, "hash": c["hash"], "keep": str(stay), "owner": c["owner"],
+                                  "swap": str(x) == c["known"], "bytes": x.stat().st_size})
+            kv_set(s, "dup_files2", json.dumps({"at": utcnow().isoformat(), "items": found}))
         return len(found)
     finally:
         _DUPS.release()
@@ -328,14 +364,14 @@ def refresh_duplicates(db: Database, settings: Settings) -> int:
 
 def duplicates_pending(db: Database) -> bool:
     with db.session() as s:
-        return kv_get(s, "dup_files") is None
+        return kv_get(s, "dup_files2") is None
 
 
 def duplicate_files(db: Database, settings: Settings, user: User) -> list[dict]:
     """Files that are an exact second copy of a photo in the library, from the list made ahead of time
     (the first time ever, the list is started in the background and comes back empty)."""
     with db.session() as s:
-        raw = kv_get(s, "dup_files")
+        raw = kv_get(s, "dup_files2")
         if raw is None:
             threading.Thread(target=refresh_duplicates, args=(db, settings), daemon=True).start()
             return []
@@ -350,28 +386,80 @@ def duplicate_files(db: Database, settings: Settings, user: User) -> list[dict]:
                 continue  # only places this person may tidy
             if not p.exists():
                 continue   # removed since the list was made (few files: cheap to check)
-            out.append({"path": d["path"], "hash": d["hash"], "keep": m.nas_path, "bytes": d["bytes"]})
+            out.append({"path": d["path"], "hash": d["hash"], "keep": d.get("keep") or m.nas_path, "bytes": d["bytes"]})
         return out
 
 
-def remove_duplicates(db: Database, settings: Settings, user: User, paths: list[str]) -> int:
-    allowed = {d["path"] for d in duplicate_files(db, settings, user)}
-    n = 0
+def _remove_files(db: Database, settings: Settings, user: User, todo: list[str]) -> tuple[int, int, str]:
+    """Move each file to the trash folder; one file that fails (gone, no permission...) never stops the rest."""
+    import logging
     day = f"{utcnow():%Y-%m-%d}"
-    for p in paths:
-        if p not in allowed:
-            continue
+    n = failed = 0
+    first_error = ""
+    with db.session() as s:
+        swaps = {d["path"]: d for d in json.loads(kv_get(s, "dup_files2") or "{}").get("items", []) if d.get("swap")}
+    done: list[str] = []
+    for i, p in enumerate(todo):
         src = Path(p)
-        _move_with_sidecar(src, unique_in(settings.trash / day / "duplicates", src.name))
-        n += 1
-    if n:
-        with db.session() as s:
-            log_event(s, "info", "duplicates_removed", f"{user.name}: {n} duplicate file(s) moved to the trash folder")
-            raw = json.loads(kv_get(s, "dup_files") or "{}")
-            gone = set(paths)
-            raw["items"] = [d for d in raw.get("items", []) if d["path"] not in gone]
-            kv_set(s, "dup_files", json.dumps(raw))
-    return n
+        try:
+            if not src.exists():
+                done.append(p)   # already gone: nothing to move
+                continue
+            item = swaps.get(p)
+            if item is not None:
+                with db.session() as s:
+                    m = s.get(Media, item["media_id"])
+                    if m is None or not Path(item["keep"]).exists():
+                        raise FileNotFoundError(item["keep"])
+                    if m.nas_path == p:   # the photo now lives in the copy that stays
+                        m.nas_path = item["keep"]
+                        set_location(s, m.id, "nas", "present", source_ref=item["keep"])
+                        touch_media(s, m)
+            dst = unique_in(settings.trash / day / "duplicates", src.name)
+            if not _quick_move(src, dst):
+                _move_with_sidecar(src, dst)
+            done.append(p)
+            n += 1
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            if not first_error:
+                first_error = f"{src.name}: {e}"
+                logging.getLogger(__name__).exception("duplicate %s", p)
+        if i % 200 == 199 or i == len(todo) - 1:
+            with db.session() as s:   # progress, and the list without what is done
+                kv_set(s, "dup_remove", json.dumps({"running": i < len(todo) - 1, "total": len(todo), "done": i + 1,
+                                                    "moved": n, "failed": failed, "error": first_error}))
+                raw = json.loads(kv_get(s, "dup_files2") or "{}")
+                gone = set(done)
+                raw["items"] = [d for d in raw.get("items", []) if d["path"] not in gone]
+                kv_set(s, "dup_files2", json.dumps(raw))
+    with db.session() as s:
+        log_event(s, "info" if not failed else "warn", "duplicates_removed",
+                  f"{user.name}: {n} duplicate file(s) moved to the trash folder" + (f", {failed} failed ({first_error})" if failed else ""))
+    return n, failed, first_error
+
+
+def remove_duplicates(db: Database, settings: Settings, user: User, paths: list[str]) -> dict:
+    """A few files: at once. Many (thousands, tens of GB): in the background, with progress in kv dup_remove,
+    so the request never runs into a time limit."""
+    allowed = {d["path"] for d in duplicate_files(db, settings, user)}
+    todo = [p for p in dict.fromkeys(paths) if p in allowed]
+    if len(todo) <= 50:
+        n, failed, err = _remove_files(db, settings, user, todo)
+        return {"removed": n, "failed": failed, "error": err}
+    with db.session() as s:
+        st = json.loads(kv_get(s, "dup_remove") or "{}")
+        if st.get("running"):
+            return {"removed": 0, "started": 0, "running": True}
+        kv_set(s, "dup_remove", json.dumps({"running": True, "total": len(todo), "done": 0, "moved": 0, "failed": 0, "error": ""}))
+    threading.Thread(target=_remove_files, args=(db, settings, user, todo), daemon=True).start()
+    return {"removed": 0, "started": len(todo)}
+
+
+def removing_duplicates(db: Database) -> dict | None:
+    with db.session() as s:
+        st = json.loads(kv_get(s, "dup_remove") or "{}")
+    return st or None
 
 
 def sharpness(thumb: Path) -> float | None:

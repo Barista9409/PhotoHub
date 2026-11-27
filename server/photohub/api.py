@@ -500,12 +500,12 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     def duplicates(user: User = Depends(auth)) -> dict:
         from . import organize
         items = organize.duplicate_files(db, settings, user)
-        return {"items": items, "pending": organize.duplicates_pending(db)}
+        return {"items": items, "pending": organize.duplicates_pending(db), "removing": organize.removing_duplicates(db)}
 
     @app.post("/api/duplicates/remove")
     def duplicates_remove(body: Paths, user: User = Depends(auth)) -> dict:
         from . import organize
-        return {"removed": organize.remove_duplicates(db, settings, user, body.paths)}
+        return organize.remove_duplicates(db, settings, user, body.paths)
 
     @app.get("/api/suggestions/blurry")
     def suggestions_blurry(user: User = Depends(auth)) -> dict:
