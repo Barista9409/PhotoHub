@@ -101,6 +101,9 @@ data class TagSearch(val tags: List<TagCount> = emptyList(), val hashes: List<St
 data class HashList(val hashes: List<String> = emptyList())
 
 @Serializable
+data class PinsBody(val ids: List<Long> = emptyList())
+
+@Serializable
 data class FavoriteBody(val hashes: List<String>, val on: Boolean)
 
 @Serializable
@@ -337,6 +340,8 @@ interface PhotoHubApi {
     @POST("api/albums/{id}/copy") suspend fun copyAlbum(@Path("id") id: Long, @Body body: CopyToBody): Map<String, Long>
     // share without copying: the one file stays where it is, the family can see it
     @POST("api/media/family") suspend fun familyShare(@Body body: FavoriteBody): Map<String, Int>
+    @GET("api/albums/pins") suspend fun pins(): PinsBody
+    @retrofit2.http.PUT("api/albums/pins") suspend fun setPins(@Body body: PinsBody): PinsBody
     @POST("api/albums/{id}/move") suspend fun moveAlbum(@Path("id") id: Long, @Body body: CopyToBody): Map<String, Long>
     @POST("api/albums/{id}/family") suspend fun familyAlbum(@Path("id") id: Long): Map<String, Long>
     @POST("api/media/dates") suspend fun fixDates(@Body body: DateFixBody): Map<String, Int>

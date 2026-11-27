@@ -123,8 +123,22 @@ fun AlbumGroupsView(
     androidx.activity.compose.BackHandler(enabled = openKey != null) { onOpenGroup(null) }
     if (open != null) { key(open.key) { GroupPage(open, onBack = { onOpenGroup(null) }, card = card) }; return }
     val shown = groups.filter { it.albums.isNotEmpty() }
+    val app = LocalContext.current.applicationContext as PhotoHubApp
+    androidx.compose.runtime.LaunchedEffect(Unit) { com.photohub.app.data.Pins.load(app) }
+    val pinIds by com.photohub.app.data.Pins.ids.collectAsState()
+    // pinned albums of this side, in the order they were pinned
+    val pinned = remember(pinIds, groups) {
+        val byId = groups.flatMap { it.albums }.associateBy { it.id }
+        pinIds.mapNotNull { byId[it] }
+    }
     LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().padding(4.dp), state = rememberLazyGridState()) {
         item(span = { GridItemSpan(maxLineSpan) }, key = "header") { header() }
+        if (pinned.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }, key = "pins") {
+                Text("ピン止め", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(8.dp, 12.dp, 8.dp, 4.dp))
+            }
+            items(pinned.size, key = { "p${pinned[it].id}" }) { i -> card(pinned[i])() }
+        }
         if (recent.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
             Column {
                 Text("最近のアルバム", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(8.dp, 12.dp, 8.dp, 4.dp))

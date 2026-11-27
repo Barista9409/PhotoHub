@@ -6,6 +6,8 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,6 +56,15 @@ fun AlbumPickMenu(chosen: List<AlbumWithCount>, report: (String?) -> Unit, clear
                     download = items to (list.singleOrNull()?.name ?: "アルバム ${list.size} 件")
                 }
             })
+            val pins by com.photohub.app.data.Pins.ids.collectAsState()
+            val allPinned = chosen.isNotEmpty() && chosen.all { it.id in pins }
+            DropdownMenuItem(text = { Text(if (allPinned) "ピン止めを外す" else "ピン止め") },
+                leadingIcon = { Icon(Icons.Default.PushPin, null) }, onClick = {
+                    open = false
+                    com.photohub.app.data.Pins.set(app, chosen.map { it.id }, !allPinned)
+                    clear()
+                    report(if (allPinned) "ピン止めを外しました" else "アルバムの一覧のいちばん上に出します")
+                })
             if (chosen.size == 1) DropdownMenuItem(text = { Text("名前を変える") }, leadingIcon = { Icon(Icons.Default.Edit, null) },
                 onClick = { open = false; rename = chosen.first() })
         }

@@ -108,6 +108,10 @@ class Hashes(BaseModel):
     hashes: list[str]
 
 
+class Pins(BaseModel):
+    ids: list[int]
+
+
 class Redeem(BaseModel):
     code: str
     device: str | None = None
@@ -524,6 +528,21 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     def album_create(body: AlbumNew, user: User = Depends(auth)) -> dict:
         from . import albums
         return _album_call(lambda: {"id": albums.create(db, settings, user, body.name, body.hashes, body.shared)})
+
+    # ---- pinned albums (each person's, kept on the Synology so every phone of theirs has them) ----------
+    @app.get("/api/albums/pins")
+    def pins_get(user: User = Depends(auth)) -> dict:
+        from .db import kv_get
+        with db.session() as s:
+            return {"ids": json.loads(kv_get(s, f"pins:{user.id}") or "[]")}
+
+    @app.put("/api/albums/pins")
+    def pins_put(body: Pins, user: User = Depends(auth)) -> dict:
+        from .db import kv_set
+        ids = list(dict.fromkeys(body.ids))[:200]   # in the order people pinned them
+        with db.session() as s:
+            kv_set(s, f"pins:{user.id}", json.dumps(ids))
+        return {"ids": ids}
 
     @app.put("/api/albums/{album_id}")
     def album_rename(album_id: int, body: AlbumName, user: User = Depends(auth)) -> dict:

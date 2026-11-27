@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.FamilyRestroom
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.PersonOff
@@ -288,7 +290,12 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
                 tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
-        Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        val pins by com.photohub.app.data.Pins.ids.collectAsState()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (a.id in pins) androidx.compose.material3.Icon(Icons.Default.PushPin, "ピン止め", Modifier.padding(end = 2.dp).size(14.dp),
+                tint = MaterialTheme.colorScheme.primary)
+            Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+        }
         Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder", "person", "place", "growth", "favorite", "event", "daily", "kind" -> "・おまかせ"; else -> "" },
             style = MaterialTheme.typography.bodySmall)
     }
@@ -465,6 +472,11 @@ fun AlbumScreen(albumId: Long, onOpen: (List<TimelineItem>, Int) -> Unit, onDele
                     val toFamily = album?.shared != true
                     androidx.compose.material3.DropdownMenuItem(text = { Text(if (toFamily) "ファミリーへ…" else "マイフォトへ…") },
                         leadingIcon = { Icon(Icons.Default.FamilyRestroom, null) }, onClick = { menu = false; spaceOf = toFamily })
+                    val pins by com.photohub.app.data.Pins.ids.collectAsState()
+                    val isPinned = albumId in pins
+                    androidx.compose.material3.DropdownMenuItem(text = { Text(if (isPinned) "ピン止めを外す" else "ピン止め") },
+                        leadingIcon = { Icon(Icons.Default.PushPin, null) },
+                        onClick = { menu = false; com.photohub.app.data.Pins.set(app, listOf(albumId), !isPinned) })
                     androidx.compose.material3.DropdownMenuItem(text = { Text("ダウンロード") }, leadingIcon = { Icon(Icons.Default.Download, null) },
                         onClick = { menu = false; download = true })
                     androidx.compose.material3.DropdownMenuItem(text = { Text("名前を変える") }, leadingIcon = { Icon(Icons.Default.Edit, null) },

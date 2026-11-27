@@ -249,3 +249,14 @@ def test_date_from_the_photos_next_to_it(settings, db):
         assert dates.from_neighbors(s, todo) == 1
         assert s.get(Media, ids[0]).taken_at == datetime(2019, 5, 4, 2, 0)   # halfway between its neighbours
         assert s.get(Media, ids[1]).taken_at is None
+
+
+def test_album_pins_are_kept_per_person(settings, db):
+    _, ta = add_user(db, settings, "reo")
+    _, tb = add_user(db, settings, "chie")
+    c = TestClient(create_app(settings, db))
+    ha, hb = {"Authorization": f"Bearer {ta}"}, {"Authorization": f"Bearer {tb}"}
+    assert c.get("/api/albums/pins", headers=ha).json()["ids"] == []
+    assert c.put("/api/albums/pins", json={"ids": [5, 3, 5]}, headers=ha).json()["ids"] == [5, 3]
+    assert c.get("/api/albums/pins", headers=ha).json()["ids"] == [5, 3]
+    assert c.get("/api/albums/pins", headers=hb).json()["ids"] == []
