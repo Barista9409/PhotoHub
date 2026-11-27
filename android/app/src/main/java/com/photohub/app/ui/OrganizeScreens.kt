@@ -212,6 +212,7 @@ fun DuplicatesScreen() {
     val (list, err) = remote<com.photohub.app.data.api.DuplicateList> { it.duplicates() }
     var done by remember { mutableStateOf<String?>(null) }
     val items = list?.items ?: run { Text(err ?: "読み込み中…", Modifier.padding(16.dp)); return }
+    if (list.pending) { Text("Synologyが同じ写真を探しています（はじめての1回だけ）。数分たってから開き直してください。", Modifier.padding(16.dp)); return }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("同じ写真のファイルが、Synologyの別の場所にもう1つあります。残すのは1つ目（「残す」の場所）で、余分な方をPhotoHubのゴミ箱フォルダへ移します。",

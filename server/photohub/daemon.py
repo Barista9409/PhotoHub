@@ -111,6 +111,8 @@ class Service:
         from .organize import remove_system_thumbs
         remove_system_thumbs(self.db, self.s)
         repair(self.db, self.s)
+        from .organize import refresh_duplicates
+        refresh_duplicates(self.db, self.s)   # 「まったく同じ写真」 ready before anyone opens it (hourly)
 
     def job_photos_reindex(self) -> None:
         from .photos_link import reindex_due

@@ -71,6 +71,9 @@ def test_exact_duplicates_and_deleted_in_synology(settings, db):
     copy.parent.mkdir(parents=True)
     copy.write_bytes(mine.read_bytes())
     scan(db, settings, scan_roots(db, settings), apply=True)
+    from photohub import organize
+    # looked for ahead of time (the daemon); the list just reads what was found
+    assert organize.refresh_duplicates(db, settings) == 1
     d = c.get("/api/duplicates", headers=hr).json()["items"]
     assert [x["path"] for x in d] == [str(copy)]
     assert c.get("/api/duplicates", headers=hc).json()["items"] == []  # not chie's to tidy
@@ -126,6 +129,8 @@ def test_copy_between_mine_and_family(settings, db):
     assert fam.exists() and list((Path(u.personal_root) / "PhotoHub").rglob("b*.jpg"))
     # the copies made on purpose are not offered as duplicates
     scan(db, settings, scan_roots(db, settings), apply=True)
+    from photohub import organize
+    organize.refresh_duplicates(db, settings)
     assert c.get("/api/duplicates", headers=h).json()["items"] == []
     # an album to the family
     aid = c.post("/api/albums", json={"name": "旅行", "hashes": [hb]}, headers=h).json()["id"]

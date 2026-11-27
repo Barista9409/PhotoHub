@@ -295,27 +295,63 @@ def copy_space(db: Database, settings: Settings, user: User, hashes: list[str], 
     return n
 
 
-def duplicate_files(db: Database, settings: Settings, user: User) -> list[dict]:
-    """Files that are an exact second copy of a photo in the library (found by the folder checks)."""
-    out, seen = [], set()
+_DUPS = threading.Lock()
+
+
+def refresh_duplicates(db: Database, settings: Settings) -> int:
+    """Ahead of time (daemon, and after a removal): the files that are an exact second copy of a photo
+    in the library, kept in kv dup_files. Looking at every past import's duplicate on disk takes long
+    on a big library, so 「まったく同じ写真」 reads this list instead of looking while people wait."""
+    if not _DUPS.acquire(blocking=False):
+        return -1
+    try:
+        found, seen = [], set()
+        with db.session() as s:
+            rows = s.execute(select(ImportItem.original_path, Media.id, Media.content_hash, Media.nas_path, Media.owner_id)
+                             .join(Media, Media.id == ImportItem.media_id)
+                             .where(ImportItem.result == "duplicate", Media.status == "active")
+                             .order_by(ImportItem.id.desc())).all()
+            for path, mid, h, keep, owner in rows:
+                p = Path(path)
+                if path in seen or not p.is_absolute() or path == keep:
+                    continue
+                seen.add(path)
+                if not p.exists() or kv_get(s, _copy_key(p)):
+                    continue   # gone already, or a copy someone made on purpose (家族に共有 / マイフォトにコピー)
+                found.append({"path": path, "media_id": mid, "hash": h, "keep": keep, "owner": owner,
+                              "bytes": p.stat().st_size})
+            kv_set(s, "dup_files", json.dumps({"at": utcnow().isoformat(), "items": found}))
+        return len(found)
+    finally:
+        _DUPS.release()
+
+
+def duplicates_pending(db: Database) -> bool:
     with db.session() as s:
-        rows = s.execute(select(ImportItem, Media).join(Media, Media.id == ImportItem.media_id)
-                         .where(ImportItem.result == "duplicate", Media.status == "active")
-                         .order_by(ImportItem.id.desc())).all()
-        for item, m in rows:
-            p = Path(item.original_path)
-            if str(p) in seen or not p.is_absolute() or not p.exists() or str(p) == m.nas_path:
-                continue
-            if kv_get(s, _copy_key(p)):
-                continue   # a copy someone made on purpose (家族に共有 / マイフォトにコピー)
-            seen.add(str(p))
-            if not can_see(s, user, m):
+        return kv_get(s, "dup_files") is None
+
+
+def duplicate_files(db: Database, settings: Settings, user: User) -> list[dict]:
+    """Files that are an exact second copy of a photo in the library, from the list made ahead of time
+    (the first time ever, the list is started in the background and comes back empty)."""
+    with db.session() as s:
+        raw = kv_get(s, "dup_files")
+        if raw is None:
+            threading.Thread(target=refresh_duplicates, args=(db, settings), daemon=True).start()
+            return []
+        out = []
+        for d in json.loads(raw).get("items", []):
+            p = Path(d["path"])
+            m = s.get(Media, d["media_id"])
+            if m is None or m.status != "active" or not can_see(s, user, m):
                 continue
             mine = user.personal_root and p.is_relative_to(Path(user.personal_root))
             if not (mine or p.is_relative_to(settings.library)):
                 continue  # only places this person may tidy
-            out.append({"path": str(p), "hash": m.content_hash, "keep": m.nas_path, "bytes": p.stat().st_size})
-    return out
+            if not p.exists():
+                continue   # removed since the list was made (few files: cheap to check)
+            out.append({"path": d["path"], "hash": d["hash"], "keep": m.nas_path, "bytes": d["bytes"]})
+        return out
 
 
 def remove_duplicates(db: Database, settings: Settings, user: User, paths: list[str]) -> int:
@@ -331,6 +367,10 @@ def remove_duplicates(db: Database, settings: Settings, user: User, paths: list[
     if n:
         with db.session() as s:
             log_event(s, "info", "duplicates_removed", f"{user.name}: {n} duplicate file(s) moved to the trash folder")
+            raw = json.loads(kv_get(s, "dup_files") or "{}")
+            gone = set(paths)
+            raw["items"] = [d for d in raw.get("items", []) if d["path"] not in gone]
+            kv_set(s, "dup_files", json.dumps(raw))
     return n
 
 

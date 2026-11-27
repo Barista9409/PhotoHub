@@ -499,7 +499,8 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
     @app.get("/api/duplicates")
     def duplicates(user: User = Depends(auth)) -> dict:
         from . import organize
-        return {"items": organize.duplicate_files(db, settings, user)}
+        items = organize.duplicate_files(db, settings, user)
+        return {"items": items, "pending": organize.duplicates_pending(db)}
 
     @app.post("/api/duplicates/remove")
     def duplicates_remove(body: Paths, user: User = Depends(auth)) -> dict:

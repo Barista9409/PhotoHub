@@ -153,7 +153,7 @@ data class TrashList(val days: Int = 30, val items: List<TrashItem> = emptyList(
 data class DuplicateFile(val path: String, val hash: String, val keep: String = "", val bytes: Long = 0)
 
 @Serializable
-data class DuplicateList(val items: List<DuplicateFile> = emptyList())
+data class DuplicateList(val items: List<DuplicateFile> = emptyList(), val pending: Boolean = false)
 
 @Serializable
 data class HashScore(val hash: String, val sharpness: Double = 0.0)
