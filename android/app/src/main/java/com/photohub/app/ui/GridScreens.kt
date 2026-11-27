@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.MergeType
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Close
@@ -107,6 +108,24 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     val mine = albums.filter { !it.shared && it.origin !in auto && !(it.origin == "device" && it.name in localBuckets) }
     val family = albums.filter { it.shared && it.origin !in auto }
     val shownAlbums = favAlbums + people + growthAlbums + digests + trips + events + dailies + placeAlbums + mine + family + sharedFolders + kinds
+    // one tile per kind on the album home; each opens its own page (no long sideways rows)
+    val groups = listOf(
+        AlbumGroup("fav", "お気に入り", "♡を付けた写真", favAlbums),
+        AlbumGroup("person", "人物", "Synology Photosが見分けた人ごと", people, sort = "count"),
+        AlbumGroup("growth", "成長", "人物アルバムの誕生日から、年齢ごと", growthAlbums),
+        AlbumGroup("trip", "旅行", "家から離れた場所で撮った日々", trips, dated = true, sort = "date"),
+        AlbumGroup("event", "お出かけ・イベント", "たくさん撮った日を1日ずつ", events, dated = true, sort = "date"),
+        AlbumGroup("daily", "日常", "ほかに入らない毎日の写真を月ごとに", dailies, dated = true, sort = "date"),
+        AlbumGroup("digest", "ふりかえり", "毎月のいい写真", digests, dated = true, sort = "date"),
+        AlbumGroup("place", "場所", "写真をたくさん撮った町ごと", placeAlbums, sort = "count"),
+        AlbumGroup("mine", "自分のアルバム", "自分だけのアルバム", mine),
+        AlbumGroup("family", "家族の共有アルバム", "家族みんなが見られるアルバム", family),
+        AlbumGroup("folder", "共有フォルダ", "家族の共有フォルダを、そのままアルバムに", sharedFolders),
+        AlbumGroup("kind", "種類", "スクリーンショットなど", kinds),
+    )
+    var openGroup by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // すべて選択: the albums of the page on screen
+    val selectable = groups.firstOrNull { it.key == openGroup }?.ordered() ?: shownAlbums
     var mergeOf by remember { mutableStateOf<List<com.photohub.app.data.db.AlbumWithCount>?>(null) }
     var picked by remember { mutableStateOf(emptySet<Long>()) }
     var folderMenu by remember { mutableStateOf<String?>(null) }
@@ -127,8 +146,8 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.IconButton({ picked = emptySet() }) { androidx.compose.material3.Icon(Icons.Default.Close, "選択をやめる") }
             Text("${picked.size} 件のアルバムを選択", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            val all = picked.size == shownAlbums.size
-            androidx.compose.material3.IconButton({ picked = if (all) emptySet() else shownAlbums.map { it.id }.toSet() }) {
+            val all = picked.size == selectable.size && selectable.all { it.id in picked }
+            androidx.compose.material3.IconButton({ picked = if (all) emptySet() else selectable.map { it.id }.toSet() }) {
                 androidx.compose.material3.Icon(if (all) Icons.Default.Deselect else Icons.Default.SelectAll, if (all) "すべて解除" else "すべて選択")
             }
             if (picked.size >= 2) androidx.compose.material3.IconButton({ mergeOf = shownAlbums.filter { it.id in picked } }) {
@@ -138,8 +157,28 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             AlbumPickMenu(shownAlbums.filter { it.id in picked }, report = { pullMsg = it }, clear = { picked = emptySet() })
         }
     }
-    LazyVerticalGrid(columns = GridCells.Adaptive(150.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
+    @Composable fun PhoneFolder(f: com.photohub.app.data.db.FolderCount) {
+            Column(Modifier.padding(4.dp).combinedClickable(onClick = { onFolder(f.bucket) }, onLongClick = { folderMenu = f.bucket })) {
+                Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x22888888))) {
+                    AsyncImage(model = f.coverUri?.let { android.net.Uri.parse(it) }, contentDescription = f.bucket,
+                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+                Text(f.bucket, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text("${f.count} 枚" + if (f.bucket in folderAlbums) "・Synologyにも保存" else "", style = MaterialTheme.typography.bodySmall)
+            }
+    }
+    if (openGroup == "phone") {
+        // このスマホのフォルダ: a page like the other groups
+        androidx.activity.compose.BackHandler { openGroup = null }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.IconButton({ openGroup = null }) { Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, "アルバムの一覧へ") }
+            Text("このスマホのフォルダ（${folders.size}）", style = MaterialTheme.typography.titleMedium)
+        }
+        LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), modifier = Modifier.fillMaxSize().padding(4.dp)) {
+            items(folders, key = { "f${it.bucket}" }) { f -> PhoneFolder(f) }
+        }
+    } else AlbumGroupsView(groups, openGroup, { openGroup = it }, card = ::card,
+        header = {
             Column(Modifier.padding(8.dp)) {
                 androidx.compose.material3.OutlinedButton({
                     pullMsg = "読み込んでいます…"
@@ -159,157 +198,16 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
                     Text("アルバムに入っている写真 ${inAlbum * 100 / all}%（${"%,d".format(inAlbum)} / ${"%,d".format(all)} 枚）",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
-                Text("おまかせアルバム（人物・旅行・ふりかえりなど）は、Synologyが毎晩作り、できたものからここに出ます。新しいアルバムは、写真を長押しして選び、上のアルバムのボタンから作れます。アルバムやフォルダを長押しすると、削除や、2つ以上を1つにまとめることができます。", style = MaterialTheme.typography.bodySmall,
+                Text("おまかせアルバムはSynologyが毎晩作ります。アルバムを長押しで選ぶと、まとめる・削除・ファミリーへ などができます。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-        if (favAlbums.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:お気に入り") {
-                Column {
-                    SectionHead("お気に入り（${favAlbums.size}）", "♡を付けた写真（家族のお気に入りは、共有スペースの写真だけ）")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(favAlbums, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (people.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:人物") {
-                Column {
-                    SectionHead("人物（${people.size}）", "Synology Photosが見分けた人ごと。名前はSynology Photosで付けると反映されます")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(people, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (growthAlbums.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:成長") {
-                Column {
-                    SectionHead("成長（${growthAlbums.size}）", "人物アルバムに誕生日を入れると、年齢ごとにまとめます")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(growthAlbums, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (digests.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:ふりかえり") {
-                Column {
-                    SectionHead("ふりかえり（${digests.size}）", "毎月のいい写真を、PhotoHubがえらんでまとめます")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(digests, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (trips.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:旅行") {
-                Column {
-                    SectionHead("旅行（${trips.size}）", "家から離れた場所で撮った日々を、まとめます")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(trips, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (events.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:お出かけ") {
-                Column {
-                    SectionHead("お出かけ・イベント（${events.size}）", "写真をたくさん撮った日を、1日ずつまとめます")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(events, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (dailies.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:日常") {
-                Column {
-                    SectionHead("日常（${dailies.size}）", "ほかのアルバムに入らない毎日の写真を、月ごとにまとめます")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(dailies, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (kinds.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:種類") {
-                Column {
-                    SectionHead("種類（${kinds.size}）", "スクリーンショットなど、思い出とは別の写真")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(kinds, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (placeAlbums.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:場所") {
-                Column {
-                    SectionHead("場所（${placeAlbums.size}）", "写真をたくさん撮った町ごと（何年分でも）")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(placeAlbums, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (mine.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:自分のアルバム") {
-                Column {
-                    SectionHead("自分のアルバム（${mine.size}）", "Synologyにある、自分だけのアルバム")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(mine, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (family.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:家族の共有アルバム") {
-                Column {
-                    SectionHead("家族の共有アルバム（${family.size}）", "家族みんなが見られるアルバム（「ファミリー」タブにもあります）")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(family, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (sharedFolders.isNotEmpty()) {
-            // one row per kind, scrolling sideways: the page stays short however many albums there are
-            item(span = { GridItemSpan(maxLineSpan) }, key = "s:共有フォルダ") {
-                Column {
-                    SectionHead("共有フォルダ（${sharedFolders.size}）", "家族の共有フォルダを、そのままアルバムにしています")
-                    androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                        items(sharedFolders, key = { "a${it.id}" }) { a -> Box(Modifier.width(150.dp)) { card(a)() } }
-                    }
-                }
-            }
-        }
-        if (folders.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "s:phone") {
-            Column {
-                SectionHead("このスマホのフォルダ（${folders.size}）", "「カメラ」以外は、同期したときにSynologyにも自分のアルバムとして記録されます")
-                androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                    items(folders, key = { "f${it.bucket}" }) { f -> Box(Modifier.width(150.dp)) {
-            Column(Modifier.padding(4.dp).combinedClickable(onClick = { onFolder(f.bucket) }, onLongClick = { folderMenu = f.bucket })) {
-                Box(Modifier.aspectRatio(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x22888888))) {
-                    AsyncImage(model = f.coverUri?.let { android.net.Uri.parse(it) }, contentDescription = f.bucket,
-                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                }
-                Text(f.bucket, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                Text("${f.count} 枚" + if (f.bucket in folderAlbums) "・Synologyにも保存" else "", style = MaterialTheme.typography.bodySmall)
-            }
-        } }
-                }
-            }
-        }
-    }
+        },
+        // newest albums (made last) first, the phone's own folders left out
+        recent = remember(albums) { albums.filter { it.origin != "device" }.sortedByDescending { it.id }.take(12) },
+        extraTiles = {
+            if (folders.isNotEmpty()) GroupTile("このスマホのフォルダ", "${folders.size} 件", emptyList(),
+                folders.mapNotNull { it.coverUri }.take(4)) { openGroup = "phone" }
+        })
     }
     folderMenu?.let { bucket ->
         val asAlbum = albums.firstOrNull { it.origin == "device" && it.name == bucket }
@@ -422,7 +320,7 @@ fun AlbumCard(a: com.photohub.app.data.db.AlbumWithCount, modifier: Modifier = M
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
         }
         Text(a.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder", "person", "place", "growth", "favorite" -> "・おまかせ"; else -> "" },
+        Text("${a.count} 枚" + when (a.origin) { "google" -> "・Googleフォトから"; "device" -> "・スマホのフォルダ"; "digest", "trip", "folder", "person", "place", "growth", "favorite", "event", "daily", "kind" -> "・おまかせ"; else -> "" },
             style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -868,13 +766,22 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
     var askDelete by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     val picking = picked.isNotEmpty()
+    // like マイフォト: one tile per kind, each opening a page of its own
+    val groups = listOf(
+        AlbumGroup("fav", "家族のお気に入り", "家族の♡", albums.filter { it.origin == "favorite" }),
+        AlbumGroup("family", "家族のアルバム", "家族みんなが見られるアルバム",
+            albums.filter { it.origin !in setOf("favorite", "folder") }),
+        AlbumGroup("folder", "共有フォルダ", "家族の共有フォルダを、そのままアルバムに", albums.filter { it.origin == "folder" }),
+    )
+    var openGroup by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    val selectable = groups.firstOrNull { it.key == openGroup }?.ordered() ?: albums
     Column(Modifier.fillMaxSize()) {
         if (picking) androidx.compose.material3.Surface(tonalElevation = 6.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.material3.IconButton({ picked = emptySet() }) { Icon(Icons.Default.Close, "選択をやめる") }
                 Text("${picked.size} 件", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                val all = picked.size == albums.size
-                androidx.compose.material3.TextButton({ picked = if (all) emptySet() else albums.map { it.id }.toSet() }) {
+                val all = picked.size == selectable.size && selectable.all { it.id in picked }
+                androidx.compose.material3.TextButton({ picked = if (all) emptySet() else selectable.map { it.id }.toSet() }) {
                     Text(if (all) "すべて解除" else "すべて選択")
                 }
                 if (picked.size >= 2) androidx.compose.material3.IconButton({ mergeOf = albums.filter { it.id in picked } }) {
@@ -887,28 +794,11 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
         msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp, 4.dp)) }
         if (!picking) Text("長押しで選ぶと、まとめる・削除・ファミリー／マイフォトへ・ダウンロードができます", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp, 4.dp))
-        // grouped by kind, one sideways row each
-        val groups = listOf(
-            "家族のお気に入り" to albums.filter { it.origin == "favorite" },
-            "家族のアルバム" to albums.filter { it.origin !in setOf("favorite", "folder") },
-            "共有フォルダ" to albums.filter { it.origin == "folder" },
-        ).filter { it.second.isNotEmpty() }
-        androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
-            groups.forEach { (title, list) ->
-                item(key = "s:$title") {
-                    Column {
-                        SectionHead("$title（${list.size}）", "")
-                        androidx.compose.foundation.lazy.LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)) {
-                            items(list, key = { it.id }) { a ->
-                                AlbumCard(a, Modifier.width(150.dp), selected = if (picking) a.id in picked else null, onLongClick = { picked = picked + a.id }) {
-                                    if (picking) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
-                                }
-                            }
-                        }
-                    }
-                }
+        AlbumGroupsView(groups, openGroup, { openGroup = it }, card = { a -> {
+            AlbumCard(a, selected = if (picking) a.id in picked else null, onLongClick = { picked = picked + a.id }) {
+                if (picking) picked = if (a.id in picked) picked - a.id else picked + a.id else onAlbum(a.id, a.name)
             }
-        }
+        } })
     }
     mergeOf?.let { list ->
         var name by remember { mutableStateOf(list.first().name) }
