@@ -89,40 +89,9 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
     // a phone folder is also kept as a Synology album (so other phones see it): show it once, as the folder
     val localBuckets = remember(folders) { folders.map { it.bucket }.toSet() }
     val folderAlbums = remember(albums) { albums.filter { it.origin == "device" }.associateBy { it.name } }
-    // albums PhotoHub makes by itself come first, newest first: the month's look-back and trips
-    val auto = setOf("digest", "trip", "folder", "person", "place", "growth", "favorite", "event", "daily", "kind")
-    // 「2024年8月10日 …」「2024年8月の日常」: newest first by the date in the name (not as text: 10月 < 8月)
-    fun dateOf(name: String): Long = Regex("(\\d{4})年(\\d{1,2})月(?:(\\d{1,2})日)?").find(name)?.groupValues
-        ?.let { g -> g[1].toLong() * 10000 + g[2].toLong() * 100 + (g[3].toLongOrNull() ?: 0) } ?: 0
-    val events = albums.filter { it.origin == "event" }.sortedByDescending { dateOf(it.name) }
-    val dailies = albums.filter { it.origin == "daily" }.sortedByDescending { dateOf(it.name) }
-    val kinds = albums.filter { it.origin == "kind" }
-    val people = albums.filter { it.origin == "person" }.sortedByDescending { it.count }
-    val growthAlbums = albums.filter { it.origin == "growth" }.sortedWith(compareBy({ it.name.substringBeforeLast(' ') },
-        { it.name.substringAfterLast(' ').removeSuffix("歳").toIntOrNull() ?: 0 }))
-    val placeAlbums = albums.filter { it.origin == "place" }.sortedByDescending { it.count }
-    val favAlbums = albums.filter { it.origin == "favorite" }
-    val digests = albums.filter { it.origin == "digest" }.sortedByDescending { it.name }
-    val trips = albums.filter { it.origin == "trip" }.sortedByDescending { it.name }
-    val sharedFolders = albums.filter { it.origin == "folder" }
-    val mine = albums.filter { !it.shared && it.origin !in auto && !(it.origin == "device" && it.name in localBuckets) }
-    val family = albums.filter { it.shared && it.origin !in auto }
-    val shownAlbums = favAlbums + people + growthAlbums + digests + trips + events + dailies + placeAlbums + mine + family + sharedFolders + kinds
-    // one tile per kind on the album home; each opens its own page (no long sideways rows)
-    val groups = listOf(
-        AlbumGroup("fav", "お気に入り", "♡を付けた写真", favAlbums),
-        AlbumGroup("person", "人物", "Synology Photosが見分けた人ごと", people, sort = "count"),
-        AlbumGroup("growth", "成長", "人物アルバムの誕生日から、年齢ごと", growthAlbums),
-        AlbumGroup("trip", "旅行", "家から離れた場所で撮った日々", trips, dated = true, sort = "date"),
-        AlbumGroup("event", "お出かけ・イベント", "たくさん撮った日を1日ずつ", events, dated = true, sort = "date"),
-        AlbumGroup("daily", "日常", "ほかに入らない毎日の写真を月ごとに", dailies, dated = true, sort = "date"),
-        AlbumGroup("digest", "ふりかえり", "毎月のいい写真", digests, dated = true, sort = "date"),
-        AlbumGroup("place", "場所", "写真をたくさん撮った町ごと", placeAlbums, sort = "count"),
-        AlbumGroup("mine", "自分のアルバム", "自分だけのアルバム", mine),
-        AlbumGroup("family", "家族の共有アルバム", "家族みんなが見られるアルバム", family),
-        AlbumGroup("folder", "共有フォルダ", "家族の共有フォルダを、そのままアルバムに", sharedFolders),
-        AlbumGroup("kind", "種類", "スクリーンショットなど", kinds),
-    )
+    // マイフォト: the person's own albums only (the family's are on ファミリー), one tile per kind
+    val groups = remember(albums, localBuckets) { albumGroups(albums.filter { !it.shared }, family = false, phoneFolders = localBuckets) }
+    val shownAlbums = groups.flatMap { it.albums }
     var openGroup by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     // すべて選択: the albums of the page on screen
     val selectable = groups.firstOrNull { it.key == openGroup }?.ordered() ?: shownAlbums
@@ -203,7 +172,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
             }
         },
         // newest albums (made last) first, the phone's own folders left out
-        recent = remember(albums) { albums.filter { it.origin != "device" }.sortedByDescending { it.id }.take(12) },
+        recent = remember(albums) { albums.filter { !it.shared && it.origin != "device" }.sortedByDescending { it.id }.take(12) },
         extraTiles = {
             if (folders.isNotEmpty()) GroupTile("このスマホのフォルダ", "${folders.size} 件", emptyList(),
                 folders.mapNotNull { it.coverUri }.take(4)) { openGroup = "phone" }
@@ -767,12 +736,7 @@ fun SelectableAlbumGrid(albums: List<com.photohub.app.data.db.AlbumWithCount>, o
     var msg by remember { mutableStateOf<String?>(null) }
     val picking = picked.isNotEmpty()
     // like マイフォト: one tile per kind, each opening a page of its own
-    val groups = listOf(
-        AlbumGroup("fav", "家族のお気に入り", "家族の♡", albums.filter { it.origin == "favorite" }),
-        AlbumGroup("family", "家族のアルバム", "家族みんなが見られるアルバム",
-            albums.filter { it.origin !in setOf("favorite", "folder") }),
-        AlbumGroup("folder", "共有フォルダ", "家族の共有フォルダを、そのままアルバムに", albums.filter { it.origin == "folder" }),
-    )
+    val groups = remember(albums) { albumGroups(albums, family = true) }
     var openGroup by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     val selectable = groups.firstOrNull { it.key == openGroup }?.ordered() ?: albums
     Column(Modifier.fillMaxSize()) {

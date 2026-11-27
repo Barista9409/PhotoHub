@@ -35,7 +35,7 @@ data class RemoteMedia(
     val pair: String?,
     val description: String?,
     val rev: Long,
-    val space: String = "mine",   // mine / shared (family) / granted
+    val space: String = "mine",   // mine / minefam (mine, shown to the family) / shared / family (someone's, shown to the family) / granted
     val folder: String = "",      // folder inside its space, e.g. "2024年 沖縄旅行"
     val place: String? = null,    // e.g. "東京都 渋谷区" (from the GPS position, named on the Synology)
     @androidx.room.ColumnInfo(defaultValue = "0") val rot: Int = 0,   // clockwise turn to show it upright
@@ -133,7 +133,7 @@ private const val REMOTE_PART = """
     FROM remote_media r
 """
 
-private const val TIMELINE_SELECT = REMOTE_PART + """
+private const val LOCAL_DRIVE_PART = """
     UNION ALL
     SELECT 'local:' || l.mediaStoreId AS itemKey, NULL AS hash, l.uri AS localUri, l.kind AS kind,
            l.takenAt AS takenAt, NULL AS tz, l.name AS name,
@@ -158,6 +158,13 @@ private const val TIMELINE_SELECT = REMOTE_PART + """
       AND NOT EXISTS (SELECT 1 FROM remote_media r WHERE r.name = d.name AND d.takenAt > 0 AND ABS(r.takenAt - d.takenAt) < 129600000)
 """
 
+/** Everything this phone can show (map, search, albums). */
+private const val TIMELINE_SELECT = REMOTE_PART + LOCAL_DRIVE_PART
+
+/** マイフォト: the person's own photos (also the ones they shared with the family), this phone's, Drive's.
+ *  The family's photos are on ファミリー only. */
+private const val MY_SELECT = REMOTE_PART + " WHERE r.space IN ('mine', 'minefam') " + LOCAL_DRIVE_PART
+
 /** Another file that is the same photo as one on the Synology (e.g. the phone's original in Drive). */
 @Entity(tableName = "remote_alias", indices = [Index("hash")])
 data class RemoteAlias(@PrimaryKey val fileHash: String, val hash: String)
@@ -172,7 +179,7 @@ data class GeoPoint(val itemKey: String, val hash: String?, val localUri: String
 @Dao
 interface MediaDao {
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
-    @Query("SELECT * FROM ($TIMELINE_SELECT) ORDER BY takenAt DESC")
+    @Query("SELECT * FROM ($MY_SELECT) ORDER BY takenAt DESC")
     fun timeline(): Flow<List<TimelineItem>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
@@ -193,7 +200,7 @@ interface MediaDao {
 
     /** Only the shared space: straight from remote_media (no union over the whole library). */
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
-    @Query("$REMOTE_PART WHERE r.space IN ('shared', 'family') ORDER BY r.takenAt DESC")
+    @Query("$REMOTE_PART WHERE r.space IN ('shared', 'family', 'minefam', 'granted') ORDER BY r.takenAt DESC")
     fun sharedSpace(): Flow<List<TimelineItem>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
@@ -202,7 +209,7 @@ interface MediaDao {
     fun places(): Flow<List<PlaceCount>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read
-    @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space IN ('shared', 'family')")
+    @Query("SELECT hash, folder, takenAt FROM remote_media WHERE space IN ('shared', 'family')")   // folders of the family's share
     fun sharedFolders(): Flow<List<FolderOf>>
 
     @Transaction   // big lists: one consistent snapshot, never a half-changed read

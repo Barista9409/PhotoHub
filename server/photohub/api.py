@@ -928,8 +928,11 @@ def create_app(settings: Settings, db: Database) -> FastAPI:
                 "name": Path(m.nas_path).name, "folder": _folder_of(m, owners), "place": places.get(str(m.id)) or None,
                 "albums": albums_of.get(m.id, []), "stores": sorted(stores.get(m.id, [])),
                 "deleted": m.status != "active", "rev": m.rev, "rot": m.rotation or 0, "pair": m.pair_key, "desc": m.description,
-                "space": "shared" if m.owner_id is None else ("family" if m.family_shared
-                         else ("mine" if m.owner_id == user.id else "granted")),
+                # mine / minefam (mine, also shown to the family) / shared / family (someone's, shown to
+                # the family) / granted: マイフォト shows mine + minefam, ファミリー the rest
+                "space": "shared" if m.owner_id is None else (
+                    ("minefam" if m.family_shared else "mine") if m.owner_id == user.id
+                    else ("family" if m.family_shared else "granted")),
             } for m in rows]
             albums = [{"id": a.id, "name": a.name, "origin": a.origin, "shared": a.owner_id is None}
                       for a in s.execute(select(Album).where(album_visible(user)).order_by(Album.id)).scalars()]

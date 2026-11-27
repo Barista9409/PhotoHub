@@ -168,22 +168,27 @@ def test_duplicate_automatic_albums_are_merged(settings, db):
     assert _albums(db, "trip") == {"2014年9月 愛知県": 4}
 
 
-def test_trip_with_shared_photos_is_one_album_per_person(settings, db):
+def test_trips_kept_apart_between_my_photos_and_the_family(settings, db):
+    """マイフォト and ファミリー apart: the person's trip from their own photos, the family's trip from the
+    shared ones (a new family member does not get the family's photos as their own albums)."""
     u, _ = add_user(db, settings, "reo")
     with db.session() as s:
         for i in range(30):   # home: Tokyo (own photos)
             m = _media(s, settings, 900 + i, datetime(2015, 3, 1) + timedelta(days=i % 20), owner=u.id)
             kv_set(s, f"place:{m.id}", "東京都 渋谷区")
-        for i in range(12):   # the trip: half the photos put in the shared space
-            m = _media(s, settings, 950 + i, datetime(2015, 1, 10) + timedelta(hours=4 * i), owner=u.id if i % 2 else None)
+        for i in range(24):   # the trip: half the photos put in the shared space
+            m = _media(s, settings, 950 + i, datetime(2015, 1, 10) + timedelta(hours=2 * i), owner=u.id if i % 2 else None)
             kv_set(s, f"place:{m.id}", "愛知県 豊川市")
-        old = Album(name="2015年1月 愛知県 豊川市", origin="trip", owner_id=None)   # made by an older version
-        s.add(old)
+        for i in range(30):   # the family's home: Tokyo too
+            m = _media(s, settings, 1100 + i, datetime(2016, 3, 1) + timedelta(days=i % 20))
+            kv_set(s, f"place:{m.id}", "東京都 渋谷区")
+    new, _ = add_user(db, settings, "chie")   # joins later, has no photos yet
     autoalbums.run_all(db, settings)
     with db.session() as s:
-        trips = [(a.name, a.owner_id) for a in s.execute(select(Album).where(Album.origin == "trip")).scalars()]
-    assert trips == [("2015年1月 愛知県 豊川市", u.id)]
-    assert _albums(db, "trip") == {"2015年1月 愛知県 豊川市": 12}
+        trips = sorted((a.name, a.owner_id or 0) for a in s.execute(select(Album).where(Album.origin == "trip")).scalars())
+        assert trips == [("2015年1月 愛知県 豊川市", 0), ("2015年1月 愛知県 豊川市", u.id)]
+        assert s.execute(select(Album).where(Album.owner_id == new.id)).first() is None   # chie: nothing of the family's
+    assert sorted(_albums(db, "trip").values()) == [12]
 
 
 def test_folder_albums_one_per_hand_made_folder(settings, db):

@@ -65,6 +65,33 @@ data class AlbumGroup(
 fun albumDate(name: String): Long = Regex("(\\d{4})年(\\d{1,2})月(?:(\\d{1,2})日)?").find(name)?.groupValues
     ?.let { g -> g[1].toLong() * 10000 + g[2].toLong() * 100 + (g[3].toLongOrNull() ?: 0) } ?: 0
 
+private val AUTO = setOf("digest", "trip", "folder", "person", "place", "growth", "favorite", "event", "daily", "kind")
+
+/**
+ * The album groups of one side: マイフォト ([family] false: the person's own albums) or ファミリー (true:
+ * the family's). [phoneFolders]: phone folders shown as folders, so their Synology album is left out.
+ */
+fun albumGroups(albums: List<AlbumWithCount>, family: Boolean, phoneFolders: Set<String> = emptySet()): List<AlbumGroup> {
+    fun of(origin: String) = albums.filter { it.origin == origin }
+    val growth = of("growth").sortedWith(compareBy({ it.name.substringBeforeLast(' ') },
+        { it.name.substringAfterLast(' ').removeSuffix("歳").toIntOrNull() ?: 0 }))
+    val own = albums.filter { it.origin !in AUTO && !(it.origin == "device" && it.name in phoneFolders) }
+    return listOf(
+        AlbumGroup("fav", if (family) "家族のお気に入り" else "お気に入り", "♡を付けた写真", of("favorite")),
+        AlbumGroup("person", "人物", "Synology Photosが見分けた人ごと", of("person"), sort = "count"),
+        AlbumGroup("growth", "成長", "人物アルバムの誕生日から、年齢ごと", growth),
+        AlbumGroup("trip", "旅行", "家から離れた場所で撮った日々", of("trip"), dated = true, sort = "date"),
+        AlbumGroup("event", "お出かけ・イベント", "たくさん撮った日を1日ずつ", of("event"), dated = true, sort = "date"),
+        AlbumGroup("daily", "日常", "ほかに入らない毎日の写真を月ごとに", of("daily"), dated = true, sort = "date"),
+        AlbumGroup("digest", "ふりかえり", "毎月のいい写真", of("digest"), dated = true, sort = "date"),
+        AlbumGroup("place", "場所", "写真をたくさん撮った町ごと", of("place"), sort = "count"),
+        AlbumGroup("own", if (family) "家族のアルバム" else "自分のアルバム",
+            if (family) "家族みんなが見られるアルバム" else "自分で作ったアルバム", own),
+        AlbumGroup("folder", "共有フォルダ", "家族の共有フォルダを、そのままアルバムに", of("folder")),
+        AlbumGroup("kind", "種類", "スクリーンショットなど", of("kind")),
+    )
+}
+
 /** What a group page shows, in its order (the selection bar's すべて選択 uses the same list). */
 fun AlbumGroup.ordered(sort: String = this.sort, query: String = ""): List<AlbumWithCount> {
     val q = query.trim()

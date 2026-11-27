@@ -427,7 +427,7 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
         // opens toward the other side: family photos -> マイフォト, otherwise -> ファミリー
         val toFamily by androidx.compose.runtime.produceState<Boolean?>(null, list) {
             val spaces = app.db.media().remoteByHashes(list.mapNotNull { it.hash }).map { it.space }
-            value = !(spaces.isNotEmpty() && spaces.all { it == "shared" || it == "family" })
+            value = !(spaces.isNotEmpty() && spaces.all { it == "shared" || it == "family" || it == "granted" })
         }
         toFamily?.let { start ->
             SpaceDialog("${list.size} 件をどこへ", start, chooseDest = true, onDismiss = { moveOf = null }) { fam, how ->

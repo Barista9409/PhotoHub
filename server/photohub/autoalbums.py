@@ -80,6 +80,18 @@ def _upsert(s, origin: str, owner: int | None, key: str, name: str, media_ids: l
     return True
 
 
+def _spaces(s) -> list[tuple[int | None, object]]:  # noqa: ANN001
+    """マイフォト and ファミリー kept apart: each person's albums from their own photos only, and the
+    family's (owner None) from the shared space and the photos people shared with the family."""
+    out: list[tuple[int | None, object]] = [(u.id, Media.owner_id == u.id) for u in s.execute(select(User)).scalars()]
+    out.append((None, Media.owner_id.is_(None) | Media.family_shared.is_(True)))
+    return out
+
+
+def _album_owner(owner: int | None):  # noqa: ANN202
+    return Album.owner_id.is_(None) if owner is None else Album.owner_id == owner
+
+
 def _usable(m: Media) -> bool:
     name = Path(m.nas_path).name
     if _SHOT.search(name) or name.lower().endswith(".png"):
@@ -102,11 +114,9 @@ def digest(db: Database, settings: Settings, months_back: int = 3) -> int:
         months.append((y, mo))
     with db.session() as s:
         losers = set(s.execute(select(SimilarMember.media_id).where(SimilarMember.keep.is_(False))).scalars())
-        owners = [u.id for u in s.execute(select(User)).scalars()]
-        for owner in owners:
-            # the person's own photos and the family's shared ones
-            rows = list(s.execute(select(Media).where(Media.status == "active", Media.taken_at.is_not(None),
-                                                      (Media.owner_id == owner) | Media.owner_id.is_(None))).scalars())
+        for owner, mine in _spaces(s):
+            # the person's own photos (the family's look-back from the shared space)
+            rows = list(s.execute(select(Media).where(Media.status == "active", Media.taken_at.is_not(None), mine)).scalars())
             by_month: dict[tuple[int, int], list[Media]] = defaultdict(list)
             for m in rows:
                 t = _local(m, tz)
@@ -142,10 +152,8 @@ def trips(db: Database, settings: Settings) -> int:
                   if k.key[6:].isdigit()}
         # one album per person, from their own photos and the family's shared ones (a trip the
         # family put in the shared space must not show up twice)
-        owners = [u.id for u in s.execute(select(User)).scalars()]
-        for owner in owners:
-            q = select(Media).where(Media.status == "active", Media.taken_at.is_not(None),
-                                    (Media.owner_id == owner) | Media.owner_id.is_(None))
+        for owner, mine in _spaces(s):
+            q = select(Media).where(Media.status == "active", Media.taken_at.is_not(None), mine)
             ms = [m for m in s.execute(q).scalars() if m.id in places]
             if not ms:
                 continue
@@ -335,9 +343,8 @@ def places(db: Database, settings: Settings) -> int:
     with db.session() as s:
         where = {int(k.key[6:]): k.value for k in s.execute(select(KV).where(KV.key.like("place:%"))).scalars()
                  if k.key[6:].isdigit() and k.value}
-        owners = [u.id for u in s.execute(select(User)).scalars()]
-        for owner in owners:   # as for trips: one album per person, own + shared photos
-            q = select(Media.id).where(Media.status == "active", (Media.owner_id == owner) | Media.owner_id.is_(None))
+        for owner, mine in _spaces(s):   # as for trips: each person's own, and the family's
+            q = select(Media.id).where(Media.status == "active", mine)
             by_place: dict[str, list[int]] = defaultdict(list)
             for mid in s.execute(q).scalars():
                 if mid in where:
@@ -561,12 +568,12 @@ def cover(db: Database, settings: Settings) -> dict:
         tags_of: dict[int, list[str]] = defaultdict(list)
         for mid, tag in s.execute(select(MediaTag.media_id, MediaTag.tag)).all():
             tags_of[mid].append(tag)
-        for owner in [u.id for u in s.execute(select(User)).scalars()]:
-            ms = list(s.execute(select(Media).where(Media.status == "active",
-                                                    (Media.owner_id == owner) | Media.owner_id.is_(None))).scalars())
+        for owner, mine in _spaces(s):
+            ms = list(s.execute(select(Media).where(Media.status == "active", mine)).scalars())
             # already in an album that places it in time or kind: this person's trips, the shared folders
             held = set(s.execute(select(AlbumItem.media_id).join(Album, Album.id == AlbumItem.album_id)
-                                 .where(((Album.origin == "trip") & (Album.owner_id == owner)) | (Album.origin == "folder"))).scalars())
+                                 .where(((Album.origin == "trip") & _album_owner(owner))
+                                        | ((Album.origin == "folder") & (owner is None)))).scalars())
             shots = [m.id for m in ms if _SHOT.search(Path(m.nas_path).name)]
             keep_kind = set()
             if shots and _upsert(s, "kind", owner, "shots", "スクリーンショット", shots):
@@ -607,14 +614,14 @@ def cover(db: Database, settings: Settings) -> dict:
             _prune(s, "kind", owner, keep_kind)
             s.flush()
             in_any = set(s.execute(select(AlbumItem.media_id).join(Album, Album.id == AlbumItem.album_id)
-                                   .where((Album.owner_id == owner) | Album.owner_id.is_(None))).scalars())
+                                   .where(_album_owner(owner))).scalars())
             coverage[str(owner)] = [sum(1 for m in ms if m.id in in_any), len(ms)]
         kv_set(s, "album_coverage", _json.dumps(coverage))
     return out
 
 
 def _run_all(db: Database, settings: Settings) -> dict:
-    out = {"merged_duplicates": dedupe(db) + drop_shared_trip_place(db), "digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
+    out = {"merged_duplicates": dedupe(db), "digest": digest(db, settings), "trip": trips(db, settings), "folder": folders(db, settings),
            "place": places(db, settings), "favorite": favorites(db, settings)}
     p = people(db, settings)
     out["person"] = p["made"]

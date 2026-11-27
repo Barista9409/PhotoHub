@@ -162,6 +162,7 @@ def test_family_share_without_copy(settings, db):
     assert c.post("/api/media/family", json={"hashes": [hx]}, headers=hu).json()["changed"] == 1
     it = c.get("/api/sync", headers=hv).json()["items"]
     assert [i["space"] for i in it] == ["family"]                       # now she can
+    assert [i["space"] for i in c.get("/api/sync", headers=hu).json()["items"]] == ["minefam"]   # still reo's マイフォト
     assert own.exists() and len(list(settings.library.rglob("x*.jpg"))) == 0   # no copy was made
     c.post("/api/media/family", json={"hashes": [hx], "on": False}, headers=hu)
     assert [i["deleted"] or i["space"] for i in c.get("/api/sync", headers=hv).json()["items"]] in ([], [True])

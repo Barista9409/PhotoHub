@@ -135,6 +135,18 @@ class Service:
         organize.move_pending(self.db, self.s)
         organize.purge(self.db, self.s, older_than_days=self.s.trash_days)
 
+    def job_space_v2(self) -> None:
+        """Once: photos people shared with the family are sent to the phones again, now marked as theirs
+        (minefam) for their owner, so マイフォト keeps them."""
+        from sqlalchemy import select as _select
+        from .db import Media, kv_get, kv_set, touch_media
+        with self.db.session() as s:
+            if kv_get(s, "space_v2"):
+                return
+            for m in s.execute(_select(Media).where(Media.family_shared.is_(True))).scalars():
+                touch_media(s, m)
+            kv_set(s, "space_v2", "1")
+
     def job_dup_restore(self) -> None:
         """Once after the duplicate keep rule changed: the files the old rule moved go back, then the list
         is made again with the new rule."""
@@ -176,6 +188,8 @@ class Service:
                     next_run_time=datetime.now())
         sch.add_job(lambda: self._guard("backup", self.job_backup, heavy=False), "cron", hour=4, minute=0, id="backup")
         sch.add_job(lambda: self._guard("trash", self.job_trash, heavy=False), "cron", hour=4, minute=30, id="trash")
+        sch.add_job(lambda: self._guard("space_v2", self.job_space_v2, heavy=False), "date",
+                    run_date=datetime.now() + timedelta(seconds=30), id="space_v2")
         sch.add_job(lambda: self._guard("dup_restore", self.job_dup_restore, heavy=False), "date",
                     run_date=datetime.now() + timedelta(minutes=1), id="dup_restore")
         sch.add_job(lambda: self._guard("thumbs", self.job_thumbs), "interval", minutes=20, id="thumbs",
