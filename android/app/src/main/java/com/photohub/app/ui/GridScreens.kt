@@ -178,7 +178,7 @@ fun AlbumsScreen(onAlbum: (Long, String) -> Unit, onFolder: (String) -> Unit = {
         // newest albums (made last) first, the phone's own folders left out
         // the albums with the newest photos (not the ones made last: the night run makes albums of old days too)
         recent = remember(albums) { albums.filter { !it.shared && it.origin != "device" && it.count > 0 }
-            .sortedByDescending { it.latest ?: 0 }.take(12) },
+            .sortedByDescending { it.latest ?: 0 }.take(48) },   // look-alikes are thinned out to 12 (distinctRecent)
         extraTiles = {
             if (folders.isNotEmpty()) GroupTile("このスマホのフォルダ", "${folders.size} 件", emptyList(),
                 folders.mapNotNull { it.coverUri }.take(4)) { openGroup = "phone" }

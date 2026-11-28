@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material.icons.filled.DriveFileMove
@@ -375,6 +376,14 @@ fun MediaGrid(allItems: List<TimelineItem>, onOpen: (List<TimelineItem>, Int) ->
                             entry(Icons.Default.Delete, "削除") { confirmDelete = chosen() }
                             entry(Icons.Default.Download, "このスマホに保存") { downloadOf = chosen() }
                             entry(Icons.Default.PhotoAlbum, "アルバムに追加") { albumOf = onSyno() }
+                            // photos still only on this phone (e.g. a folder that is not sent on its own)
+                            val phoneOnly = chosen().filter { it.hash == null && it.localUri != null && it.itemKey.startsWith("local:") }
+                            if (phoneOnly.isNotEmpty()) entry(Icons.Default.CloudUpload, "Synologyに送る（${phoneOnly.size} 件）") {
+                                com.photohub.app.data.BackupChoice.sendAnyway(ctx, phoneOnly.mapNotNull { it.itemKey.removePrefix("local:").toLongOrNull() })
+                                selected = emptySet()
+                                com.photohub.app.data.BackupWorker.runNow(ctx)
+                                toast = "${phoneOnly.size} 件を送ります（設定の「同期設定」で進み具合が見られます）"
+                            }
                             if (albumId != null) entry(Icons.Default.RemoveCircleOutline, "このアルバムから外す") {
                                 val hs = onSyno().map { it.hash!! }
                                 selected = emptySet()

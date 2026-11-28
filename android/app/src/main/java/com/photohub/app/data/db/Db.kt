@@ -171,6 +171,8 @@ data class RemoteAlias(@PrimaryKey val fileHash: String, val hash: String)
 
 data class HashRot(val hash: String, val rot: Int)
 
+data class AlbumMember(val albumId: Long, val hash: String)
+
 data class AlbumWithCount(val id: Long, val name: String, val origin: String, val count: Int, val coverHash: String?,
                           val shared: Boolean = false,
                           /** when its newest photo was taken (「最近のアルバム」) */
@@ -222,6 +224,11 @@ interface MediaDao {
               FROM album a LEFT JOIN album_media am ON am.albumId = a.id LEFT JOIN remote_media r ON r.hash = am.hash
               GROUP BY a.id ORDER BY a.name""")
     fun albums(): Flow<List<AlbumWithCount>>
+
+    /** The photos of some albums, newest first (to tell overlapping albums apart and pick distinct covers). */
+    @Query("""SELECT am.albumId AS albumId, am.hash AS hash FROM album_media am JOIN remote_media r ON r.hash = am.hash
+              WHERE am.albumId IN (:ids) ORDER BY r.takenAt DESC""")
+    suspend fun albumMembers(ids: List<Long>): List<AlbumMember>
 
     @Query("SELECT * FROM remote_media WHERE hash = :hash")
     suspend fun remote(hash: String): RemoteMedia?
@@ -393,6 +400,13 @@ interface MediaDao {
               WHERE NOT l.onNas AND (l.fileHash IS NULL OR (l.fileHash NOT IN (SELECT fileHash FROM remote_media)
                     AND l.fileHash NOT IN (SELECT fileHash FROM drive_file))) GROUP BY kind""")
     fun phoneOnlyCounts(): Flow<List<KindCount>>
+
+    /** The same, per phone folder (the folders that are not sent on their own are left out of 「未送信」). */
+    @Transaction
+    @Query("""SELECT COALESCE(bucket, '') AS bucket, COUNT(*) AS count, NULL AS coverUri FROM local_media l
+              WHERE NOT l.onNas AND (l.fileHash IS NULL OR (l.fileHash NOT IN (SELECT fileHash FROM remote_media)
+                    AND l.fileHash NOT IN (SELECT fileHash FROM drive_file))) GROUP BY bucket""")
+    fun phoneOnlyByFolder(): Flow<List<FolderCount>>
 
     @Query("SELECT COUNT(*) FROM local_media WHERE fileHash IS NULL")
     fun uncheckedCount(): Flow<Int>

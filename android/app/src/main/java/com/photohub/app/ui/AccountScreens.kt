@@ -125,6 +125,7 @@ enum class Dest(val route: String, val title: String) {
     DUPLICATES("duplicates", "まったく同じ写真"),
     LOGS("logs", "エラーの記録"),
     HISTORY("history", "変更履歴"),
+    BACKUP_FOLDERS("backup_folders", "送るフォルダ"),
 }
 
 @Composable
@@ -191,8 +192,10 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                     false -> StatusPill("Google Drive：未接続", false)
                 }
                 // is everything sent? (running now / N waiting on this phone / done, with the time)
-                val only by app.db.media().phoneOnlyCounts().collectAsState(initial = emptyList())
-                val waiting = only.sumOf { it.n }
+                val only by app.db.media().phoneOnlyByFolder().collectAsState(initial = emptyList())
+                val skipFolders by com.photohub.app.data.BackupChoice.skipped.collectAsState()
+                val skipSet = skipFolders ?: remember { com.photohub.app.data.BackupChoice.skippedNow(ctx) }
+                val waiting = only.filter { it.bucket !in skipSet }.sumOf { it.count }   // folders not sent on their own: not waiting
                 when {
                     live.running -> StatusPill("同期：同期中…", true, busy = true)
                     waiting > 0 && cur.backupNas -> StatusPill("同期：未送信 $waiting 件", false)
@@ -249,6 +252,13 @@ fun AccountHub(open: (Dest) -> Unit, onLoggedOut: () -> Unit) {
                 if (cur.backupNas) "撮った写真を数分で送ります" else "オフ：見るだけ（送りません）", cur.backupNas) {
                 scope.launch { app.prefs.save(app.prefs.current().copy(backupNas = it)); if (it) { BackupWorker.runNow(ctx); SyncWorker.runNow(ctx) } }
             }
+            GroupDivider()
+            val skipped by com.photohub.app.data.BackupChoice.skipped.collectAsState()
+            val skipNow = skipped ?: remember { com.photohub.app.data.BackupChoice.skippedNow(ctx) }
+            SettingRow(Icons.Default.Folder, "送るフォルダ",
+                if (skipNow.isEmpty()) "すべてのフォルダ（カメラ・スクリーンショットなど）を自動で送ります"
+                else "送らない：" + skipNow.joinToString("・") { com.photohub.app.data.BackupChoice.label(it) },
+                onClick = { open(Dest.BACKUP_FOLDERS) }) { Chevron() }
             GroupDivider()
             DriveToggleRow(onOpen = { open(Dest.DRIVE_BACKUP) })
             GroupDivider()
@@ -553,6 +563,33 @@ fun WhatsNewDialog(onDismiss: () -> Unit) {
         text = { androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
             item { Text(BuildConfig.RELEASE_NOTES.ifBlank { "（変更点の記載はありません）" }, style = MaterialTheme.typography.bodyMedium) } } },
         confirmButton = { TextButton(onDismiss) { Text("OK") } })
+}
+
+/** 同期設定 → 送るフォルダ: each phone folder sent on its own or not (カメラ and スクリーンショット apart). */
+@Composable
+fun BackupFoldersScreen() {
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as PhotoHubApp
+    val folders by app.db.media().folders().collectAsState(initial = emptyList())
+    val skipped by com.photohub.app.data.BackupChoice.skipped.collectAsState()
+    val skip = skipped ?: remember { com.photohub.app.data.BackupChoice.skippedNow(ctx) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
+        Text("オンのフォルダの写真を、撮ったら自動で Synology（とドライブ）に送ります。オフのフォルダの写真も、" +
+            "あとから写真を長押しで選んで ︙ →「Synologyに送る」で送れます。すでに送った写真は、オフにしても消えません。",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(16.dp))
+        Group {
+            folders.forEachIndexed { i, f ->
+                if (i > 0) GroupDivider()
+                val on = f.bucket !in skip
+                SwitchRow(Icons.Default.Folder, com.photohub.app.data.BackupChoice.label(f.bucket), "${f.count} 枚", on) {
+                    com.photohub.app.data.BackupChoice.setFolder(ctx, f.bucket, it)
+                    if (it) BackupWorker.runNow(ctx)
+                }
+            }
+            if (folders.isEmpty()) Text("このスマホのフォルダを読み込んでいます…", Modifier.padding(16.dp))
+        }
+    }
 }
 
 /** 設定 → アプリ → 変更履歴: what changed in each version, newest first (this one marked). */

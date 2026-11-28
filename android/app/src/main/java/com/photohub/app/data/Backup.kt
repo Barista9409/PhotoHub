@@ -261,7 +261,8 @@ class BackupEngine(private val app: PhotoHubApp) {
                 }
                 progress(BackupStep(BackupStep.PREPARE, "スマホの写真を確認中", unhashed, unhashed, finished = true))
             }
-            val local = app.db.media().localHashed()
+            // only the folders chosen to be sent (and photos chosen by hand from the others)
+            val local = BackupChoice.filter(app, app.db.media().localHashed())
             val api = if (s.configured) app.net.api() else null
             val nasPart = async { nasPart(local, api, s.backupNas, progress, isStopped) }
             val drivePart = async { drivePart(local, api, s.backupDrive, progress, isStopped) }

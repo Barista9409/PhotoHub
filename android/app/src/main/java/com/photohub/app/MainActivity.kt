@@ -211,6 +211,7 @@ private fun Root(app: PhotoHubApp, openUpdate: Boolean = false, setupLink: Strin
                 composable(Dest.DUPLICATES.route) { com.photohub.app.ui.DuplicatesScreen() }
                 composable(Dest.LOGS.route) { com.photohub.app.ui.LogScreen() }
                 composable(Dest.HISTORY.route) { com.photohub.app.ui.HistoryScreen() }
+                composable(Dest.BACKUP_FOLDERS.route) { com.photohub.app.ui.BackupFoldersScreen() }
                 composable("suggest/{kind}") { com.photohub.app.ui.SuggestScreen(it.arguments!!.getString("kind")!!, open) }
                 composable("setup") {
                     SetupScreen(setupLink, onDone = {

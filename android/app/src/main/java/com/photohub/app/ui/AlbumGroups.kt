@@ -92,6 +92,47 @@ fun albumGroups(albums: List<AlbumWithCount>, family: Boolean, phoneFolders: Set
     )
 }
 
+/** Which album stays when two hold mostly the same photos: one people made, then the most specific. */
+private fun keepRank(origin: String) = when (origin) {
+    "favorite", "folder" -> 1; "trip" -> 2; "event" -> 3; "person", "growth" -> 4; "daily" -> 5; "digest" -> 6
+    "place" -> 7; "kind" -> 8; else -> 0
+}
+
+/**
+ * 「最近のアルバム」 without look-alikes: of albums that share most of their photos (旅行「2026年11月 岐阜県」,
+ * 場所「岐阜県 岐阜市」, an album made by hand of the same days...) only one is shown, and each album shown
+ * gets a cover no other one uses.
+ */
+suspend fun distinctRecent(app: PhotoHubApp, byNewest: List<AlbumWithCount>, n: Int = 12): List<AlbumWithCount> {
+    val pool = byNewest.take(n * 4)
+    if (pool.isEmpty()) return emptyList()
+    val members = app.db.media().albumMembers(pool.map { it.id }).groupBy({ it.albumId }, { it.hash })
+    val kept = mutableListOf<AlbumWithCount>()
+    val keptSets = mutableListOf<Set<String>>()
+    for (a in pool.sortedWith(compareBy<AlbumWithCount> { keepRank(it.origin) }.thenByDescending { it.latest ?: 0 })) {
+        val mine = members[a.id].orEmpty().toSet()
+        if (mine.isEmpty()) continue
+        val lookAlike = keptSets.any { other ->
+            val shared = mine.count { it in other }
+            shared >= 0.6 * minOf(mine.size, other.size)
+        }
+        if (lookAlike) continue
+        kept += a; keptSets += mine
+        if (kept.size >= n) break
+    }
+    return withDistinctCovers(kept.sortedByDescending { it.latest ?: 0 }, members)
+}
+
+/** Each album its own cover: the newest photo no album before it already shows. */
+fun withDistinctCovers(albums: List<AlbumWithCount>, members: Map<Long, List<String>>): List<AlbumWithCount> {
+    val used = HashSet<String>()
+    return albums.map { a ->
+        val pick = members[a.id].orEmpty().firstOrNull { it !in used } ?: a.coverHash
+        if (pick != null) used += pick
+        if (pick == a.coverHash) a else a.copy(coverHash = pick)
+    }
+}
+
 /** What a group page shows, in its order (the selection bar's すべて選択 uses the same list). */
 fun AlbumGroup.ordered(sort: String = this.sort, query: String = ""): List<AlbumWithCount> {
     val q = query.trim()
@@ -124,6 +165,13 @@ fun AlbumGroupsView(
     if (open != null) { key(open.key) { GroupPage(open, onBack = { onOpenGroup(null) }, card = card) }; return }
     val shown = groups.filter { it.albums.isNotEmpty() }
     val app = LocalContext.current.applicationContext as PhotoHubApp
+    val recentShown by androidx.compose.runtime.produceState(recent, recent) { value = distinctRecent(app, recent) }
+    // the tiles' collages: four different photos, not the same newest one four times
+    val tileCovers by androidx.compose.runtime.produceState(emptyMap<String, List<String>>(), shown) {
+        val firsts = shown.associate { g -> g.key to g.ordered().take(6) }
+        val members = app.db.media().albumMembers(firsts.values.flatten().map { it.id }.distinct()).groupBy({ it.albumId }, { it.hash })
+        value = firsts.mapValues { (_, list) -> withDistinctCovers(list, members).mapNotNull { it.coverHash }.distinct().take(4) }
+    }
     androidx.compose.runtime.LaunchedEffect(Unit) { com.photohub.app.data.Pins.load(app) }
     val pinIds by com.photohub.app.data.Pins.ids.collectAsState()
     // pinned albums of this side, in the order they were pinned
@@ -139,11 +187,11 @@ fun AlbumGroupsView(
             }
             items(pinned.size, key = { "p${pinned[it].id}" }) { i -> card(pinned[i])() }
         }
-        if (recent.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
+        if (recentShown.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "recent") {
             Column {
                 Text("最近のアルバム", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(8.dp, 12.dp, 8.dp, 4.dp))
                 LazyRow(contentPadding = PaddingValues(horizontal = 4.dp)) {
-                    items(recent, key = { "r${it.id}" }) { a -> Box(Modifier.width(130.dp)) { card(a)() } }
+                    items(recentShown, key = { "r${it.id}" }) { a -> Box(Modifier.width(130.dp)) { card(a)() } }
                 }
             }
         }
@@ -152,7 +200,7 @@ fun AlbumGroupsView(
         }
         items(shown.size, key = { "g${shown[it].key}" }) { i ->
             val g = shown[i]
-            val covers = remember(g) { g.ordered().mapNotNull { a -> a.coverHash }.take(4) }
+            val covers = tileCovers[g.key] ?: remember(g) { g.ordered().mapNotNull { a -> a.coverHash }.distinct().take(4) }
             GroupTile(g.title, "${g.albums.size} 件", covers) { onOpenGroup(g.key) }
         }
         item(key = "extra") { extraTiles(Modifier) }
